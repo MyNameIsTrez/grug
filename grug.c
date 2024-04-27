@@ -38009,12 +38009,6 @@ static void serialize_exported_on_fns(void) {
     serialize_append("};\n");
 }
 
-static void serialize_exported_define_type(void) {
-    serialize_append("char *define_type = \"");
-    serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
-    serialize_append("\";\n");
-}
-
 static void serialize_helper_fns(void) {
 	for (size_t fn_index = 0; fn_index < helper_fns_size; fn_index++) {
 		helper_fn fn = helper_fns[fn_index];
@@ -38146,7 +38140,13 @@ static void serialize_global_variables(void) {
 	serialize_append("};\n");
 }
 
-static void serialize_define_fn(void) {
+static void serialize_define_type(void) {
+    serialize_append("char *define_type = \"");
+    serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
+    serialize_append("\";\n");
+}
+
+static void serialize_define_struct(void) {
 	serialize_append("struct ");
 	serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
 	serialize_append(" define = {\n");
@@ -38164,13 +38164,16 @@ static void serialize_define_fn(void) {
 		serialize_append(",\n");
 	}
 
-	serialize_append("}\n");
+	serialize_append("};\n");
 }
 
 static void serialize_to_c(void) {
 	serialize_append("#include \"mod.h\"\n\n");
 
-	serialize_define_fn();
+	serialize_define_struct();
+    
+    serialize_append("\n");
+    serialize_define_type();
 
 	serialize_append("\n");
 	serialize_global_variables();
@@ -38195,9 +38198,6 @@ static void serialize_to_c(void) {
 		serialize_append("\n");
 		serialize_helper_fns();
 	}
-    
-    serialize_append("\n");
-    serialize_exported_define_type();
     
     serialize_append("\n");
     serialize_exported_on_fns();
