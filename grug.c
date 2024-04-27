@@ -38392,10 +38392,6 @@ static void *grug_get(void *dll, char *symbol_name) {
 	return dlsym(dll, symbol_name);
 }
 
-void *grug_get_fns(void *dll) {
-    return grug_get(dll, "fns");
-}
-
 static void push_reload(reload reload) {
     if (reloads_size + 1 > reloads_capacity) {
         reloads_capacity = reloads_capacity == 0 ? 1 : reloads_capacity * 2;
@@ -38580,7 +38576,6 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, mod_di
                 #pragma GCC diagnostic ignored "-Wpedantic"
                 get_globals_struct_size_fn get_globals_struct_size_fn = grug_get(file.dll, "get_globals_struct_size");
                 #pragma GCC diagnostic pop
-
                 if (!get_globals_struct_size_fn) {
                     GRUG_ERROR("Retrieving the get_globals_struct_size() function with grug_get() failed for %s", dll_path);
                 }
@@ -38590,15 +38585,20 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, mod_di
                 #pragma GCC diagnostic ignored "-Wpedantic"
                 file.init_globals_struct_fn = grug_get(file.dll, "init_globals_struct");
                 #pragma GCC diagnostic pop
-
                 if (!file.init_globals_struct_fn) {
                     GRUG_ERROR("Retrieving the init_globals_struct() function with grug_get() failed for %s", dll_path);
+                }
+
+                file.fns = grug_get(file.dll, "fns");
+                if (!file.fns) {
+                    GRUG_ERROR("Retrieving the fns struct with grug_get() failed for %s", dll_path);
                 }
 
                 if (old_file) {
                     old_file->dll = file.dll;
                     old_file->globals_struct_size = file.globals_struct_size;
                     old_file->init_globals_struct_fn = file.init_globals_struct_fn;
+                    old_file->fns = file.fns;
                 } else {
                     push_file(dir, file);
                 }
@@ -38607,6 +38607,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, mod_di
                     reload.new_dll = file.dll;
                     reload.globals_struct_size = file.globals_struct_size;
                     reload.init_globals_struct_fn = file.init_globals_struct_fn;
+                    reload.fns = file.fns;
                     push_reload(reload);
                 }
 			}

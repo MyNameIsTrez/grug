@@ -15,6 +15,7 @@ struct grug_file {
 	void *dll;
 	size_t globals_struct_size;
 	init_globals_struct_fn_type init_globals_struct_fn;
+	void *fns;
 };
 
 struct mod_directory {
@@ -34,6 +35,7 @@ struct reload {
 	void *new_dll;
 	size_t globals_struct_size;
 	init_globals_struct_fn_type init_globals_struct_fn;
+	void *fns;
 };
 
 extern mod_directory mods;
@@ -44,5 +46,4 @@ extern size_t reloads_size;
 void grug_init(grug_error_handler_fn grug_error_handler);
 void grug_reload_modified_mods(void);
 void grug_print_mods(void);
-void *grug_get_fns(void *dll);
 void grug_free_mods(void);
