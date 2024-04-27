@@ -35997,7 +35997,7 @@ LIBTCCAPI void tcc_set_backtrace_func(TCCState *s1, void* userdata, TCCBtFunc*);
 	longjmp(error_jmp_buffer, 1);\
 }
 
-struct grug_error_t grug_error;
+grug_error_t grug_error;
 static jmp_buf error_jmp_buffer;
 
 //// READING
