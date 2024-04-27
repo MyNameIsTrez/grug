@@ -36397,6 +36397,7 @@ typedef struct return_statement return_statement_t;
 typedef struct loop_statement loop_statement_t;
 typedef struct statement statement_t;
 typedef struct argument argument_t;
+typedef struct define_fn define_fn_t;
 typedef struct on_fn on_fn_t;
 typedef struct helper_fn helper_fn_t;
 typedef struct global_variable global_variable_t;
