@@ -36549,8 +36549,6 @@ static argument arguments[MAX_ARGUMENTS_IN_FILE];
 static size_t arguments_size;
 
 struct define_fn {
-	char *fn_name;
-	size_t fn_name_len;
 	char *return_type;
 	size_t return_type_len;
 	compound_literal returned_compound_literal;
@@ -36823,7 +36821,6 @@ static void print_compound_literal(compound_literal compound_literal) {
 static void print_define_fn(void) {
 	printf("\"define_fn\": {\n");
 
-	printf("\"fn_name\": \"%.*s\",\n", (int)define_fn.fn_name_len, define_fn.fn_name);
 	printf("\"return_type\": \"%.*s\",\n", (int)define_fn.return_type_len, define_fn.return_type);
 
 	print_compound_literal(define_fn.returned_compound_literal);
@@ -37457,15 +37454,13 @@ static compound_literal parse_compound_literal(size_t *i) {
 
 static void parse_define_fn(size_t *i) {
 	// Parse the function's signature
-	token token = consume_token(i);
-	define_fn.fn_name = token.str;
-	define_fn.fn_name_len = token.len;
+	consume_token(i); // The function name is always "define"
 
 	consume_token_type(i, OPEN_PARENTHESIS_TOKEN);
 	consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
 
 	assert_token_type(*i, WORD_TOKEN);
-	token = consume_token(i);
+	token token = consume_token(i);
 	define_fn.return_type = token.str;
 	define_fn.return_type_len = token.len;
 
