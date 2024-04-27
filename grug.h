@@ -2,7 +2,6 @@
 
 #include <stdbool.h>
 #include <stddef.h>
-#include <typedefs.h>
 
 typedef void (*grug_error_handler_fn)(char *error_msg, char *filename, int line_number);
 typedef void (*init_globals_struct_fn_type)(void *globals_struct);
