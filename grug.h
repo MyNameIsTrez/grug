@@ -55,7 +55,7 @@ extern mod_directory mods;
 extern reload *reloads;
 extern size_t reloads_size;
 
-extern struct grug_error grug_error;
+extern grug_error grug_error;
 
 bool grug_reload_modified_mods(void);
 void grug_print_mods(void);
