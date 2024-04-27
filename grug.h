@@ -10,6 +10,8 @@ typedef struct mod_directory mod_directory;
 
 typedef struct reload reload;
 
+typedef struct grug_error grug_error;
+
 struct grug_file {
 	char *name;
 	void *dll;
@@ -40,6 +42,12 @@ struct reload {
 	char *define_type;
 	void *define;
 	void *on_fns;
+};
+
+struct grug_error {
+    char msg[420];
+    char *filename;
+    int line_number;
 };
 
 extern mod_directory mods;
