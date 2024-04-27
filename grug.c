@@ -37985,30 +37985,6 @@ static void serialize_arguments(size_t arguments_offset, size_t argument_count) 
 	}
 }
 
-static void serialize_exported_on_fns(void) {
-    serialize_append("struct ");
-    serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
-    serialize_append("_on_fns on_fns = {\n");
-
-	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
-		on_fn fn = on_fns[fn_index];
-
-        serialize_append_indents(1);
-		serialize_append("void ");
-		serialize_append_slice(fn.fn_name, fn.fn_name_len);
-
-		serialize_append("(");
-		serialize_append("void *globals_void");
-		if (fn.argument_count > 0) {
-			serialize_append(", ");
-		}
-		serialize_arguments(fn.arguments_offset, fn.argument_count);
-		serialize_append(");\n");
-	}
-
-    serialize_append("};\n");
-}
-
 static void serialize_helper_fns(void) {
 	for (size_t fn_index = 0; fn_index < helper_fns_size; fn_index++) {
 		helper_fn fn = helper_fns[fn_index];
@@ -38038,6 +38014,25 @@ static void serialize_helper_fns(void) {
 
 		serialize_append("}\n");
 	}
+}
+
+static void serialize_exported_on_fns(void) {
+    serialize_append("struct ");
+    serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
+    serialize_append("_on_fns on_fns = {\n");
+
+    for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
+        on_fn fn = on_fns[fn_index];
+
+        serialize_append_indents(1);
+        serialize_append(".");
+        serialize_append_slice(fn.fn_name, fn.fn_name_len);
+        serialize_append(" = ");
+        serialize_append_slice(fn.fn_name, fn.fn_name_len);
+        serialize_append(",\n");
+    }
+
+    serialize_append("};\n");
 }
 
 static void serialize_on_fns(void) {
@@ -38192,15 +38187,15 @@ static void serialize_to_c(void) {
 	if (on_fns_size > 0) {
 		serialize_append("\n");
 		serialize_on_fns();
-	}
+
+        serialize_append("\n");
+        serialize_exported_on_fns();
+    }
 
 	if (helper_fns_size > 0) {
 		serialize_append("\n");
 		serialize_helper_fns();
 	}
-    
-    serialize_append("\n");
-    serialize_exported_on_fns();
 
 	serialized[serialized_size] = '\0';
 }
