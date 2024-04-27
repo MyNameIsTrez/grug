@@ -36142,7 +36142,7 @@ static token consume_token(size_t *token_index_ptr) {
 	return peek_token((*token_index_ptr)++);
 }
 
-static void print_tokens() {
+static void print_tokens(void) {
 	size_t longest_token_type_len = 0;
 	for (size_t i = 0; i < tokens_size; i++) {
 		token token = peek_token(i);
@@ -36733,7 +36733,7 @@ static void print_arguments(size_t arguments_offset, size_t argument_count) {
 	printf("],\n");
 }
 
-static void print_helper_fns() {
+static void print_helper_fns(void) {
 	printf("\"helper_fns\": [\n");
 
 	for (size_t fn_index = 0; fn_index < helper_fns_size; fn_index++) {
@@ -36759,7 +36759,7 @@ static void print_helper_fns() {
 	printf("],\n");
 }
 
-static void print_on_fns() {
+static void print_on_fns(void) {
 	printf("\"on_fns\": [\n");
 
 	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
@@ -36781,7 +36781,7 @@ static void print_on_fns() {
 	printf("],\n");
 }
 
-static void print_global_variables() {
+static void print_global_variables(void) {
 	printf("\"global_variables\": [\n");
 
 	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
@@ -36820,7 +36820,7 @@ static void print_compound_literal(compound_literal compound_literal) {
 	printf("]\n");
 }
 
-static void print_define_fn() {
+static void print_define_fn(void) {
 	printf("\"define_fn\": {\n");
 
 	printf("\"fn_name\": \"%.*s\",\n", (int)define_fn.fn_name_len, define_fn.fn_name);
@@ -36831,7 +36831,7 @@ static void print_define_fn() {
 	printf("},\n");
 }
 
-static void print_fns() {
+static void print_fns(void) {
 	printf("{\n");
 
 	print_define_fn();
@@ -37488,7 +37488,7 @@ static bool starts_with(char *a, char *b) {
 	return strncmp(a, b, strlen(b)) == 0;
 }
 
-static void parse() {
+static void parse(void) {
 	bool seen_define_fn = false;
 
 	size_t i = 0;
@@ -37534,7 +37534,7 @@ static void assert_spaces(size_t token_index, size_t expected_spaces) {
 // Trims whitespace tokens after verifying that the formatting is correct.
 // 1. The whitespace indentation follows the block scope nesting, like in Python.
 // 2. There aren't any leading/trailing/missing/extra spaces.
-static void verify_and_trim_spaces() {
+static void verify_and_trim_spaces(void) {
 	size_t i = 0;
 	size_t new_index = 0;
 	int depth = 0;
@@ -37745,6 +37745,36 @@ static void serialize_append_indents(size_t depth) {
 	for (size_t i = 0; i < depth * SPACES_PER_INDENT; i++) {
 		serialize_append(" ");
 	}
+}
+
+static void serialize_fns(void) {
+    serialize_append("struct ");
+    serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
+    serialize_append("_fns fns {\n");
+
+    serialize_append_indents(1);
+    serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
+    serialize_append(" ");
+    serialize_append_slice(define_fn.fn_name, define_fn.fn_name_len);
+    serialize_append("(void);\n");
+
+	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
+		on_fn fn = on_fns[fn_index];
+
+        serialize_append_indents(1);
+		serialize_append("void ");
+		serialize_append_slice(fn.fn_name, fn.fn_name_len);
+
+		serialize_append("(");
+		serialize_append("void *globals_void");
+		if (fn.argument_count > 0) {
+			serialize_append(", ");
+		}
+		serialize_arguments(fn.arguments_offset, fn.argument_count);
+		serialize_append(");\n");
+	}
+
+    serialize_append("};\n");
 }
 
 static void serialize_expr(expr expr);
@@ -37988,7 +38018,7 @@ static void serialize_arguments(size_t arguments_offset, size_t argument_count) 
 	}
 }
 
-static void serialize_helper_fns() {
+static void serialize_helper_fns(void) {
 	for (size_t fn_index = 0; fn_index < helper_fns_size; fn_index++) {
 		helper_fn fn = helper_fns[fn_index];
 
@@ -38019,7 +38049,7 @@ static void serialize_helper_fns() {
 	}
 }
 
-static void serialize_on_fns() {
+static void serialize_on_fns(void) {
 	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
 		on_fn fn = on_fns[fn_index];
 
@@ -38044,7 +38074,7 @@ static void serialize_on_fns() {
 	}
 }
 
-static void serialize_forward_declare_helper_fns() {
+static void serialize_forward_declare_helper_fns(void) {
 	for (size_t fn_index = 0; fn_index < helper_fns_size; fn_index++) {
 		helper_fn fn = helper_fns[fn_index];
 
@@ -38067,7 +38097,7 @@ static void serialize_forward_declare_helper_fns() {
 	}
 }
 
-static void serialize_init_globals_struct() {
+static void serialize_init_globals_struct(void) {
 	serialize_append("void init_globals_struct(void *globals_struct) {\n");
 
 	serialize_append_indents(1);
@@ -38094,14 +38124,14 @@ static void serialize_init_globals_struct() {
 	serialize_append("}\n");
 }
 
-static void serialize_get_globals_struct_size() {
-	serialize_append("size_t get_globals_struct_size() {\n");
+static void serialize_get_globals_struct_size(void) {
+	serialize_append("size_t get_globals_struct_size(void) {\n");
 	serialize_append_indents(1);
 	serialize_append("return sizeof(struct globals);\n");
 	serialize_append("}\n");
 }
 
-static void serialize_global_variables() {
+static void serialize_global_variables(void) {
 	serialize_append("struct globals {\n");
 
 	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
@@ -38119,12 +38149,12 @@ static void serialize_global_variables() {
 	serialize_append("};\n");
 }
 
-static void serialize_define_fn() {
+static void serialize_define_fn(void) {
 	serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
 	serialize_append(" ");
 	serialize_append_slice(define_fn.fn_name, define_fn.fn_name_len);
 
-	serialize_append("() {\n");
+	serialize_append("(void) {\n");
 	serialize_append("    return (");
 	serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
 	serialize_append("){\n");
@@ -38146,15 +38176,17 @@ static void serialize_define_fn() {
 	serialize_append("}\n");
 }
 
-static void serialize_to_c() {
+static void serialize_to_c(void) {
 	serialize_append("#include \"mod.h\"\n\n");
 
 	serialize_define_fn();
 
 	serialize_append("\n");
 	serialize_global_variables();
+
 	serialize_append("\n");
 	serialize_get_globals_struct_size();
+
 	serialize_append("\n");
 	serialize_init_globals_struct();
 
@@ -38172,6 +38204,9 @@ static void serialize_to_c() {
 		serialize_append("\n");
 		serialize_helper_fns();
 	}
+
+    serialize_append("\n");
+    serialize_fns();
 
 	serialized[serialized_size] = '\0';
 }
@@ -38191,7 +38226,7 @@ static void handle_error(void *opaque, const char *msg) {
 	GRUG_ERROR("tcc: %s", msg);
 }
 
-static void reset() {
+static void reset(void) {
 	tokens_size = 0;
 	fields_size = 0;
 	exprs_size = 0;
@@ -38353,8 +38388,12 @@ void grug_free_mods(void) {
     memset(&mods, 0, sizeof(mods));
 }
 
-void *grug_get(void *dll, char *symbol_name) {
+static void *grug_get(void *dll, char *symbol_name) {
 	return dlsym(dll, symbol_name);
+}
+
+void *grug_get_fns(void *dll) {
+    return grug_get(dll, "fns");
 }
 
 static void push_reload(reload reload) {
