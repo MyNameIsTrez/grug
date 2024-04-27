@@ -2,7 +2,6 @@
 
 #include <stddef.h>
 
-typedef void (*grug_error_handler_fn)(char *error_msg, char *filename, int line_number);
 typedef void (*init_globals_struct_fn_type)(void *globals_struct);
 
 typedef struct grug_file grug_file;
@@ -47,7 +46,6 @@ extern mod_directory mods;
 extern reload *reloads;
 extern size_t reloads_size;
 
-void grug_init(grug_error_handler_fn grug_error_handler);
 void grug_reload_modified_mods(void);
 void grug_print_mods(void);
 void grug_free_mods(void);

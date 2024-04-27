@@ -35991,15 +35991,21 @@ LIBTCCAPI void tcc_set_backtrace_func(TCCState *s1, void* userdata, TCCBtFunc*);
 #define STUPID_MAX_PATH 4096
 
 #define GRUG_ERROR(...) {\
-	snprintf(error_msg, sizeof(error_msg), __VA_ARGS__);\
-	error_line_number = __LINE__;\
+	snprintf(grug_error.msg, sizeof(grug_error.msg), __VA_ARGS__);\
+    grug_error.filename = __FILE__;\
+	grug_error.line_number = __LINE__;\
 	longjmp(error_jmp_buffer, 1);\
 }
 
-static char error_msg[420];
-static int error_line_number;
+typedef struct grug_error grug_error;
+struct grug_error {
+    char msg[420];
+    char *filename;
+    int line_number;
+};
+struct grug_error grug_error;
+
 static jmp_buf error_jmp_buffer;
-static grug_error_handler_fn grug_error_handler;
 
 //// READING
 
@@ -38660,9 +38666,14 @@ static char *get_basename(char *path) {
 	return base ? base + 1 : path;
 }
 
-void grug_reload_modified_mods(void) {
+// Returns whether an error occurred
+bool grug_reload_modified_mods(void) {
 	assert(!strchr(MODS_DIR_PATH, '\\') && "MODS_DIR_PATH can't contain backslashes, so replace them with '/'");
 	assert(MODS_DIR_PATH[strlen(MODS_DIR_PATH) - 1] != '/' && "MODS_DIR_PATH can't have a trailing '/'");
+
+    if (setjmp(error_jmp_buffer)) {
+        return true;
+	}
 
     reloads_size = 0;
 
@@ -38674,6 +38685,7 @@ void grug_reload_modified_mods(void) {
     }
 
 	reload_modified_mods(MODS_DIR_PATH, DLL_DIR_PATH, &mods);
+    return false;
 }
 
 static void print_dir(mod_directory dir) {
@@ -38693,12 +38705,4 @@ static void print_dir(mod_directory dir) {
 
 void grug_print_mods(void) {
 	print_dir(mods);
-}
-
-void grug_init(grug_error_handler_fn grug_error_handler_) {
-    grug_error_handler = grug_error_handler_;
-
-    if (setjmp(error_jmp_buffer)) {
-		grug_error_handler(error_msg, __FILE__, error_line_number);
-	}
 }
