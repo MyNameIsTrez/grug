@@ -37232,10 +37232,12 @@ static statement parse_statement(size_t *i) {
 			token token = peek_token(*i);
 			if (token.type == NEWLINES_TOKEN) {
 				statement.return_statement.has_value = false;
-			} else {
+			} else if (token.type == OPEN_BRACE_TOKEN) {
 				statement.return_statement.has_value = true;
 				statement.return_statement.value_expr_index = push_expr(parse_expression(i));
-			}
+			} else {
+				GRUG_ERROR("Expected newline or '{' after 'return', but got '%.*s' at token index %zu", (int)token.len, token.str, *i);
+            }
 
 			break;
 		}
