@@ -16,7 +16,7 @@ struct grug_file {
 	size_t globals_struct_size;
 	init_globals_struct_fn_type init_globals_struct_fn;
 	char *define_type;
-	void *define_fn;
+	void *define;
 	void *on_fns;
 };
 
@@ -38,7 +38,7 @@ struct reload {
 	size_t globals_struct_size;
 	init_globals_struct_fn_type init_globals_struct_fn;
 	char *define_type;
-	void *define_fn;
+	void *define;
 	void *on_fns;
 };
 

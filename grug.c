@@ -38157,21 +38157,16 @@ static void serialize_global_variables(void) {
 }
 
 static void serialize_define_fn(void) {
+	serialize_append("struct ");
 	serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
-	serialize_append(" ");
-	serialize_append_slice(define_fn.fn_name, define_fn.fn_name_len);
-
-	serialize_append("(void) {\n");
-	serialize_append("    return (");
-	serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
-	serialize_append("){\n");
+	serialize_append(" define {\n");
 
 	compound_literal compound_literal = define_fn.returned_compound_literal;
 
 	for (size_t field_index = 0; field_index < compound_literal.field_count; field_index++) {
 		field field = fields[compound_literal.fields_offset + field_index];
 
-		serialize_append_indents(2);
+		serialize_append_indents(1);
 		serialize_append(".");
 		serialize_append_slice(field.key, field.key_len);
 		serialize_append(" = ");
@@ -38179,7 +38174,6 @@ static void serialize_define_fn(void) {
 		serialize_append(",\n");
 	}
 
-	serialize_append("    };\n");
 	serialize_append("}\n");
 }
 
@@ -38215,9 +38209,6 @@ static void serialize_to_c(void) {
     serialize_append("\n");
     serialize_exported_define_type();
     
-    serialize_append("\n");
-    serialize_exported_define_fn();
-
     serialize_append("\n");
     serialize_exported_on_fns();
 
@@ -38607,7 +38598,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, mod_di
                     GRUG_ERROR("Retrieving the define_type string with grug_get() failed for %s", dll_path);
                 }
 
-                file.define_fn = grug_get(file.dll, "define");
+                file.define = grug_get(file.dll, "define");
                 if (!file.on_fns) {
                     GRUG_ERROR("Retrieving the on_fns struct with grug_get() failed for %s", dll_path);
                 }
@@ -38622,7 +38613,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, mod_di
                     old_file->globals_struct_size = file.globals_struct_size;
                     old_file->init_globals_struct_fn = file.init_globals_struct_fn;
                     old_file->define_type = file.define_type;
-                    old_file->define_fn = file.define_fn;
+                    old_file->define = file.define;
                     old_file->on_fns = file.on_fns;
                 } else {
                     push_file(dir, file);
@@ -38633,7 +38624,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, mod_di
                     reload.globals_struct_size = file.globals_struct_size;
                     reload.init_globals_struct_fn = file.init_globals_struct_fn;
                     reload.define_type = file.define_type;
-                    reload.define_fn = file.define_fn;
+                    reload.define = file.define;
                     reload.on_fns = file.on_fns;
                     push_reload(reload);
                 }
