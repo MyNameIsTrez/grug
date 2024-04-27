@@ -38012,13 +38012,6 @@ static void serialize_exported_on_fns(void) {
     serialize_append("};\n");
 }
 
-static void serialize_exported_define_fn(void) {
-    serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
-    serialize_append(" ");
-    serialize_append_slice(define_fn.fn_name, define_fn.fn_name_len);
-    serialize_append("(void);\n");
-}
-
 static void serialize_exported_define_type(void) {
     serialize_append("char *define_type = ");
     serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
