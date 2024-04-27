@@ -35997,7 +35997,7 @@ LIBTCCAPI void tcc_set_backtrace_func(TCCState *s1, void* userdata, TCCBtFunc*);
 	longjmp(error_jmp_buffer, 1);\
 }
 
-struct grug_error grug_error;
+struct grug_error_t grug_error;
 static jmp_buf error_jmp_buffer;
 
 //// READING
@@ -36040,7 +36040,7 @@ static char *read_file(char *path) {
 
 //// TOKENIZATION
 
-typedef struct token token;
+typedef struct token token_t;
 
 enum token_type {
 	OPEN_PARENTHESIS_TOKEN,
@@ -36120,7 +36120,7 @@ static char *get_token_type_str[] = {
 	[NUMBER_TOKEN] = "NUMBER_TOKEN",
 	[COMMENT_TOKEN] = "COMMENT_TOKEN",
 };
-static token tokens[MAX_TOKENS_IN_FILE];
+static token_t tokens[MAX_TOKENS_IN_FILE];
 static size_t tokens_size;
 
 static size_t max_size_t(size_t a, size_t b) {
@@ -36130,21 +36130,21 @@ static size_t max_size_t(size_t a, size_t b) {
 	return b;
 }
 
-static token peek_token(size_t token_index) {
+static token_t peek_token(size_t token_index) {
 	if (token_index >= tokens_size) {
 		GRUG_ERROR("token_index %zu was out of bounds in peek_token()", token_index);
 	}
 	return tokens[token_index];
 }
 
-static token consume_token(size_t *token_index_ptr) {
+static token_t consume_token(size_t *token_index_ptr) {
 	return peek_token((*token_index_ptr)++);
 }
 
 static void print_tokens(void) {
 	size_t longest_token_type_len = 0;
 	for (size_t i = 0; i < tokens_size; i++) {
-		token token = peek_token(i);
+		token_t token = peek_token(i);
 		char *token_type_str = get_token_type_str[token.type];
 		longest_token_type_len = max_size_t(strlen(token_type_str), longest_token_type_len);
 	}
@@ -36165,7 +36165,7 @@ static void print_tokens(void) {
 	printf("| %-*s | %-*s | str\n", (int)longest_index, "index", (int)longest_token_type_len, "type");
 
 	for (size_t i = 0; i < tokens_size; i++) {
-		token token = peek_token(i);
+		token_t token = peek_token(i);
 
 		printf("| %*zu ", (int)longest_index, i);
 
@@ -36206,7 +36206,7 @@ static bool is_escaped_char(char c) {
 	return isspace(c) && c != ' ';
 }
 
-static void push_token(token token) {
+static void push_token(token_t token) {
 	if (tokens_size + 1 > MAX_TOKENS_IN_FILE) {
 		GRUG_ERROR("There are more than %d tokens in the grug file, exceeding MAX_TOKENS_IN_FILE", MAX_TOKENS_IN_FILE);
 	}
@@ -36217,91 +36217,91 @@ static void tokenize(char *grug_text) {
 	size_t i = 0;
 	while (grug_text[i]) {
 		if (       grug_text[i] == '(') {
-			push_token((token){.type=OPEN_PARENTHESIS_TOKEN, .str=grug_text+i, .len=1});
+			push_token((token_t){.type=OPEN_PARENTHESIS_TOKEN, .str=grug_text+i, .len=1});
 			i += 1;
 		} else if (grug_text[i] == ')') {
-			push_token((token){.type=CLOSE_PARENTHESIS_TOKEN, .str=grug_text+i, .len=1});
+			push_token((token_t){.type=CLOSE_PARENTHESIS_TOKEN, .str=grug_text+i, .len=1});
 			i += 1;
 		} else if (grug_text[i] == '{') {
-			push_token((token){.type=OPEN_BRACE_TOKEN, .str=grug_text+i, .len=1});
+			push_token((token_t){.type=OPEN_BRACE_TOKEN, .str=grug_text+i, .len=1});
 			i += 1;
 		} else if (grug_text[i] == '}') {
-			push_token((token){.type=CLOSE_BRACE_TOKEN, .str=grug_text+i, .len=1});
+			push_token((token_t){.type=CLOSE_BRACE_TOKEN, .str=grug_text+i, .len=1});
 			i += 1;
 		} else if (grug_text[i] == '+') {
-			push_token((token){.type=PLUS_TOKEN, .str=grug_text+i, .len=1});
+			push_token((token_t){.type=PLUS_TOKEN, .str=grug_text+i, .len=1});
 			i += 1;
 		} else if (grug_text[i] == '-') {
-			push_token((token){.type=MINUS_TOKEN, .str=grug_text+i, .len=1});
+			push_token((token_t){.type=MINUS_TOKEN, .str=grug_text+i, .len=1});
 			i += 1;
 		} else if (grug_text[i] == '*') {
-			push_token((token){.type=MULTIPLICATION_TOKEN, .str=grug_text+i, .len=1});
+			push_token((token_t){.type=MULTIPLICATION_TOKEN, .str=grug_text+i, .len=1});
 			i += 1;
 		} else if (grug_text[i] == '/') {
-			push_token((token){.type=DIVISION_TOKEN, .str=grug_text+i, .len=1});
+			push_token((token_t){.type=DIVISION_TOKEN, .str=grug_text+i, .len=1});
 			i += 1;
 		} else if (grug_text[i] == '%') {
-			push_token((token){.type=REMAINDER_TOKEN, .str=grug_text+i, .len=1});
+			push_token((token_t){.type=REMAINDER_TOKEN, .str=grug_text+i, .len=1});
 			i += 1;
 		} else if (grug_text[i] == ',') {
-			push_token((token){.type=COMMA_TOKEN, .str=grug_text+i, .len=1});
+			push_token((token_t){.type=COMMA_TOKEN, .str=grug_text+i, .len=1});
 			i += 1;
 		} else if (grug_text[i] == ':') {
-			push_token((token){.type=COLON_TOKEN, .str=grug_text+i, .len=1});
+			push_token((token_t){.type=COLON_TOKEN, .str=grug_text+i, .len=1});
 			i += 1;
 		} else if (grug_text[i] == '.') {
-			push_token((token){.type=PERIOD_TOKEN, .str=grug_text+i, .len=1});
+			push_token((token_t){.type=PERIOD_TOKEN, .str=grug_text+i, .len=1});
 			i += 1;
 		} else if (grug_text[i] == '=' && grug_text[i + 1] == '=') {
-			push_token((token){.type=EQUALS_TOKEN, .str=grug_text+i, .len=2});
+			push_token((token_t){.type=EQUALS_TOKEN, .str=grug_text+i, .len=2});
 			i += 2;
 		} else if (grug_text[i] == '!' && grug_text[i + 1] == '=') {
-			push_token((token){.type=NOT_EQUALS_TOKEN, .str=grug_text+i, .len=2});
+			push_token((token_t){.type=NOT_EQUALS_TOKEN, .str=grug_text+i, .len=2});
 			i += 2;
 		} else if (grug_text[i] == '=') {
-			push_token((token){.type=ASSIGNMENT_TOKEN, .str=grug_text+i, .len=1});
+			push_token((token_t){.type=ASSIGNMENT_TOKEN, .str=grug_text+i, .len=1});
 			i += 1;
 		} else if (grug_text[i] == '>' && grug_text[i + 1] == '=') {
-			push_token((token){.type=GREATER_OR_EQUAL_TOKEN, .str=grug_text+i, .len=2});
+			push_token((token_t){.type=GREATER_OR_EQUAL_TOKEN, .str=grug_text+i, .len=2});
 			i += 2;
 		} else if (grug_text[i] == '>') {
-			push_token((token){.type=GREATER_TOKEN, .str=grug_text+i, .len=1});
+			push_token((token_t){.type=GREATER_TOKEN, .str=grug_text+i, .len=1});
 			i += 1;
 		} else if (grug_text[i] == '<' && grug_text[i + 1] == '=') {
-			push_token((token){.type=LESS_OR_EQUAL_TOKEN, .str=grug_text+i, .len=2});
+			push_token((token_t){.type=LESS_OR_EQUAL_TOKEN, .str=grug_text+i, .len=2});
 			i += 2;
 		} else if (grug_text[i] == '<') {
-			push_token((token){.type=LESS_TOKEN, .str=grug_text+i, .len=1});
+			push_token((token_t){.type=LESS_TOKEN, .str=grug_text+i, .len=1});
 			i += 1;
 		} else if (grug_text[i + 0] == 'n' && grug_text[i + 1] == 'o' && grug_text[i + 2] == 't' && grug_text[i + 3] == ' ') {
-			push_token((token){.type=NOT_TOKEN, .str=grug_text+i, .len=3});
+			push_token((token_t){.type=NOT_TOKEN, .str=grug_text+i, .len=3});
 			i += 3;
 		} else if (grug_text[i + 0] == 't' && grug_text[i + 1] == 'r' && grug_text[i + 2] == 'u' && grug_text[i + 3] == 'e' && grug_text[i + 4] == ' ') {
-			push_token((token){.type=TRUE_TOKEN, .str=grug_text+i, .len=4});
+			push_token((token_t){.type=TRUE_TOKEN, .str=grug_text+i, .len=4});
 			i += 4;
 		} else if (grug_text[i + 0] == 'f' && grug_text[i + 1] == 'a' && grug_text[i + 2] == 'l' && grug_text[i + 3] == 's' && grug_text[i + 4] == 'e' && grug_text[i + 5] == ' ') {
-			push_token((token){.type=FALSE_TOKEN, .str=grug_text+i, .len=5});
+			push_token((token_t){.type=FALSE_TOKEN, .str=grug_text+i, .len=5});
 			i += 5;
 		} else if (grug_text[i + 0] == 'i' && grug_text[i + 1] == 'f' && grug_text[i + 2] == ' ') {
-			push_token((token){.type=IF_TOKEN, .str=grug_text+i, .len=2});
+			push_token((token_t){.type=IF_TOKEN, .str=grug_text+i, .len=2});
 			i += 2;
 		} else if (grug_text[i + 0] == 'e' && grug_text[i + 1] == 'l' && grug_text[i + 2] == 's' && grug_text[i + 3] == 'e' && grug_text[i + 4] == ' ') {
-			push_token((token){.type=ELSE_TOKEN, .str=grug_text+i, .len=4});
+			push_token((token_t){.type=ELSE_TOKEN, .str=grug_text+i, .len=4});
 			i += 4;
 		} else if (grug_text[i + 0] == 'l' && grug_text[i + 1] == 'o' && grug_text[i + 2] == 'o' && grug_text[i + 3] == 'p' && grug_text[i + 4] == ' ') {
-			push_token((token){.type=LOOP_TOKEN, .str=grug_text+i, .len=4});
+			push_token((token_t){.type=LOOP_TOKEN, .str=grug_text+i, .len=4});
 			i += 4;
 		} else if (grug_text[i + 0] == 'b' && grug_text[i + 1] == 'r' && grug_text[i + 2] == 'e' && grug_text[i + 3] == 'a' && grug_text[i + 4] == 'k' && (grug_text[i + 5] == ' ' || grug_text[i + 5] == '\n')) {
-			push_token((token){.type=BREAK_TOKEN, .str=grug_text+i, .len=5});
+			push_token((token_t){.type=BREAK_TOKEN, .str=grug_text+i, .len=5});
 			i += 5;
 		} else if (grug_text[i + 0] == 'r' && grug_text[i + 1] == 'e' && grug_text[i + 2] == 't' && grug_text[i + 3] == 'u' && grug_text[i + 4] == 'r' && grug_text[i + 5] == 'n' && (grug_text[i + 6] == ' ' || grug_text[i + 6] == '\n')) {
-			push_token((token){.type=RETURN_TOKEN, .str=grug_text+i, .len=6});
+			push_token((token_t){.type=RETURN_TOKEN, .str=grug_text+i, .len=6});
 			i += 6;
 		} else if (grug_text[i + 0] == 'c' && grug_text[i + 1] == 'o' && grug_text[i + 2] == 'n' && grug_text[i + 3] == 't' && grug_text[i + 4] == 'i' && grug_text[i + 5] == 'n' && grug_text[i + 6] == 'u' && grug_text[i + 7] == 'e' && (grug_text[i + 8] == ' ' || grug_text[i + 8] == '\n')) {
-			push_token((token){.type=CONTINUE_TOKEN, .str=grug_text+i, .len=8});
+			push_token((token_t){.type=CONTINUE_TOKEN, .str=grug_text+i, .len=8});
 			i += 8;
 		} else if (grug_text[i] == ' ') {
-			token token = {.type=SPACES_TOKEN, .str=grug_text+i};
+			token_t token = {.type=SPACES_TOKEN, .str=grug_text+i};
 
 			do {
 				i++;
@@ -36310,7 +36310,7 @@ static void tokenize(char *grug_text) {
 			token.len = i - (token.str - grug_text);
 			push_token(token);
 		} else if (grug_text[i] == '\n') {
-			token token = {.type=NEWLINES_TOKEN, .str=grug_text+i};
+			token_t token = {.type=NEWLINES_TOKEN, .str=grug_text+i};
 
 			do {
 				i++;
@@ -36319,7 +36319,7 @@ static void tokenize(char *grug_text) {
 			token.len = i - (token.str - grug_text);
 			push_token(token);
 		} else if (grug_text[i] == '\"') {
-			token token = {.type=STRING_TOKEN, .str=grug_text+i};
+			token_t token = {.type=STRING_TOKEN, .str=grug_text+i};
 
 			do {
 				i++;
@@ -36332,7 +36332,7 @@ static void tokenize(char *grug_text) {
 			token.len = i - (token.str - grug_text);
 			push_token(token);
 		} else if (isalpha(grug_text[i]) || grug_text[i] == '_') {
-			token token = {.type=WORD_TOKEN, .str=grug_text+i};
+			token_t token = {.type=WORD_TOKEN, .str=grug_text+i};
 
 			do {
 				i++;
@@ -36341,7 +36341,7 @@ static void tokenize(char *grug_text) {
 			token.len = i - (token.str - grug_text);
 			push_token(token);
 		} else if (isdigit(grug_text[i])) {
-			token token = {.type=NUMBER_TOKEN, .str=grug_text+i};
+			token_t token = {.type=NUMBER_TOKEN, .str=grug_text+i};
 
 			bool seen_period = false;
 
@@ -36359,7 +36359,7 @@ static void tokenize(char *grug_text) {
 			token.len = i - (token.str - grug_text);
 			push_token(token);
 		} else if (grug_text[i] == ';') {
-			token token = {.type=COMMENT_TOKEN, .str=grug_text+i};
+			token_t token = {.type=COMMENT_TOKEN, .str=grug_text+i};
 
 			while (true) {
 				i++;
@@ -36382,24 +36382,24 @@ static void tokenize(char *grug_text) {
 
 //// PARSING
 
-typedef struct literal_expr literal_expr;
-typedef struct unary_expr unary_expr;
-typedef struct binary_expr binary_expr;
-typedef struct call_expr call_expr;
-typedef struct field field;
-typedef struct compound_literal compound_literal;
-typedef struct parenthesized_expr parenthesized_expr;
-typedef struct expr expr;
-typedef struct variable_statement variable_statement;
-typedef struct call_statement call_statement;
-typedef struct if_statement if_statement;
-typedef struct return_statement return_statement;
-typedef struct loop_statement loop_statement;
-typedef struct statement statement;
-typedef struct argument argument;
-typedef struct on_fn on_fn;
-typedef struct helper_fn helper_fn;
-typedef struct global_variable global_variable;
+typedef struct literal_expr literal_expr_t;
+typedef struct unary_expr unary_expr_t;
+typedef struct binary_expr binary_expr_t;
+typedef struct call_expr call_expr_t;
+typedef struct field field_t;
+typedef struct compound_literal compound_literal_t;
+typedef struct parenthesized_expr parenthesized_expr_t;
+typedef struct expr expr_t;
+typedef struct variable_statement variable_statement_t;
+typedef struct call_statement call_statement_t;
+typedef struct if_statement if_statement_t;
+typedef struct return_statement return_statement_t;
+typedef struct loop_statement loop_statement_t;
+typedef struct statement statement_t;
+typedef struct argument argument_t;
+typedef struct on_fn on_fn_t;
+typedef struct helper_fn helper_fn_t;
+typedef struct global_variable global_variable_t;
 
 struct literal_expr {
 	char *str;
@@ -36430,7 +36430,7 @@ struct field {
 	char *value;
 	size_t value_len;
 };
-static field fields[MAX_FIELDS_IN_FILE];
+static field_t fields[MAX_FIELDS_IN_FILE];
 static size_t fields_size;
 
 struct compound_literal {
@@ -36455,11 +36455,11 @@ struct expr {
 		PARENTHESIZED_EXPR,
 	} type;
 	union {
-		literal_expr literal_expr;
-		unary_expr unary_expr;
-		binary_expr binary_expr;
-		call_expr call_expr;
-		parenthesized_expr parenthesized_expr;
+		literal_expr_t literal_expr;
+		unary_expr_t unary_expr;
+		binary_expr_t binary_expr;
+		call_expr_t call_expr;
+		parenthesized_expr_t parenthesized_expr;
 	};
 };
 static char *get_expr_type_str[] = {
@@ -36473,7 +36473,7 @@ static char *get_expr_type_str[] = {
 	[CALL_EXPR] = "CALL_EXPR",
 	[PARENTHESIZED_EXPR] = "PARENTHESIZED_EXPR",
 };
-static expr exprs[MAX_EXPRS_IN_FILE];
+static expr_t exprs[MAX_EXPRS_IN_FILE];
 static size_t exprs_size;
 
 struct variable_statement {
@@ -36491,7 +36491,7 @@ struct call_statement {
 };
 
 struct if_statement {
-	expr condition;
+	expr_t condition;
 	size_t if_body_statements_offset;
 	size_t if_body_statement_count;
 	size_t else_body_statements_offset;
@@ -36519,11 +36519,11 @@ struct statement {
 		CONTINUE_STATEMENT,
 	} type;
 	union {
-		variable_statement variable_statement;
-		call_statement call_statement;
-		if_statement if_statement;
-		return_statement return_statement;
-		loop_statement loop_statement;
+		variable_statement_t variable_statement;
+		call_statement_t call_statement;
+		if_statement_t if_statement;
+		return_statement_t return_statement;
+		loop_statement_t loop_statement;
 	};
 };
 static char *get_statement_type_str[] = {
@@ -36535,7 +36535,7 @@ static char *get_statement_type_str[] = {
 	[BREAK_STATEMENT] = "BREAK_STATEMENT",
 	[CONTINUE_STATEMENT] = "CONTINUE_STATEMENT",
 };
-static statement statements[MAX_STATEMENTS_IN_FILE];
+static statement_t statements[MAX_STATEMENTS_IN_FILE];
 static size_t statements_size;
 
 struct argument {
@@ -36544,15 +36544,15 @@ struct argument {
 	char *name;
 	size_t name_len;
 };
-static argument arguments[MAX_ARGUMENTS_IN_FILE];
+static argument_t arguments[MAX_ARGUMENTS_IN_FILE];
 static size_t arguments_size;
 
 struct define_fn {
 	char *return_type;
 	size_t return_type_len;
-	compound_literal returned_compound_literal;
+	compound_literal_t returned_compound_literal;
 };
-static struct define_fn define_fn;
+static define_fn_t define_fn;
 
 struct on_fn {
 	char *fn_name;
@@ -36562,7 +36562,7 @@ struct on_fn {
 	size_t body_statements_offset;
 	size_t body_statement_count;
 };
-static on_fn on_fns[MAX_ON_FNS_IN_FILE];
+static on_fn_t on_fns[MAX_ON_FNS_IN_FILE];
 static size_t on_fns_size;
 
 struct helper_fn {
@@ -36575,7 +36575,7 @@ struct helper_fn {
 	size_t body_statements_offset;
 	size_t body_statement_count;
 };
-static helper_fn helper_fns[MAX_HELPER_FNS_IN_FILE];
+static helper_fn_t helper_fns[MAX_HELPER_FNS_IN_FILE];
 static size_t helper_fns_size;
 
 struct global_variable {
@@ -36583,20 +36583,20 @@ struct global_variable {
 	size_t name_len;
 	char *type;
 	size_t type_len;
-	expr assignment_expr;
+	expr_t assignment_expr;
 };
-static global_variable global_variables[MAX_GLOBAL_VARIABLES_IN_FILE];
+static global_variable_t global_variables[MAX_GLOBAL_VARIABLES_IN_FILE];
 static size_t global_variables_size;
 
-static void print_expr(expr expr);
+static void print_expr(expr_t expr);
 
-static void print_parenthesized_expr(parenthesized_expr parenthesized_expr) {
+static void print_parenthesized_expr(parenthesized_expr_t parenthesized_expr) {
 	printf("\"expr\": {\n");
 	print_expr(exprs[parenthesized_expr.expr_index]);
 	printf("},\n");
 }
 
-static void print_call_expr(call_expr call_expr) {
+static void print_call_expr(call_expr_t call_expr) {
 	printf("\"fn_name\": \"%.*s\",\n", (int)call_expr.fn_name_len, call_expr.fn_name);
 
 	printf("\"arguments\": [\n");
@@ -36608,7 +36608,7 @@ static void print_call_expr(call_expr call_expr) {
 	printf("],\n");
 }
 
-static void print_binary_expr(binary_expr binary_expr) {
+static void print_binary_expr(binary_expr_t binary_expr) {
 	printf("\"left_expr\": {\n");
 	print_expr(exprs[binary_expr.left_expr_index]);
 	printf("},\n");
@@ -36618,7 +36618,7 @@ static void print_binary_expr(binary_expr binary_expr) {
 	printf("},\n");
 }
 
-static void print_expr(expr expr) {
+static void print_expr(expr_t expr) {
 	printf("\"type\": \"%s\",\n", get_expr_type_str[expr.type]);
 
 	switch (expr.type) {
@@ -36652,7 +36652,7 @@ static void print_statements(size_t statements_offset, size_t statement_count) {
 	for (size_t statement_index = 0; statement_index < statement_count; statement_index++) {
 		printf("{\n");
 
-		statement statement = statements[statements_offset + statement_index];
+		statement_t statement = statements[statements_offset + statement_index];
 
 		printf("\"type\": \"%s\",\n", get_statement_type_str[statement.type]);
 
@@ -36692,7 +36692,7 @@ static void print_statements(size_t statements_offset, size_t statement_count) {
 				break;
 			case RETURN_STATEMENT:
 				if (statement.return_statement.has_value) {
-					expr return_expr = exprs[statement.return_statement.value_expr_index];
+					expr_t return_expr = exprs[statement.return_statement.value_expr_index];
 					printf("\"expr\": {\n");
 					print_expr(return_expr);
 					printf("},\n");
@@ -36719,7 +36719,7 @@ static void print_arguments(size_t arguments_offset, size_t argument_count) {
 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
 		printf("{\n");
 
-		argument arg = arguments[arguments_offset + argument_index];
+		argument_t arg = arguments[arguments_offset + argument_index];
 
 		printf("\"name\": \"%.*s\",\n", (int)arg.name_len, arg.name);
 		printf("\"type\": \"%.*s\",\n", (int)arg.type_len, arg.type);
@@ -36736,7 +36736,7 @@ static void print_helper_fns(void) {
 	for (size_t fn_index = 0; fn_index < helper_fns_size; fn_index++) {
 		printf("{\n");
 
-		helper_fn fn = helper_fns[fn_index];
+		helper_fn_t fn = helper_fns[fn_index];
 
 		printf("\"fn_name\": \"%.*s\",\n", (int)fn.fn_name_len, fn.fn_name);
 
@@ -36762,7 +36762,7 @@ static void print_on_fns(void) {
 	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
 		printf("{\n");
 
-		on_fn fn = on_fns[fn_index];
+		on_fn_t fn = on_fns[fn_index];
 
 		printf("\"fn_name\": \"%.*s\",\n", (int)fn.fn_name_len, fn.fn_name);
 
@@ -36784,7 +36784,7 @@ static void print_global_variables(void) {
 	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
 		printf("{\n");
 
-		global_variable global_variable = global_variables[global_variable_index];
+		global_variable_t global_variable = global_variables[global_variable_index];
 
 		printf("\"variable_name\": \"%.*s\",\n", (int)global_variable.name_len, global_variable.name);
 
@@ -36800,13 +36800,13 @@ static void print_global_variables(void) {
 	printf("],\n");
 }
 
-static void print_compound_literal(compound_literal compound_literal) {
+static void print_compound_literal(compound_literal_t compound_literal) {
 	printf("\"returned_compound_literal\": [\n");
 
 	for (size_t field_index = 0; field_index < compound_literal.field_count; field_index++) {
 		printf("{\n");
 
-		field field = fields[compound_literal.fields_offset + field_index];
+		field_t field = fields[compound_literal.fields_offset + field_index];
 
 		printf("\"key\": \"%.*s\",\n", (int)field.key_len, field.key);
 		printf("\"value\": %.*s,\n", (int)field.value_len, field.value);
@@ -36838,21 +36838,21 @@ static void print_fns(void) {
 	printf("}\n");
 }
 
-static void push_helper_fn(helper_fn helper_fn) {
+static void push_helper_fn(helper_fn_t helper_fn) {
 	if (helper_fns_size + 1 > MAX_HELPER_FNS_IN_FILE) {
 		GRUG_ERROR("There are more than %d helper_fns in the grug file, exceeding MAX_HELPER_FNS_IN_FILE", MAX_HELPER_FNS_IN_FILE);
 	}
 	helper_fns[helper_fns_size++] = helper_fn;
 }
 
-static void push_on_fn(on_fn on_fn) {
+static void push_on_fn(on_fn_t on_fn) {
 	if (on_fns_size + 1 > MAX_ON_FNS_IN_FILE) {
 		GRUG_ERROR("There are more than %d on_fns in the grug file, exceeding MAX_ON_FNS_IN_FILE", MAX_ON_FNS_IN_FILE);
 	}
 	on_fns[on_fns_size++] = on_fn;
 }
 
-static size_t push_statement(statement statement) {
+static size_t push_statement(statement_t statement) {
 	if (statements_size + 1 > MAX_STATEMENTS_IN_FILE) {
 		GRUG_ERROR("There are more than %d statements in the grug file, exceeding MAX_STATEMENTS_IN_FILE", MAX_STATEMENTS_IN_FILE);
 	}
@@ -36860,7 +36860,7 @@ static size_t push_statement(statement statement) {
 	return statements_size++;
 }
 
-static size_t push_expr(expr expr) {
+static size_t push_expr(expr_t expr) {
 	if (exprs_size + 1 > MAX_EXPRS_IN_FILE) {
 		GRUG_ERROR("There are more than %d exprs in the grug file, exceeding MAX_EXPRS_IN_FILE", MAX_EXPRS_IN_FILE);
 	}
@@ -36869,14 +36869,14 @@ static size_t push_expr(expr expr) {
 }
 
 static void potentially_skip_comment(size_t *i) {
-	token token = peek_token(*i);
+	token_t token = peek_token(*i);
 	if (token.type == COMMENT_TOKEN) {
 		(*i)++;
 	}
 }
 
 static void assert_token_type(size_t token_index, unsigned int expected_type) {
-	token token = peek_token(token_index);
+	token_t token = peek_token(token_index);
 	if (token.type != expected_type) {
 		GRUG_ERROR("Expected token type %s, but got %s at token index %zu", get_token_type_str[expected_type], get_token_type_str[token.type], token_index);
 	}
@@ -36889,7 +36889,7 @@ static void consume_token_type(size_t *token_index_ptr, unsigned int expected_ty
 static void consume_1_newline(size_t *token_index_ptr) {
 	assert_token_type(*token_index_ptr, NEWLINES_TOKEN);
 
-	token token = peek_token(*token_index_ptr);
+	token_t token = peek_token(*token_index_ptr);
 	if (token.len != 1) {
 		GRUG_ERROR("Expected 1 newline, but got %zu at token index %zu", token.len, *token_index_ptr);
 	}
@@ -36897,12 +36897,12 @@ static void consume_1_newline(size_t *token_index_ptr) {
 	(*token_index_ptr)++;
 }
 
-static expr parse_expression(size_t *i);
+static expr_t parse_expression(size_t *i);
 
-static expr parse_primary(size_t *i) {
-	token token = peek_token(*i);
+static expr_t parse_primary(size_t *i) {
+	token_t token = peek_token(*i);
 
-	expr expr = {0};
+	expr_t expr = {0};
 
 	switch (token.type) {
 		case OPEN_PARENTHESIS_TOKEN:
@@ -36942,10 +36942,10 @@ static expr parse_primary(size_t *i) {
 	}
 }
 
-static expr parse_call(size_t *i) {
-	expr expr = parse_primary(i);
+static expr_t parse_call(size_t *i) {
+	expr_t expr = parse_primary(i);
 
-	token token = peek_token(*i);
+	token_t token = peek_token(*i);
 	if (token.type == OPEN_PARENTHESIS_TOKEN) {
 		(*i)++;
 
@@ -36959,14 +36959,14 @@ static expr parse_call(size_t *i) {
 
 		expr.call_expr.argument_count = 0;
 
-		struct token token = peek_token(*i);
+		token = peek_token(*i);
 		if (token.type == CLOSE_PARENTHESIS_TOKEN) {
 			(*i)++;
 		} else {
-			struct expr local_call_arguments[MAX_CALL_ARGUMENTS_PER_STACK_FRAME];
+			expr_t local_call_arguments[MAX_CALL_ARGUMENTS_PER_STACK_FRAME];
 
 			while (true) {
-				struct expr call_argument = parse_expression(i);
+				expr_t call_argument = parse_expression(i);
 
 				if (expr.call_expr.argument_count + 1 > MAX_CALL_ARGUMENTS_PER_STACK_FRAME) {
 					GRUG_ERROR("There are more than %d arguments to a function call in one of the grug file's stack frames, exceeding MAX_CALL_ARGUMENTS_PER_STACK_FRAME", MAX_CALL_ARGUMENTS_PER_STACK_FRAME);
@@ -36992,11 +36992,11 @@ static expr parse_call(size_t *i) {
 	return expr;
 }
 
-static expr parse_member(size_t *i) {
-	expr expr = parse_call(i);
+static expr_t parse_member(size_t *i) {
+	expr_t expr = parse_call(i);
 
 	while (true) {
-		token token = peek_token(*i);
+		token_t token = peek_token(*i);
 		if (token.type != PERIOD_TOKEN) {
 			break;
 		}
@@ -37010,12 +37010,12 @@ static expr parse_member(size_t *i) {
 	return expr;
 }
 
-static expr parse_unary(size_t *i) {
-	token token = peek_token(*i);
+static expr_t parse_unary(size_t *i) {
+	token_t token = peek_token(*i);
 	if (token.type == MINUS_TOKEN
 	 || token.type == NOT_TOKEN) {
 		(*i)++;
-		expr expr = {0};
+		expr_t expr = {0};
 
 		expr.unary_expr.operator = token.type;
 		expr.unary_expr.expr_index = push_expr(parse_unary(i));
@@ -37027,11 +37027,11 @@ static expr parse_unary(size_t *i) {
 	return parse_member(i);
 }
 
-static expr parse_factor(size_t *i) {
-	expr expr = parse_unary(i);
+static expr_t parse_factor(size_t *i) {
+	expr_t expr = parse_unary(i);
 
 	while (true) {
-		token token = peek_token(*i);
+		token_t token = peek_token(*i);
 		if (token.type != MULTIPLICATION_TOKEN
 		 && token.type != DIVISION_TOKEN
 		 && token.type != REMAINDER_TOKEN) {
@@ -37047,11 +37047,11 @@ static expr parse_factor(size_t *i) {
 	return expr;
 }
 
-static expr parse_term(size_t *i) {
-	expr expr = parse_factor(i);
+static expr_t parse_term(size_t *i) {
+	expr_t expr = parse_factor(i);
 
 	while (true) {
-		token token = peek_token(*i);
+		token_t token = peek_token(*i);
 		if (token.type != PLUS_TOKEN
 		 && token.type != MINUS_TOKEN) {
 			break;
@@ -37066,11 +37066,11 @@ static expr parse_term(size_t *i) {
 	return expr;
 }
 
-static expr parse_comparison(size_t *i) {
-	expr expr = parse_term(i);
+static expr_t parse_comparison(size_t *i) {
+	expr_t expr = parse_term(i);
 
 	while (true) {
-		token token = peek_token(*i);
+		token_t token = peek_token(*i);
 		if (token.type != GREATER_OR_EQUAL_TOKEN
 		 && token.type != GREATER_TOKEN
 		 && token.type != LESS_OR_EQUAL_TOKEN
@@ -37087,11 +37087,11 @@ static expr parse_comparison(size_t *i) {
 	return expr;
 }
 
-static expr parse_equality(size_t *i) {
-	expr expr = parse_comparison(i);
+static expr_t parse_equality(size_t *i) {
+	expr_t expr = parse_comparison(i);
 
 	while (true) {
-		token token = peek_token(*i);
+		token_t token = peek_token(*i);
 		if (token.type != EQUALS_TOKEN
 		 && token.type != NOT_EQUALS_TOKEN) {
 			break;
@@ -37108,14 +37108,14 @@ static expr parse_equality(size_t *i) {
 
 // Recursive descent parsing inspired by the book Crafting Interpreters:
 // https://craftinginterpreters.com/parsing-expressions.html#recursive-descent-parsing
-static expr parse_expression(size_t *i) {
+static expr_t parse_expression(size_t *i) {
 	return parse_equality(i);
 }
 
 static void parse_statements(size_t *i, size_t *body_statements_offset, size_t *body_statement_count);
 
-static statement parse_if_statement(size_t *i) {
-	statement statement = {0};
+static statement_t parse_if_statement(size_t *i) {
+	statement_t statement = {0};
 	statement.type = IF_STATEMENT;
 	statement.if_statement.condition = parse_expression(i);
 
@@ -37129,7 +37129,7 @@ static statement parse_if_statement(size_t *i) {
 
 			statement.if_statement.else_body_statement_count = 1;
 
-			struct statement else_if_statement = parse_if_statement(i);
+			statement_t else_if_statement = parse_if_statement(i);
 			statement.if_statement.else_body_statements_offset = push_statement(else_if_statement);
 		} else {
 			parse_statements(i, &statement.if_statement.else_body_statements_offset, &statement.if_statement.else_body_statement_count);
@@ -37139,18 +37139,18 @@ static statement parse_if_statement(size_t *i) {
 	return statement;
 }
 
-static variable_statement parse_variable_statement(size_t *i) {
-	variable_statement variable_statement = {0};
+static variable_statement_t parse_variable_statement(size_t *i) {
+	variable_statement_t variable_statement = {0};
 
-	token name_token = consume_token(i);
+	token_t name_token = consume_token(i);
 	variable_statement.name = name_token.str;
 	variable_statement.name_len = name_token.len;
 
-	token token = peek_token(*i);
+	token_t token = peek_token(*i);
 	if (token.type == COLON_TOKEN) {
 		(*i)++;
 
-		struct token type_token = consume_token(i);
+		token_t type_token = consume_token(i);
 		if (type_token.type == WORD_TOKEN) {
 			variable_statement.has_type = true;
 			variable_statement.type = type_token.str;
@@ -37170,7 +37170,7 @@ static variable_statement parse_variable_statement(size_t *i) {
 	return variable_statement;
 }
 
-static void push_global_variable(global_variable global_variable) {
+static void push_global_variable(global_variable_t global_variable) {
 	if (global_variables_size + 1 > MAX_GLOBAL_VARIABLES_IN_FILE) {
 		GRUG_ERROR("There are more than %d global variables in the grug file, exceeding MAX_GLOBAL_VARIABLES_IN_FILE", MAX_GLOBAL_VARIABLES_IN_FILE);
 	}
@@ -37178,9 +37178,9 @@ static void push_global_variable(global_variable global_variable) {
 }
 
 static void parse_global_variable(size_t *i) {
-	global_variable global_variable = {0};
+	global_variable_t global_variable = {0};
 
-	token name_token = consume_token(i);
+	token_t name_token = consume_token(i);
 	global_variable.name = name_token.str;
 	global_variable.name_len = name_token.len;
 
@@ -37188,7 +37188,7 @@ static void parse_global_variable(size_t *i) {
 	consume_token(i);
 
 	assert_token_type(*i, WORD_TOKEN);
-	token type_token = consume_token(i);
+	token_t type_token = consume_token(i);
 	global_variable.type = type_token.str;
 	global_variable.type_len = type_token.len;
 
@@ -37200,16 +37200,16 @@ static void parse_global_variable(size_t *i) {
 	push_global_variable(global_variable);
 }
 
-static statement parse_statement(size_t *i) {
-	token switch_token = peek_token(*i);
+static statement_t parse_statement(size_t *i) {
+	token_t switch_token = peek_token(*i);
 
-	statement statement = {0};
+	statement_t statement = {0};
 	switch (switch_token.type) {
 		case WORD_TOKEN: {
-			token token = peek_token(*i + 1);
+			token_t token = peek_token(*i + 1);
 			if (token.type == OPEN_PARENTHESIS_TOKEN) {
 				statement.type = CALL_STATEMENT;
-				expr expr = parse_call(i);
+				expr_t expr = parse_call(i);
 				statement.call_statement.expr_index = push_expr(expr);
 			} else if (token.type == COLON_TOKEN || token.type == ASSIGNMENT_TOKEN) {
 				statement.type = VARIABLE_STATEMENT;
@@ -37228,7 +37228,7 @@ static statement parse_statement(size_t *i) {
 			(*i)++;
 			statement.type = RETURN_STATEMENT;
 
-			token token = peek_token(*i);
+			token_t token = peek_token(*i);
 			if (token.type == NEWLINES_TOKEN) {
 				statement.return_statement.has_value = false;
 			} else if (token.type == OPEN_BRACE_TOKEN) {
@@ -37267,17 +37267,17 @@ static void parse_statements(size_t *i, size_t *body_statements_offset, size_t *
 	consume_1_newline(i);
 
 	// This local array is necessary, cause an IF or LOOP substatement can contain its own statements
-	statement local_statements[MAX_STATEMENTS_PER_STACK_FRAME];
+	statement_t local_statements[MAX_STATEMENTS_PER_STACK_FRAME];
 	*body_statement_count = 0;
 
 	while (true) {
-		token token = peek_token(*i);
+		token_t token = peek_token(*i);
 		if (token.type == CLOSE_BRACE_TOKEN) {
 			break;
 		}
 
 		if (token.type != COMMENT_TOKEN) {
-			statement statement = parse_statement(i);
+			statement_t statement = parse_statement(i);
 
 			if (*body_statement_count + 1 > MAX_STATEMENTS_PER_STACK_FRAME) {
 				GRUG_ERROR("There are more than %d statements in one of the grug file's stack frames, exceeding MAX_STATEMENTS_PER_STACK_FRAME", MAX_STATEMENTS_PER_STACK_FRAME);
@@ -37301,7 +37301,7 @@ static void parse_statements(size_t *i, size_t *body_statements_offset, size_t *
 	}
 }
 
-static size_t push_argument(argument argument) {
+static size_t push_argument(argument_t argument) {
 	if (arguments_size + 1 > MAX_ARGUMENTS_IN_FILE) {
 		GRUG_ERROR("There are more than %d arguments in the grug file, exceeding MAX_ARGUMENTS_IN_FILE", MAX_ARGUMENTS_IN_FILE);
 	}
@@ -37310,8 +37310,8 @@ static size_t push_argument(argument argument) {
 }
 
 static void parse_arguments(size_t *i, size_t *arguments_offset, size_t *argument_count) {
-	token token = consume_token(i);
-	argument argument = {.name = token.str, .name_len = token.len};
+	token_t token = consume_token(i);
+	argument_t argument = {.name = token.str, .name_len = token.len};
 
 	consume_token_type(i, COLON_TOKEN);
 
@@ -37333,7 +37333,7 @@ static void parse_arguments(size_t *i, size_t *arguments_offset, size_t *argumen
 
 		assert_token_type(*i, WORD_TOKEN);
 		token = consume_token(i);
-		struct argument argument = {.name = token.str, .name_len = token.len};
+		argument_t argument = {.name = token.str, .name_len = token.len};
 
 		consume_token_type(i, COLON_TOKEN);
 
@@ -37347,9 +37347,9 @@ static void parse_arguments(size_t *i, size_t *arguments_offset, size_t *argumen
 }
 
 static void parse_helper_fn(size_t *i) {
-	helper_fn fn = {0};
+	helper_fn_t fn = {0};
 
-	token token = consume_token(i);
+	token_t token = consume_token(i);
 	fn.fn_name = token.str;
 	fn.fn_name_len = token.len;
 
@@ -37375,9 +37375,9 @@ static void parse_helper_fn(size_t *i) {
 }
 
 static void parse_on_fn(size_t *i) {
-	on_fn fn = {0};
+	on_fn_t fn = {0};
 
-	token token = consume_token(i);
+	token_t token = consume_token(i);
 	fn.fn_name = token.str;
 	fn.fn_name_len = token.len;
 
@@ -37395,23 +37395,23 @@ static void parse_on_fn(size_t *i) {
 	push_on_fn(fn);
 }
 
-static void push_field(field field) {
+static void push_field(field_t field) {
 	if (fields_size + 1 > MAX_FIELDS_IN_FILE) {
 		GRUG_ERROR("There are more than %d fields in the grug file, exceeding MAX_FIELDS_IN_FILE", MAX_FIELDS_IN_FILE);
 	}
 	fields[fields_size++] = field;
 }
 
-static compound_literal parse_compound_literal(size_t *i) {
+static compound_literal_t parse_compound_literal(size_t *i) {
 	(*i)++;
 	potentially_skip_comment(i);
 
-	compound_literal compound_literal = {.fields_offset = fields_size};
+	compound_literal_t compound_literal = {.fields_offset = fields_size};
 
 	consume_1_newline(i);
 
 	while (true) {
-		token token = peek_token(*i);
+		token_t token = peek_token(*i);
 		if (token.type == CLOSE_BRACE_TOKEN) {
 			break;
 		}
@@ -37420,7 +37420,7 @@ static compound_literal parse_compound_literal(size_t *i) {
 
 		assert_token_type(*i, WORD_TOKEN);
 		token = peek_token(*i);
-		field field = {.key = token.str, .key_len = token.len};
+		field_t field = {.key = token.str, .key_len = token.len};
 		(*i)++;
 
 		consume_token_type(i, ASSIGNMENT_TOKEN);
@@ -37461,7 +37461,7 @@ static void parse_define_fn(size_t *i) {
 	consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
 
 	assert_token_type(*i, WORD_TOKEN);
-	token token = consume_token(i);
+	token_t token = consume_token(i);
 	define_fn.return_type = token.str;
 	define_fn.return_type_len = token.len;
 
@@ -37489,7 +37489,7 @@ static void parse(void) {
 
 	size_t i = 0;
 	while (i < tokens_size) {
-		token token = peek_token(i);
+		token_t token = peek_token(i);
 		int type = token.type;
 
 		if (       type == WORD_TOKEN && strncmp(token.str, "define", token.len) == 0 && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
@@ -37521,7 +37521,7 @@ static void parse(void) {
 static void assert_spaces(size_t token_index, size_t expected_spaces) {
 	assert_token_type(token_index, SPACES_TOKEN);
 
-	token token = peek_token(token_index);
+	token_t token = peek_token(token_index);
 	if (token.len != expected_spaces) {
 		GRUG_ERROR("Expected %zu space%s, but got %zu at token index %zu", expected_spaces, expected_spaces > 1 ? "s" : "", token.len, token_index);
 	}
@@ -37536,7 +37536,7 @@ static void verify_and_trim_spaces(void) {
 	int depth = 0;
 
 	while (i < tokens_size) {
-		token token = peek_token(i);
+		token_t token = peek_token(i);
 
 		switch (token.type) {
 			case OPEN_PARENTHESIS_TOKEN:
@@ -37564,7 +37564,7 @@ static void verify_and_trim_spaces(void) {
 					GRUG_ERROR("Expected something after the comma at token index %zu", i);
 				}
 
-				struct token next_token = peek_token(i + 1);
+				token_t next_token = peek_token(i + 1);
 				if (next_token.type != NEWLINES_TOKEN && next_token.type != SPACES_TOKEN) {
 					GRUG_ERROR("Expected a single newline or space after the comma, but got token type %s at token index %zu", get_token_type_str[next_token.type], i + 1);
 				}
@@ -37614,7 +37614,7 @@ static void verify_and_trim_spaces(void) {
 					GRUG_ERROR("Expected another token after the space at token index %zu", i);
 				}
 
-				struct token next_token = peek_token(i + 1);
+				token_t next_token = peek_token(i + 1);
 				switch (next_token.type) {
 					case OPEN_PARENTHESIS_TOKEN:
 					case CLOSE_PARENTHESIS_TOKEN:
@@ -37743,9 +37743,9 @@ static void serialize_append_indents(size_t depth) {
 	}
 }
 
-static void serialize_expr(expr expr);
+static void serialize_expr(expr_t expr);
 
-static void serialize_parenthesized_expr(parenthesized_expr parenthesized_expr) {
+static void serialize_parenthesized_expr(parenthesized_expr_t parenthesized_expr) {
 	serialize_append("(");
 	serialize_expr(exprs[parenthesized_expr.expr_index]);
 	serialize_append(")");
@@ -37753,7 +37753,7 @@ static void serialize_parenthesized_expr(parenthesized_expr parenthesized_expr) 
 
 static bool is_helper_function(char *name, size_t len) {
 	for (size_t i = 0; i < helper_fns_size; i++) {
-		helper_fn fn = helper_fns[i];
+		helper_fn_t fn = helper_fns[i];
 		if (fn.fn_name_len == len && memcmp(fn.fn_name, name, len) == 0) {
 			return true;
 		}
@@ -37761,7 +37761,7 @@ static bool is_helper_function(char *name, size_t len) {
 	return false;
 }
 
-static void serialize_call_expr(call_expr call_expr) {
+static void serialize_call_expr(call_expr_t call_expr) {
 	serialize_append_slice(call_expr.fn_name, call_expr.fn_name_len);
 
 	serialize_append("(");
@@ -37783,7 +37783,7 @@ static void serialize_call_expr(call_expr call_expr) {
 
 static void serialize_operator(enum token_type operator);
 
-static void serialize_binary_expr(binary_expr binary_expr) {
+static void serialize_binary_expr(binary_expr_t binary_expr) {
 	serialize_expr(exprs[binary_expr.left_expr_index]);
 
 	if (binary_expr.operator != PERIOD_TOKEN) {
@@ -37847,7 +37847,7 @@ static void serialize_operator(enum token_type operator) {
 
 static bool is_identifier_global(char *name, size_t len) {
 	for (size_t i = 0; i < global_variables_size; i++) {
-		global_variable global = global_variables[i];
+		global_variable_t global = global_variables[i];
 		if (global.name_len == len && memcmp(global.name, name, len) == 0) {
 			return true;
 		}
@@ -37855,7 +37855,7 @@ static bool is_identifier_global(char *name, size_t len) {
 	return false;
 }
 
-static void serialize_expr(expr expr) {
+static void serialize_expr(expr_t expr) {
 	switch (expr.type) {
 		case TRUE_EXPR:
 			serialize_append("true");
@@ -37892,7 +37892,7 @@ static void serialize_expr(expr expr) {
 
 static void serialize_statements(size_t statements_offset, size_t statement_count, size_t depth) {
 	for (size_t statement_index = 0; statement_index < statement_count; statement_index++) {
-		statement statement = statements[statements_offset + statement_index];
+		statement_t statement = statements[statements_offset + statement_index];
 
 		serialize_append_indents(depth);
 
@@ -37940,7 +37940,7 @@ static void serialize_statements(size_t statements_offset, size_t statement_coun
 				serialize_append("return");
 				if (statement.return_statement.has_value) {
 					serialize_append(" ");
-					expr return_expr = exprs[statement.return_statement.value_expr_index];
+					expr_t return_expr = exprs[statement.return_statement.value_expr_index];
 					serialize_expr(return_expr);
 				}
 				serialize_append(";");
@@ -37968,7 +37968,7 @@ static void serialize_arguments(size_t arguments_offset, size_t argument_count) 
 		return;
 	}
 
-	argument arg = arguments[arguments_offset];
+	argument_t arg = arguments[arguments_offset];
 
 	serialize_append_slice(arg.type, arg.type_len);
 	serialize_append(" ");
@@ -37986,7 +37986,7 @@ static void serialize_arguments(size_t arguments_offset, size_t argument_count) 
 
 static void serialize_helper_fns(void) {
 	for (size_t fn_index = 0; fn_index < helper_fns_size; fn_index++) {
-		helper_fn fn = helper_fns[fn_index];
+		helper_fn_t fn = helper_fns[fn_index];
 
 		serialize_append("\n");
 
@@ -38023,7 +38023,7 @@ static void serialize_exported_on_fns(void) {
     serialize_append("_on_fns on_fns = {\n");
 
     for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
-        on_fn fn = on_fns[fn_index];
+        on_fn_t fn = on_fns[fn_index];
 
         serialize_append_indents(1);
         serialize_append(".");
@@ -38038,7 +38038,7 @@ static void serialize_exported_on_fns(void) {
 
 static void serialize_on_fns(void) {
 	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
-		on_fn fn = on_fns[fn_index];
+		on_fn_t fn = on_fns[fn_index];
 
 		serialize_append("\n");
 
@@ -38065,7 +38065,7 @@ static void serialize_on_fns(void) {
 
 static void serialize_forward_declare_helper_fns(void) {
 	for (size_t fn_index = 0; fn_index < helper_fns_size; fn_index++) {
-		helper_fn fn = helper_fns[fn_index];
+		helper_fn_t fn = helper_fns[fn_index];
 
 		if (fn.return_type_len > 0) {
 			serialize_append_slice(fn.return_type, fn.return_type_len);
@@ -38093,7 +38093,7 @@ static void serialize_init_globals_struct(void) {
 	serialize_append("memcpy(globals_struct, &(struct globals){\n");
 
 	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
-		global_variable global_variable = global_variables[global_variable_index];
+		global_variable_t global_variable = global_variables[global_variable_index];
 
 		serialize_append_indents(2);
 
@@ -38124,7 +38124,7 @@ static void serialize_global_variables(void) {
 	serialize_append("struct globals {\n");
 
 	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
-		global_variable global_variable = global_variables[global_variable_index];
+		global_variable_t global_variable = global_variables[global_variable_index];
 
 		serialize_append_indents(1);
 
@@ -38149,10 +38149,10 @@ static void serialize_define_struct(void) {
 	serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
 	serialize_append(" define = {\n");
 
-	compound_literal compound_literal = define_fn.returned_compound_literal;
+	compound_literal_t compound_literal = define_fn.returned_compound_literal;
 
 	for (size_t field_index = 0; field_index < compound_literal.field_count; field_index++) {
-		field field = fields[compound_literal.fields_offset + field_index];
+		field_t field = fields[compound_literal.fields_offset + field_index];
 
 		serialize_append_indents(1);
 		serialize_append(".");
@@ -38202,10 +38202,10 @@ static void serialize_to_c(void) {
 
 //// MISC
 
-mod_directory mods;
+mod_dir_t grug_mods;
 
-reload *reloads;
-size_t reloads_size;
+grug_reload *grug_reloads;
+size_t grug_reloads_size;
 static size_t reloads_capacity;
 
 typedef size_t (*get_globals_struct_size_fn)(void);
@@ -38350,7 +38350,7 @@ static void print_dlerror(char *function_name) {
 	GRUG_ERROR("%s: %s", function_name, err);
 }
 
-static void free_file(grug_file file) {
+static void free_file(grug_file_t file) {
     free(file.name);
 
     if (file.dll && dlclose(file.dll)) {
@@ -38358,7 +38358,7 @@ static void free_file(grug_file file) {
     }
 }
 
-static void free_dir(mod_directory dir) {
+static void free_dir(mod_dir_t dir) {
 	free(dir.name);
 
 	for (size_t i = 0; i < dir.dirs_size; i++) {
@@ -38373,26 +38373,26 @@ static void free_dir(mod_directory dir) {
 }
 
 void grug_free_mods(void) {
-    free_dir(mods);
-    memset(&mods, 0, sizeof(mods));
+    free_dir(grug_mods);
+    memset(&grug_mods, 0, sizeof(grug_mods));
 }
 
 static void *grug_get(void *dll, char *symbol_name) {
 	return dlsym(dll, symbol_name);
 }
 
-static void push_reload(reload reload) {
-    if (reloads_size + 1 > reloads_capacity) {
+static void push_reload(grug_reload_t reload) {
+    if (grug_reloads_size + 1 > reloads_capacity) {
         reloads_capacity = reloads_capacity == 0 ? 1 : reloads_capacity * 2;
-        reloads = realloc(reloads, reloads_capacity * sizeof(*reloads));
-        if (!reloads) {
+        grug_reloads = realloc(grug_reloads, reloads_capacity * sizeof(*grug_reloads));
+        if (!grug_reloads) {
             GRUG_ERROR("realloc: %s", strerror(errno));
         }
     }
-    reloads[reloads_size++] = reload;
+    grug_reloads[grug_reloads_size++] = reload;
 }
 
-static void push_file(mod_directory *dir, grug_file file) {
+static void push_file(mod_dir_t *dir, grug_file_t file) {
     if (dir->files_size + 1 > dir->files_capacity) {
         dir->files_capacity = dir->files_capacity == 0 ? 1 : dir->files_capacity * 2;
         dir->files = realloc(dir->files, dir->files_capacity * sizeof(*dir->files));
@@ -38403,7 +38403,7 @@ static void push_file(mod_directory *dir, grug_file file) {
     dir->files[dir->files_size++] = file;
 }
 
-static void push_subdir(mod_directory *dir, mod_directory subdir) {
+static void push_subdir(mod_dir_t *dir, mod_dir_t subdir) {
     if (dir->dirs_size + 1 > dir->dirs_capacity) {
         dir->dirs_capacity = dir->dirs_capacity == 0 ? 1 : dir->dirs_capacity * 2;
         dir->dirs = realloc(dir->dirs, dir->dirs_capacity * sizeof(*dir->dirs));
@@ -38415,7 +38415,7 @@ static void push_subdir(mod_directory *dir, mod_directory subdir) {
 }
 
 // Profiling may indicate that rewriting this to use an O(1) technique like a hashmap is worth it
-static grug_file *get_file(mod_directory *dir, char *name) {
+static grug_file_t *get_file(mod_dir_t *dir, char *name) {
     for (size_t i = 0; i < dir->files_size; i++) {
         if (strcmp(dir->files[i].name, name) == 0) {
             return dir->files + i;
@@ -38425,7 +38425,7 @@ static grug_file *get_file(mod_directory *dir, char *name) {
 }
 
 // Profiling may indicate that rewriting this to use an O(1) technique like a hashmap is worth it
-static mod_directory *get_subdir(mod_directory *dir, char *name) {
+static mod_dir_t *get_subdir(mod_dir_t *dir, char *name) {
     for (size_t i = 0; i < dir->dirs_size; i++) {
         if (strcmp(dir->dirs[i].name, name) == 0) {
             return dir->dirs + i;
@@ -38444,7 +38444,7 @@ static bool has_been_seen(char *name, char **seen_names, size_t seen_names_size)
     return false;
 }
 
-static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, mod_directory *dir) {
+static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, mod_dir_t *dir) {
 	DIR *dirp = opendir(mods_dir_path);
 	if (!dirp) {
 		GRUG_ERROR("opendir: %s", strerror(errno));
@@ -38486,9 +38486,9 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, mod_di
             }
             seen_dir_names[seen_dir_names_size++] = strdup(dp->d_name);
 
-            mod_directory *subdir = get_subdir(dir, dp->d_name);
+            mod_dir_t *subdir = get_subdir(dir, dp->d_name);
             if (!subdir) {
-                mod_directory inserted_subdir = {.name = strdup(dp->d_name)};
+                mod_dir_t inserted_subdir = {.name = strdup(dp->d_name)};
                 if (!inserted_subdir.name) {
                     GRUG_ERROR("strdup: %s", strerror(errno));
                 }
@@ -38527,10 +38527,10 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, mod_di
             // If the dll doesn't exist or is outdated
             bool needs_regeneration = !dll_exists || entry_stat.st_mtime > dll_stat.st_mtime;
 
-            grug_file *old_file = get_file(dir, dp->d_name);
+            grug_file_t *old_file = get_file(dir, dp->d_name);
 
 			if (needs_regeneration || !old_file) {
-                reload reload = {0};
+                grug_reload_t reload = {0};
 
                 if (old_file) {
                     reload.old_dll = old_file->dll;
@@ -38546,7 +38546,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, mod_di
 				    regenerate_dll(entry_path, dll_path, c_path);
                 }
 
-                grug_file file = {0};
+                grug_file_t file = {0};
                 if (old_file) {
                     file.name = old_file->name;
                 } else {
@@ -38668,20 +38668,20 @@ bool grug_reload_modified_mods(void) {
         return true;
 	}
 
-    reloads_size = 0;
+    grug_reloads_size = 0;
 
-    if (!mods.name) {
-        mods.name = strdup(get_basename(MODS_DIR_PATH));
-        if (!mods.name) {
+    if (!grug_mods.name) {
+        grug_mods.name = strdup(get_basename(MODS_DIR_PATH));
+        if (!grug_mods.name) {
             GRUG_ERROR("strdup: %s", strerror(errno));
         }
     }
 
-	reload_modified_mods(MODS_DIR_PATH, DLL_DIR_PATH, &mods);
+	reload_modified_mods(MODS_DIR_PATH, DLL_DIR_PATH, &grug_mods);
     return false;
 }
 
-static void print_dir(mod_directory dir) {
+static void print_dir(mod_dir_t dir) {
 	static int depth;
 
 	printf("%*s%s/\n", depth * 2, "", dir.name);
@@ -38697,5 +38697,5 @@ static void print_dir(mod_directory dir) {
 }
 
 void grug_print_mods(void) {
-	print_dir(mods);
+	print_dir(grug_mods);
 }
