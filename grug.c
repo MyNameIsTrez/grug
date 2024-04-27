@@ -37493,7 +37493,7 @@ static void parse(void) {
 		token token = peek_token(i);
 		int type = token.type;
 
-		if (       type == WORD_TOKEN && strcmp(token.str, "define") == 0 && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
+		if (       type == WORD_TOKEN && strncmp(token.str, "define", token.len) == 0 && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			if (seen_define_fn) {
 				GRUG_ERROR("There can't be more than one define_ function in a grug file");
 			}
