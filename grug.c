@@ -38010,9 +38010,9 @@ static void serialize_exported_on_fns(void) {
 }
 
 static void serialize_exported_define_type(void) {
-    serialize_append("char *define_type = ");
+    serialize_append("char *define_type = \"");
     serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
-    serialize_append(";\n");
+    serialize_append("\";\n");
 }
 
 static void serialize_helper_fns(void) {
