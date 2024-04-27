@@ -15,7 +15,9 @@ struct grug_file {
 	void *dll;
 	size_t globals_struct_size;
 	init_globals_struct_fn_type init_globals_struct_fn;
-	void *fns;
+	char *define_type;
+	void *define_fn;
+	void *on_fns;
 };
 
 struct mod_directory {
@@ -35,7 +37,9 @@ struct reload {
 	void *new_dll;
 	size_t globals_struct_size;
 	init_globals_struct_fn_type init_globals_struct_fn;
-	void *fns;
+	char *define_type;
+	void *define_fn;
+	void *on_fns;
 };
 
 extern mod_directory mods;

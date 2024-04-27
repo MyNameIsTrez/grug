@@ -37496,7 +37496,7 @@ static void parse(void) {
 		token token = peek_token(i);
 		int type = token.type;
 
-		if (       type == WORD_TOKEN && starts_with(token.str, "define_") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
+		if (       type == WORD_TOKEN && strcmp(token.str, "define") == 0 && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			if (seen_define_fn) {
 				GRUG_ERROR("There can't be more than one define_ function in a grug file");
 			}
@@ -37747,16 +37747,10 @@ static void serialize_append_indents(size_t depth) {
 	}
 }
 
-static void serialize_fns(void) {
+static void serialize_exported_on_fns(void) {
     serialize_append("struct ");
     serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
-    serialize_append("_fns fns {\n");
-
-    serialize_append_indents(1);
-    serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
-    serialize_append(" ");
-    serialize_append_slice(define_fn.fn_name, define_fn.fn_name_len);
-    serialize_append("(void);\n");
+    serialize_append("_on_fns on_fns {\n");
 
 	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
 		on_fn fn = on_fns[fn_index];
@@ -37775,6 +37769,19 @@ static void serialize_fns(void) {
 	}
 
     serialize_append("};\n");
+}
+
+static void serialize_exported_define_fn(void) {
+    serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
+    serialize_append(" ");
+    serialize_append_slice(define_fn.fn_name, define_fn.fn_name_len);
+    serialize_append("(void);\n");
+}
+
+static void serialize_exported_define_type(void) {
+    serialize_append("char *define_type = ");
+    serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
+    serialize_append(";\n");
 }
 
 static void serialize_expr(expr expr);
@@ -38204,9 +38211,15 @@ static void serialize_to_c(void) {
 		serialize_append("\n");
 		serialize_helper_fns();
 	}
+    
+    serialize_append("\n");
+    serialize_exported_define_type();
+    
+    serialize_append("\n");
+    serialize_exported_define_fn();
 
     serialize_append("\n");
-    serialize_fns();
+    serialize_exported_on_fns();
 
 	serialized[serialized_size] = '\0';
 }
@@ -38589,16 +38602,28 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, mod_di
                     GRUG_ERROR("Retrieving the init_globals_struct() function with grug_get() failed for %s", dll_path);
                 }
 
-                file.fns = grug_get(file.dll, "fns");
-                if (!file.fns) {
-                    GRUG_ERROR("Retrieving the fns struct with grug_get() failed for %s", dll_path);
+                file.define_type = grug_get(file.dll, "define_type");
+                if (!file.define_type) {
+                    GRUG_ERROR("Retrieving the define_type string with grug_get() failed for %s", dll_path);
+                }
+
+                file.define_fn = grug_get(file.dll, "define");
+                if (!file.on_fns) {
+                    GRUG_ERROR("Retrieving the on_fns struct with grug_get() failed for %s", dll_path);
+                }
+
+                file.on_fns = grug_get(file.dll, "on_fns");
+                if (!file.on_fns) {
+                    GRUG_ERROR("Retrieving the on_fns struct with grug_get() failed for %s", dll_path);
                 }
 
                 if (old_file) {
                     old_file->dll = file.dll;
                     old_file->globals_struct_size = file.globals_struct_size;
                     old_file->init_globals_struct_fn = file.init_globals_struct_fn;
-                    old_file->fns = file.fns;
+                    old_file->define_type = file.define_type;
+                    old_file->define_fn = file.define_fn;
+                    old_file->on_fns = file.on_fns;
                 } else {
                     push_file(dir, file);
                 }
@@ -38607,7 +38632,9 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, mod_di
                     reload.new_dll = file.dll;
                     reload.globals_struct_size = file.globals_struct_size;
                     reload.init_globals_struct_fn = file.init_globals_struct_fn;
-                    reload.fns = file.fns;
+                    reload.define_type = file.define_type;
+                    reload.define_fn = file.define_fn;
+                    reload.on_fns = file.on_fns;
                     push_reload(reload);
                 }
 			}
