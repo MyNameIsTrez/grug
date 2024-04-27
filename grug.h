@@ -44,5 +44,5 @@ extern size_t reloads_size;
 void grug_init(grug_error_handler_fn grug_error_handler);
 void grug_reload_modified_mods(void);
 void grug_print_mods(void);
-void *grug_get_fn(void *dll, char *fn_name);
+void *grug_get(void *dll, char *symbol_name);
 void grug_free_mods(void);
