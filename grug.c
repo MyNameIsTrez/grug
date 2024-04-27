@@ -38205,7 +38205,7 @@ static void serialize_to_c(void) {
 
 mod_dir_t grug_mods;
 
-grug_reload *grug_reloads;
+grug_reload_t *grug_reloads;
 size_t grug_reloads_size;
 static size_t reloads_capacity;
 
