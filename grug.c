@@ -38584,8 +38584,8 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, mod_di
                 }
 
                 file.define = grug_get(file.dll, "define");
-                if (!file.on_fns) {
-                    GRUG_ERROR("Retrieving the on_fns struct with grug_get() failed for %s", dll_path);
+                if (!file.define) {
+                    GRUG_ERROR("Retrieving the define struct with grug_get() failed for %s", dll_path);
                 }
 
                 // on_fns is optional, so don't check for NULL
