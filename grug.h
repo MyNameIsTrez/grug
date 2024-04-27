@@ -46,6 +46,6 @@ extern mod_directory mods;
 extern reload *reloads;
 extern size_t reloads_size;
 
-void grug_reload_modified_mods(void);
+bool grug_reload_modified_mods(void);
 void grug_print_mods(void);
 void grug_free_mods(void);
