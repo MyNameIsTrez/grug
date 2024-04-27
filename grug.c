@@ -38203,7 +38203,7 @@ static void serialize_to_c(void) {
 
 //// MISC
 
-mod_dir_t grug_mods;
+grug_mod_dir_t grug_mods;
 
 grug_reload_t *grug_reloads;
 size_t grug_reloads_size;
@@ -38359,7 +38359,7 @@ static void free_file(grug_file_t file) {
     }
 }
 
-static void free_dir(mod_dir_t dir) {
+static void free_dir(grug_mod_dir_t dir) {
 	free(dir.name);
 
 	for (size_t i = 0; i < dir.dirs_size; i++) {
@@ -38393,7 +38393,7 @@ static void push_reload(grug_reload_t reload) {
     grug_reloads[grug_reloads_size++] = reload;
 }
 
-static void push_file(mod_dir_t *dir, grug_file_t file) {
+static void push_file(grug_mod_dir_t *dir, grug_file_t file) {
     if (dir->files_size + 1 > dir->files_capacity) {
         dir->files_capacity = dir->files_capacity == 0 ? 1 : dir->files_capacity * 2;
         dir->files = realloc(dir->files, dir->files_capacity * sizeof(*dir->files));
@@ -38404,7 +38404,7 @@ static void push_file(mod_dir_t *dir, grug_file_t file) {
     dir->files[dir->files_size++] = file;
 }
 
-static void push_subdir(mod_dir_t *dir, mod_dir_t subdir) {
+static void push_subdir(grug_mod_dir_t *dir, grug_mod_dir_t subdir) {
     if (dir->dirs_size + 1 > dir->dirs_capacity) {
         dir->dirs_capacity = dir->dirs_capacity == 0 ? 1 : dir->dirs_capacity * 2;
         dir->dirs = realloc(dir->dirs, dir->dirs_capacity * sizeof(*dir->dirs));
@@ -38416,7 +38416,7 @@ static void push_subdir(mod_dir_t *dir, mod_dir_t subdir) {
 }
 
 // Profiling may indicate that rewriting this to use an O(1) technique like a hashmap is worth it
-static grug_file_t *get_file(mod_dir_t *dir, char *name) {
+static grug_file_t *get_file(grug_mod_dir_t *dir, char *name) {
     for (size_t i = 0; i < dir->files_size; i++) {
         if (strcmp(dir->files[i].name, name) == 0) {
             return dir->files + i;
@@ -38426,7 +38426,7 @@ static grug_file_t *get_file(mod_dir_t *dir, char *name) {
 }
 
 // Profiling may indicate that rewriting this to use an O(1) technique like a hashmap is worth it
-static mod_dir_t *get_subdir(mod_dir_t *dir, char *name) {
+static grug_mod_dir_t *get_subdir(grug_mod_dir_t *dir, char *name) {
     for (size_t i = 0; i < dir->dirs_size; i++) {
         if (strcmp(dir->dirs[i].name, name) == 0) {
             return dir->dirs + i;
@@ -38445,7 +38445,7 @@ static bool has_been_seen(char *name, char **seen_names, size_t seen_names_size)
     return false;
 }
 
-static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, mod_dir_t *dir) {
+static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_mod_dir_t *dir) {
 	DIR *dirp = opendir(mods_dir_path);
 	if (!dirp) {
 		GRUG_ERROR("opendir: %s", strerror(errno));
@@ -38487,9 +38487,9 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, mod_di
             }
             seen_dir_names[seen_dir_names_size++] = strdup(dp->d_name);
 
-            mod_dir_t *subdir = get_subdir(dir, dp->d_name);
+            grug_mod_dir_t *subdir = get_subdir(dir, dp->d_name);
             if (!subdir) {
-                mod_dir_t inserted_subdir = {.name = strdup(dp->d_name)};
+                grug_mod_dir_t inserted_subdir = {.name = strdup(dp->d_name)};
                 if (!inserted_subdir.name) {
                     GRUG_ERROR("strdup: %s", strerror(errno));
                 }
@@ -38682,7 +38682,7 @@ bool grug_reload_modified_mods(void) {
     return false;
 }
 
-static void print_dir(mod_dir_t dir) {
+static void print_dir(grug_mod_dir_t dir) {
 	static int depth;
 
 	printf("%*s%s/\n", depth * 2, "", dir.name);

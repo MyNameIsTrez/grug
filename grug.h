@@ -6,9 +6,9 @@
 typedef void (*init_globals_struct_fn_t)(void *globals_struct);
 
 typedef struct grug_file grug_file_t;
-typedef struct mod_dir mod_dir_t;
+typedef struct mod_dir grug_mod_dir_t;
 
-typedef struct reload reload_t;
+typedef struct reload grug_reload_t;
 
 typedef struct grug_error grug_error_t;
 
@@ -25,7 +25,7 @@ struct grug_file {
 struct mod_dir {
 	char *name;
 
-	mod_dir_t *dirs;
+	grug_mod_dir_t *dirs;
 	size_t dirs_size;
 	size_t dirs_capacity;
 
@@ -50,9 +50,9 @@ struct grug_error {
     int line_number;
 };
 
-extern mod_dir_t grug_mods;
+extern grug_mod_dir_t grug_mods;
 
-extern reload_t *grug_reloads;
+extern grug_reload_t *grug_reloads;
 extern size_t grug_reloads_size;
 
 extern grug_error_t grug_error;
