@@ -37989,6 +37989,8 @@ static void serialize_helper_fns(void) {
 	for (size_t fn_index = 0; fn_index < helper_fns_size; fn_index++) {
 		helper_fn fn = helper_fns[fn_index];
 
+		serialize_append("\n");
+
 		if (fn.return_type_len > 0) {
 			serialize_append_slice(fn.return_type, fn.return_type_len);
 		} else {
@@ -38038,6 +38040,8 @@ static void serialize_exported_on_fns(void) {
 static void serialize_on_fns(void) {
 	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
 		on_fn fn = on_fns[fn_index];
+
+		serialize_append("\n");
 
 		serialize_append("void ");
 		serialize_append_slice(fn.fn_name, fn.fn_name_len);
@@ -38185,15 +38189,12 @@ static void serialize_to_c(void) {
 	}
 
 	if (on_fns_size > 0) {
-		serialize_append("\n");
 		serialize_on_fns();
-
         serialize_append("\n");
         serialize_exported_on_fns();
     }
 
 	if (helper_fns_size > 0) {
-		serialize_append("\n");
 		serialize_helper_fns();
 	}
 
