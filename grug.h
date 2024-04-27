@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 
 typedef void (*init_globals_struct_fn_type)(void *globals_struct);
