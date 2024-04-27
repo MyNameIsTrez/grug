@@ -1,6 +1,5 @@
 #pragma once
 
-#include <stdbool.h>
 #include <stddef.h>
 
 typedef void (*grug_error_handler_fn)(char *error_msg, char *filename, int line_number);
