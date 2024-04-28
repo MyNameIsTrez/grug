@@ -38046,7 +38046,7 @@ static void serialize_on_fns(void) {
 
 		serialize_append("\n");
 
-		serialize_append("void ");
+		serialize_append("static void ");
 		serialize_append_slice(fn.fn_name, fn.fn_name_len);
 
 		serialize_append("(");
