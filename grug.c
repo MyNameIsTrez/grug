@@ -38028,7 +38028,10 @@ static void serialize_exported_on_fns(void) {
 
         serialize_append_indents(1);
         serialize_append(".");
-        serialize_append_slice(fn.fn_name, fn.fn_name_len);
+
+        // Skip the "on_"
+        serialize_append_slice(fn.fn_name + 3, fn.fn_name_len - 3);
+
         serialize_append(" = ");
         serialize_append_slice(fn.fn_name, fn.fn_name_len);
         serialize_append(",\n");
