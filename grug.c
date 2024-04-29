@@ -30779,7 +30779,10 @@ static const char * const target_os_defs =
 
 static void putdef(CString *cs, const char *p)
 {
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wformat-overflow"
     cstr_printf(cs, "#define %s%s\n", p, &" 1"[!!strchr(p, ' ')*2]);
+    #pragma GCC diagnostic pop
 }
 
 static void putdefs(CString *cs, const char *p)
