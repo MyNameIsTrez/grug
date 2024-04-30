@@ -45,9 +45,9 @@ struct reload {
 };
 
 struct grug_error {
-    char msg[420];
-    char *filename;
-    int line_number;
+	char msg[420];
+	char *filename;
+	int line_number;
 };
 
 extern grug_mod_dir_t grug_mods;
