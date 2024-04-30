@@ -8,7 +8,7 @@ typedef void (*init_globals_struct_fn_t)(void *globals_struct);
 typedef struct grug_file grug_file_t;
 typedef struct mod_dir grug_mod_dir_t;
 
-typedef struct reload grug_reload_t;
+typedef struct modified grug_modified_t;
 
 typedef struct grug_error grug_error_t;
 
@@ -34,7 +34,7 @@ struct mod_dir {
 	size_t files_capacity;
 };
 
-struct reload {
+struct modified {
 	void *old_dll;
 	void *new_dll;
 	size_t globals_struct_size;
@@ -52,11 +52,11 @@ struct grug_error {
 
 extern grug_mod_dir_t grug_mods;
 
-extern grug_reload_t *grug_reloads;
+extern grug_modified_t *grug_reloads;
 extern size_t grug_reloads_size;
 
 extern grug_error_t grug_error;
 
-bool grug_reload_modified_mods(void);
+bool grug_regenerate_modified_mods(void);
 void grug_print_mods(void);
 void grug_free_mods(void);

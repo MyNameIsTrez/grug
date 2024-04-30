@@ -38211,7 +38211,7 @@ static void serialize_to_c(void) {
 
 grug_mod_dir_t grug_mods;
 
-grug_reload_t *grug_reloads;
+grug_modified_t *grug_reloads;
 size_t grug_reloads_size;
 static size_t reloads_capacity;
 
@@ -38388,7 +38388,7 @@ static void *grug_get(void *dll, char *symbol_name) {
 	return dlsym(dll, symbol_name);
 }
 
-static void push_reload(grug_reload_t reload) {
+static void push_reload(grug_modified_t modified) {
     if (grug_reloads_size + 1 > reloads_capacity) {
         reloads_capacity = reloads_capacity == 0 ? 1 : reloads_capacity * 2;
         grug_reloads = realloc(grug_reloads, reloads_capacity * sizeof(*grug_reloads));
@@ -38396,7 +38396,7 @@ static void push_reload(grug_reload_t reload) {
             GRUG_ERROR("realloc: %s", strerror(errno));
         }
     }
-    grug_reloads[grug_reloads_size++] = reload;
+    grug_reloads[grug_reloads_size++] = modified;
 }
 
 static void push_file(grug_mod_dir_t *dir, grug_file_t file) {
@@ -38537,10 +38537,10 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
             grug_file_t *old_file = get_file(dir, dp->d_name);
 
 			if (needs_regeneration || !old_file) {
-                grug_reload_t reload = {0};
+                grug_modified_t modified = {0};
 
                 if (old_file) {
-                    reload.old_dll = old_file->dll;
+                    modified.old_dll = old_file->dll;
                     if (dlclose(old_file->dll)) {
                         print_dlerror("dlclose");
                     }
@@ -38611,13 +38611,13 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
                 }
 
                 if (needs_regeneration) {
-                    reload.new_dll = file.dll;
-                    reload.globals_struct_size = file.globals_struct_size;
-                    reload.init_globals_struct_fn = file.init_globals_struct_fn;
-                    reload.define_type = file.define_type;
-                    reload.define = file.define;
-                    reload.on_fns = file.on_fns;
-                    push_reload(reload);
+                    modified.new_dll = file.dll;
+                    modified.globals_struct_size = file.globals_struct_size;
+                    modified.init_globals_struct_fn = file.init_globals_struct_fn;
+                    modified.define_type = file.define_type;
+                    modified.define = file.define;
+                    modified.on_fns = file.on_fns;
+                    push_reload(modified);
                 }
 			}
 		}
@@ -38668,7 +38668,7 @@ static char *get_basename(char *path) {
 }
 
 // Returns whether an error occurred
-bool grug_reload_modified_mods(void) {
+bool grug_regenerate_modified_mods(void) {
 	assert(!strchr(MODS_DIR_PATH, '\\') && "MODS_DIR_PATH can't contain backslashes, so replace them with '/'");
 	assert(MODS_DIR_PATH[strlen(MODS_DIR_PATH) - 1] != '/' && "MODS_DIR_PATH can't have a trailing '/'");
 
