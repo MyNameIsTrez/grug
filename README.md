@@ -4,5 +4,5 @@ See [my blog post](https://mynameistrez.github.io/2024/02/29/creating-the-perfec
 
 ## Small example programs
 
-- [Terminal fighting game](https://github.com/MyNameIsTrez/grug-terminal-fighting-game)
+- [terminal fighting game](https://github.com/MyNameIsTrez/grug-terminal-fighting-game)
 - [grug benchmarks](https://github.com/MyNameIsTrez/grug-benchmarks)
