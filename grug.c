@@ -3307,9 +3307,9 @@ extern long double strtold (const char *__nptr, char **__endptr);
 #endif
 
 /* (target specific) libtcc1.a */
-#ifndef TCC_LIBTCC1
-# define TCC_LIBTCC1 "libtcc1.a"
-#endif
+// #ifndef TCC_LIBTCC1
+// # define TCC_LIBTCC1 "libtcc1.a"
+// #endif
 
 #ifndef CONFIG_TCC_CROSSPREFIX
 # define CONFIG_TCC_CROSSPREFIX ""
@@ -18964,8 +18964,8 @@ ST_FUNC void tcc_add_runtime(TCCState *s1)
 #if defined TCC_TARGET_ARM && TARGETOS_FreeBSD
         tcc_add_library_err(s1, "gcc_s"); // unwind code
 #endif
-        if (TCC_LIBTCC1[0])
-            tcc_add_support(s1, TCC_LIBTCC1);
+        // if (TCC_LIBTCC1[0])
+        //     tcc_add_support(s1, TCC_LIBTCC1);
 #ifndef TCC_TARGET_MACHO
         if (s1->output_type != TCC_OUTPUT_MEMORY)
             tccelf_add_crtend(s1);
