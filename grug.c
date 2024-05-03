@@ -1297,11 +1297,9 @@ static statement_t parse_statement(size_t *i) {
 			token_t token = peek_token(*i);
 			if (token.type == NEWLINES_TOKEN) {
 				statement.return_statement.has_value = false;
-			} else if (token.type == OPEN_BRACE_TOKEN) {
+			} else {
 				statement.return_statement.has_value = true;
 				statement.return_statement.value_expr_index = push_expr(parse_expression(i));
-			} else {
-				GRUG_ERROR("Expected newline or '{' after 'return', but got '%.*s' at token index %zu", (int)token.len, token.str, *i);
             }
 
 			break;
@@ -1431,8 +1429,8 @@ static void parse_helper_fn(size_t *i) {
 	token = peek_token(*i);
 	if (token.type == WORD_TOKEN) {
 		(*i)++;
-		define_fn.return_type = token.str;
-		define_fn.return_type_len = token.len;
+		fn.return_type = token.str;
+		fn.return_type_len = token.len;
 	}
 
 	parse_statements(i, &fn.body_statements_offset, &fn.body_statement_count);
