@@ -19,6 +19,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#define MAX_CHARACTERS_IN_FILE 420420
 #define MAX_TOKENS_IN_FILE 420420
 #define MAX_FIELDS_IN_FILE 420420
 #define MAX_EXPRS_IN_FILE 420420
@@ -91,10 +92,11 @@ static char *read_file(char *path) {
 
 	rewind(f);
 
-	char *text = malloc(count + 1);
-	if (!text) {
-        GRUG_ERROR("malloc: %s", strerror(errno));
-	}
+    if (count + 1 > MAX_CHARACTERS_IN_FILE) {
+        GRUG_ERROR("There are more than %d characters in the grug file, exceeding MAX_CHARACTERS_IN_FILE", MAX_CHARACTERS_IN_FILE);
+    }
+
+    static char text[MAX_CHARACTERS_IN_FILE];
 
 	ssize_t bytes_read = fread(text, sizeof(char), count, f);
 	if (bytes_read != count) {
@@ -2351,19 +2353,21 @@ static void regenerate_dll(char *grug_file_path, char *dll_path, char *c_path) {
     tcc_set_options(s, "-g2");
 
 	if (tcc_set_output_type(s, TCC_OUTPUT_DLL)) {
+        tcc_delete(s);
 		GRUG_ERROR("tcc_set_output_type() error");
 	}
 
 	if (tcc_add_file(s, c_path) == -1) {
+        tcc_delete(s);
 		GRUG_ERROR("tcc_compile_string() error");
 	}
 
 	if (tcc_output_file(s, dll_path)) {
+        tcc_delete(s);
 		GRUG_ERROR("tcc_output_file() error");
 	}
 
 	tcc_delete(s);
-	free(grug_text); // TODO: Try doing this earlier
 	errno = 0;
 }
 
