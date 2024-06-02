@@ -9,6 +9,7 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <setjmp.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -47,6 +48,12 @@
 	grug_error.line_number = __LINE__;\
 	longjmp(error_jmp_buffer, 1);\
 }
+
+#ifdef LOGGING
+#define grug_log(...) printf(__VA_ARGS__)
+#else
+#define grug_log(...){ _Pragma("GCC diagnostic push") _Pragma("GCC diagnostic ignored \"-Wunused-value\"") __VA_ARGS__; _Pragma("GCC diagnostic pop") } while (0)
+#endif
 
 grug_error_t grug_error;
 static jmp_buf error_jmp_buffer;
@@ -227,28 +234,28 @@ static void print_tokens(void) {
 	}
 	longest_index = max_size_t(longest_index, strlen("index"));
 
-	printf("| %-*s | %-*s | str\n", (int)longest_index, "index", (int)longest_token_type_len, "type");
+	grug_log("| %-*s | %-*s | str\n", (int)longest_index, "index", (int)longest_token_type_len, "type");
 
 	for (size_t i = 0; i < tokens_size; i++) {
 		token_t token = peek_token(i);
 
-		printf("| %*zu ", (int)longest_index, i);
+		grug_log("| %*zu ", (int)longest_index, i);
 
 		char *token_type_str = get_token_type_str[token.type];
-		printf("| %*s ", (int)longest_token_type_len, token_type_str);
+		grug_log("| %*s ", (int)longest_token_type_len, token_type_str);
 
 		if (token.type == NEWLINES_TOKEN) {
-			printf("| '");
+			grug_log("| '");
 			for (size_t i = 0; i < token.len; i++) {
-				printf("\\n");
+				grug_log("\\n");
 			}
-			printf("'\n");
+			grug_log("'\n");
 		} else {
-			printf("| '%.*s'\n", (int)token.len, token.str);
+			grug_log("| '%.*s'\n", (int)token.len, token.str);
 		}
 	}
 
-	printf("\n");
+	grug_log("\n");
 }
 
 static char *get_escaped_char(char *str) {
@@ -657,35 +664,36 @@ static size_t global_variables_size;
 static void print_expr(expr_t expr);
 
 static void print_parenthesized_expr(parenthesized_expr_t parenthesized_expr) {
-	printf("\"expr\": {\n");
+	grug_log("\"expr\": {\n");
 	print_expr(exprs[parenthesized_expr.expr_index]);
-	printf("},\n");
+	grug_log("},\n");
 }
 
 static void print_call_expr(call_expr_t call_expr) {
-	printf("\"fn_name\": \"%.*s\",\n", (int)call_expr.fn_name_len, call_expr.fn_name);
+	grug_log("\"fn_name\": \"%.*s\",\n", (int)call_expr.fn_name_len, call_expr.fn_name);
+	// { _Pragma("GCC diagnostic push") _Pragma("GCC diagnostic ignored \"-Wunused-value\"") "\"fn_name\": \"%.*s\",\n", (int)call_expr.fn_name_len, call_expr.fn_name; _Pragma("GCC diagnostic pop") } while (0)
 
-	printf("\"arguments\": [\n");
+	grug_log("\"arguments\": [\n");
 	for (size_t argument_index = 0; argument_index < call_expr.argument_count; argument_index++) {
-		printf("{\n");
+		grug_log("{\n");
 		print_expr(exprs[call_expr.arguments_exprs_offset + argument_index]);
-		printf("},\n");
+		grug_log("},\n");
 	}
-	printf("],\n");
+	grug_log("],\n");
 }
 
 static void print_binary_expr(binary_expr_t binary_expr) {
-	printf("\"left_expr\": {\n");
+	grug_log("\"left_expr\": {\n");
 	print_expr(exprs[binary_expr.left_expr_index]);
-	printf("},\n");
-	printf("\"operator\": \"%s\",\n", get_token_type_str[binary_expr.operator]);
-	printf("\"right_expr\": {\n");
+	grug_log("},\n");
+	grug_log("\"operator\": \"%s\",\n", get_token_type_str[binary_expr.operator]);
+	grug_log("\"right_expr\": {\n");
 	print_expr(exprs[binary_expr.right_expr_index]);
-	printf("},\n");
+	grug_log("},\n");
 }
 
 static void print_expr(expr_t expr) {
-	printf("\"type\": \"%s\",\n", get_expr_type_str[expr.type]);
+	grug_log("\"type\": \"%s\",\n", get_expr_type_str[expr.type]);
 
 	switch (expr.type) {
 		case TRUE_EXPR:
@@ -694,13 +702,13 @@ static void print_expr(expr_t expr) {
 		case STRING_EXPR:
 		case IDENTIFIER_EXPR:
 		case NUMBER_EXPR:
-			printf("\"str\": \"%.*s\",\n", (int)expr.literal_expr.len, expr.literal_expr.str);
+			grug_log("\"str\": \"%.*s\",\n", (int)expr.literal_expr.len, expr.literal_expr.str);
 			break;
 		case UNARY_EXPR:
-			printf("\"operator\": \"%s\",\n", get_token_type_str[expr.unary_expr.operator]);
-			printf("\"expr\": {\n");
+			grug_log("\"operator\": \"%s\",\n", get_token_type_str[expr.unary_expr.operator]);
+			grug_log("\"expr\": {\n");
 			print_expr(exprs[expr.unary_expr.expr_index]);
-			printf("},\n");
+			grug_log("},\n");
 			break;
 		case BINARY_EXPR:
 			print_binary_expr(expr.binary_expr);
@@ -716,24 +724,24 @@ static void print_expr(expr_t expr) {
 
 static void print_statements(size_t statements_offset, size_t statement_count) {
 	for (size_t statement_index = 0; statement_index < statement_count; statement_index++) {
-		printf("{\n");
+		grug_log("{\n");
 
 		statement_t statement = statements[statements_offset + statement_index];
 
-		printf("\"type\": \"%s\",\n", get_statement_type_str[statement.type]);
+		grug_log("\"type\": \"%s\",\n", get_statement_type_str[statement.type]);
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
-				printf("\"variable_name\": \"%.*s\",\n", (int)statement.variable_statement.name_len, statement.variable_statement.name);
+				grug_log("\"variable_name\": \"%.*s\",\n", (int)statement.variable_statement.name_len, statement.variable_statement.name);
 
 				if (statement.variable_statement.has_type) {
-					printf("\"variable_type\": \"%.*s\",\n", (int)statement.variable_statement.type_len, statement.variable_statement.type);
+					grug_log("\"variable_type\": \"%.*s\",\n", (int)statement.variable_statement.type_len, statement.variable_statement.type);
 				}
 
 				if (statement.variable_statement.has_assignment) {
-					printf("\"assignment\": {\n");
+					grug_log("\"assignment\": {\n");
 					print_expr(exprs[statement.variable_statement.assignment_expr_index]);
-					printf("},\n");
+					grug_log("},\n");
 				}
 
 				break;
@@ -741,33 +749,33 @@ static void print_statements(size_t statements_offset, size_t statement_count) {
 				print_call_expr(exprs[statement.call_statement.expr_index].call_expr);
 				break;
 			case IF_STATEMENT:
-				printf("\"condition\": {\n");
+				grug_log("\"condition\": {\n");
 				print_expr(statement.if_statement.condition);
-				printf("},\n");
+				grug_log("},\n");
 
-				printf("\"if_statements\": [\n");
+				grug_log("\"if_statements\": [\n");
 				print_statements(statement.if_statement.if_body_statements_offset, statement.if_statement.if_body_statement_count);
-				printf("],\n");
+				grug_log("],\n");
 
 				if (statement.if_statement.else_body_statement_count > 0) {
-					printf("\"else_statements\": [\n");
+					grug_log("\"else_statements\": [\n");
 					print_statements(statement.if_statement.else_body_statements_offset, statement.if_statement.else_body_statement_count);
-					printf("],\n");
+					grug_log("],\n");
 				}
 
 				break;
 			case RETURN_STATEMENT:
 				if (statement.return_statement.has_value) {
 					expr_t return_expr = exprs[statement.return_statement.value_expr_index];
-					printf("\"expr\": {\n");
+					grug_log("\"expr\": {\n");
 					print_expr(return_expr);
-					printf("},\n");
+					grug_log("},\n");
 				}
 				break;
 			case LOOP_STATEMENT:
-				printf("\"statements\": [\n");
+				grug_log("\"statements\": [\n");
 				print_statements(statement.loop_statement.body_statements_offset, statement.loop_statement.body_statement_count);
-				printf("],\n");
+				grug_log("],\n");
 				break;
 			case BREAK_STATEMENT:
 				break;
@@ -775,133 +783,133 @@ static void print_statements(size_t statements_offset, size_t statement_count) {
 				break;
 		}
 
-		printf("},\n");
+		grug_log("},\n");
 	}
 }
 
 static void print_arguments(size_t arguments_offset, size_t argument_count) {
-	printf("\"arguments\": [\n");
+	grug_log("\"arguments\": [\n");
 
 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
-		printf("{\n");
+		grug_log("{\n");
 
 		argument_t arg = arguments[arguments_offset + argument_index];
 
-		printf("\"name\": \"%.*s\",\n", (int)arg.name_len, arg.name);
-		printf("\"type\": \"%.*s\",\n", (int)arg.type_len, arg.type);
+		grug_log("\"name\": \"%.*s\",\n", (int)arg.name_len, arg.name);
+		grug_log("\"type\": \"%.*s\",\n", (int)arg.type_len, arg.type);
 
-		printf("},\n");
+		grug_log("},\n");
 	}
 
-	printf("],\n");
+	grug_log("],\n");
 }
 
 static void print_helper_fns(void) {
-	printf("\"helper_fns\": [\n");
+	grug_log("\"helper_fns\": [\n");
 
 	for (size_t fn_index = 0; fn_index < helper_fns_size; fn_index++) {
-		printf("{\n");
+		grug_log("{\n");
 
 		helper_fn_t fn = helper_fns[fn_index];
 
-		printf("\"fn_name\": \"%.*s\",\n", (int)fn.fn_name_len, fn.fn_name);
+		grug_log("\"fn_name\": \"%.*s\",\n", (int)fn.fn_name_len, fn.fn_name);
 
 		print_arguments(fn.arguments_offset, fn.argument_count);
 
 		if (fn.return_type_len > 0) {
-			printf("\"return_type\": \"%.*s\",\n", (int)fn.return_type_len, fn.return_type);
+			grug_log("\"return_type\": \"%.*s\",\n", (int)fn.return_type_len, fn.return_type);
 		}
 
-		printf("\"statements\": [\n");
+		grug_log("\"statements\": [\n");
 		print_statements(fn.body_statements_offset, fn.body_statement_count);
-		printf("],\n");
+		grug_log("],\n");
 
-		printf("},\n");
+		grug_log("},\n");
 	}
 
-	printf("],\n");
+	grug_log("],\n");
 }
 
 static void print_on_fns(void) {
-	printf("\"on_fns\": [\n");
+	grug_log("\"on_fns\": [\n");
 
 	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
-		printf("{\n");
+		grug_log("{\n");
 
 		on_fn_t fn = on_fns[fn_index];
 
-		printf("\"fn_name\": \"%.*s\",\n", (int)fn.fn_name_len, fn.fn_name);
+		grug_log("\"fn_name\": \"%.*s\",\n", (int)fn.fn_name_len, fn.fn_name);
 
 		print_arguments(fn.arguments_offset, fn.argument_count);
 
-		printf("\"statements\": [\n");
+		grug_log("\"statements\": [\n");
 		print_statements(fn.body_statements_offset, fn.body_statement_count);
-		printf("],\n");
+		grug_log("],\n");
 
-		printf("},\n");
+		grug_log("},\n");
 	}
 
-	printf("],\n");
+	grug_log("],\n");
 }
 
 static void print_global_variables(void) {
-	printf("\"global_variables\": [\n");
+	grug_log("\"global_variables\": [\n");
 
 	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
-		printf("{\n");
+		grug_log("{\n");
 
 		global_variable_t global_variable = global_variables[global_variable_index];
 
-		printf("\"variable_name\": \"%.*s\",\n", (int)global_variable.name_len, global_variable.name);
+		grug_log("\"variable_name\": \"%.*s\",\n", (int)global_variable.name_len, global_variable.name);
 
-		printf("\"variable_type\": \"%.*s\",\n", (int)global_variable.type_len, global_variable.type);
+		grug_log("\"variable_type\": \"%.*s\",\n", (int)global_variable.type_len, global_variable.type);
 
-		printf("\"assignment\": {\n");
+		grug_log("\"assignment\": {\n");
 		print_expr(global_variable.assignment_expr);
-		printf("},\n");
+		grug_log("},\n");
 
-		printf("},\n");
+		grug_log("},\n");
 	}
 
-	printf("],\n");
+	grug_log("],\n");
 }
 
 static void print_compound_literal(compound_literal_t compound_literal) {
-	printf("\"returned_compound_literal\": [\n");
+	grug_log("\"returned_compound_literal\": [\n");
 
 	for (size_t field_index = 0; field_index < compound_literal.field_count; field_index++) {
-		printf("{\n");
+		grug_log("{\n");
 
 		field_t field = fields[compound_literal.fields_offset + field_index];
 
-		printf("\"key\": \"%.*s\",\n", (int)field.key_len, field.key);
-		printf("\"value\": %.*s,\n", (int)field.value_len, field.value);
+		grug_log("\"key\": \"%.*s\",\n", (int)field.key_len, field.key);
+		grug_log("\"value\": %.*s,\n", (int)field.value_len, field.value);
 
-		printf("},\n");
+		grug_log("},\n");
 	}
 
-	printf("]\n");
+	grug_log("]\n");
 }
 
 static void print_define_fn(void) {
-	printf("\"define_fn\": {\n");
+	grug_log("\"define_fn\": {\n");
 
-	printf("\"return_type\": \"%.*s\",\n", (int)define_fn.return_type_len, define_fn.return_type);
+	grug_log("\"return_type\": \"%.*s\",\n", (int)define_fn.return_type_len, define_fn.return_type);
 
 	print_compound_literal(define_fn.returned_compound_literal);
 
-	printf("},\n");
+	grug_log("},\n");
 }
 
 static void print_fns(void) {
-	printf("{\n");
+	grug_log("{\n");
 
 	print_define_fn();
 	print_global_variables();
 	print_on_fns();
 	print_helper_fns();
 
-	printf("}\n");
+	grug_log("}\n");
 }
 
 static void push_helper_fn(helper_fn_t helper_fn) {
@@ -2295,27 +2303,27 @@ static void reset(void) {
 }
 
 static void regenerate_dll(char *grug_file_path, char *dll_path, char *c_path) {
-	printf("Regenerating %s\n", dll_path);
+	grug_log("Regenerating %s\n", dll_path);
 
 	reset();
 
 	char *grug_text = read_file(grug_file_path);
-	printf("grug_text:\n%s\n", grug_text);
+	grug_log("grug_text:\n%s\n", grug_text);
 
 	tokenize(grug_text);
-	printf("After tokenize():\n");
+	grug_log("After tokenize():\n");
 	print_tokens();
 
 	verify_and_trim_spaces();
-	printf("After verify_and_trim_spaces():\n");
+	grug_log("After verify_and_trim_spaces():\n");
 	print_tokens();
 
 	parse();
-	printf("\nfns:\n");
+	grug_log("\nfns:\n");
 	print_fns();
 
 	serialize_to_c();
-	printf("\nserialized:\n%s\n", serialized);
+	grug_log("\nserialized:\n%s\n", serialized);
 
 	FILE *f = fopen(c_path, "w");
 	if (!f) {
@@ -2359,9 +2367,17 @@ static void regenerate_dll(char *grug_file_path, char *dll_path, char *c_path) {
 	errno = 0;
 }
 
-static void try_create_parent_dirs(char *file_path) {
-	// printf("file_path: %s\n", file_path);
+// Returns whether an error occurred
+bool grug_test_regenerate_dll(char *grug_file_path, char *dll_path) {
+    if (setjmp(error_jmp_buffer)) {
+        return true;
+	}
+    // TODO: Try using /dev/null for the c_path
+    regenerate_dll(grug_file_path, dll_path, "results/output.c");
+    return false;
+}
 
+static void try_create_parent_dirs(char *file_path) {
 	char parent_dir_path[STUPID_MAX_PATH];
 	size_t i = 0;
 
@@ -2369,8 +2385,6 @@ static void try_create_parent_dirs(char *file_path) {
 	while (*file_path) {
 		parent_dir_path[i] = *file_path;
 		parent_dir_path[i + 1] = '\0';
-
-		// printf("parent_dir_path: '%s'\n", parent_dir_path);
 
 		if (*file_path == '/' || *file_path == '\\') {
 			if (mkdir(parent_dir_path, 0777) && errno != EEXIST) {
@@ -2609,7 +2623,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
                 if (needs_regeneration) {
                     char c_path[STUPID_MAX_PATH];
                     fill_as_path_with_c_extension(c_path, dll_entry_path);
-                    
+
 				    regenerate_dll(entry_path, dll_path, c_path);
                 }
 
