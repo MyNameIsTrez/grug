@@ -41,7 +41,8 @@
 #define STUPID_MAX_PATH 4096
 
 #define GRUG_ERROR(...) {\
-	snprintf(grug_error.msg, sizeof(grug_error.msg), __VA_ARGS__);\
+	int ret = snprintf(grug_error.msg, sizeof(grug_error.msg), __VA_ARGS__);\
+    (void)ret;\
     grug_error.filename = __FILE__;\
 	grug_error.line_number = __LINE__;\
 	longjmp(error_jmp_buffer, 1);\
@@ -1916,6 +1917,7 @@ static void serialize_expr(expr_t expr) {
 	switch (expr.type) {
 		case TRUE_EXPR:
 			serialize_append("true");
+			break;
 		case FALSE_EXPR:
 			serialize_append("false");
 			break;
@@ -2323,7 +2325,7 @@ static void regenerate_dll(char *grug_file_path, char *dll_path, char *c_path) {
 	}
 
 	ssize_t bytes_written = fwrite(serialized, sizeof(char), strlen(serialized), f);
-	if (bytes_written != strlen(serialized)) {
+	if (bytes_written < 0 || (size_t)bytes_written != strlen(serialized)) {
 		GRUG_ERROR("fwrite: %s", strerror(errno));
 	}
 
