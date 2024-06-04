@@ -2284,6 +2284,38 @@ static size_t reloads_capacity;
 
 typedef size_t (*get_globals_struct_size_fn)(void);
 
+static void write_dll(char *dll_path) {
+    FILE *f = fopen(dll_path, "w");
+	if (!f) {
+        GRUG_ERROR("fopen: %s", strerror(errno));
+	}
+
+	ssize_t bytes_written = fwrite("foo", sizeof(char), strlen("foo"), f);
+	if (bytes_written < 0 || (size_t)bytes_written != strlen("foo")) {
+		GRUG_ERROR("fwrite: %s", strerror(errno));
+	}
+
+    if (fclose(f)) {
+        GRUG_ERROR("fclose: %s", strerror(errno));
+    }
+}
+
+static void write_c(char *c_path) {
+    FILE *f = fopen(c_path, "w");
+	if (!f) {
+        GRUG_ERROR("fopen: %s", strerror(errno));
+	}
+
+	ssize_t bytes_written = fwrite(serialized, sizeof(char), strlen(serialized), f);
+	if (bytes_written < 0 || (size_t)bytes_written != strlen(serialized)) {
+		GRUG_ERROR("fwrite: %s", strerror(errno));
+	}
+
+    if (fclose(f)) {
+        GRUG_ERROR("fclose: %s", strerror(errno));
+    }
+}
+
 static void reset(void) {
 	tokens_size = 0;
 	fields_size = 0;
@@ -2319,21 +2351,9 @@ static void regenerate_dll(char *grug_file_path, char *dll_path, char *c_path) {
 	serialize_to_c();
 	grug_log("\nserialized:\n%s\n", serialized);
 
-	FILE *f = fopen(c_path, "w");
-	if (!f) {
-        GRUG_ERROR("fopen: %s", strerror(errno));
-	}
+    write_c(c_path);
 
-	ssize_t bytes_written = fwrite(serialized, sizeof(char), strlen(serialized), f);
-	if (bytes_written < 0 || (size_t)bytes_written != strlen(serialized)) {
-		GRUG_ERROR("fwrite: %s", strerror(errno));
-	}
-
-    if (fclose(f)) {
-        GRUG_ERROR("fclose: %s", strerror(errno));
-    }
-
-	errno = 0;
+	write_dll(dll_path);
 }
 
 // Returns whether an error occurred
