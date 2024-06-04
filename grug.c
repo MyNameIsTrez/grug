@@ -2562,21 +2562,13 @@ static void push_symtab(void) {
 
 static void push_data(void) {
     // TODO: Use the data from the AST
-    
-    // "define" symbol
-    push_number(1337, 2);
-    push_byte(69);
 
+    // // "define" symbol
+    // push_number(1337, 2);
+    // push_byte(69);
+
+    // "define_type" symbol
     push_string("entity");
-
-    push_string("a^");
-    push_string("b^");
-    push_string("c^");
-    push_string("d^");
-    push_string("e^");
-    push_string("f^");
-    push_string("g^");
-    push_string("h^");
 
     push_alignment(8);
 }
@@ -2863,16 +2855,8 @@ static void push_program_headers(void) {
     push_program_header(PT_LOAD, PF_R, 0, 0, 0, 0, 0, 0x1000);
 
     // TODO: Use the data from the AST
-    data_size += 3; // "define" symbol
-    data_size += sizeof("entity");
-    data_size += sizeof("a^");
-    data_size += sizeof("b^");
-    data_size += sizeof("c^");
-    data_size += sizeof("d^");
-    data_size += sizeof("e^");
-    data_size += sizeof("f^");
-    data_size += sizeof("g^");
-    data_size += sizeof("h^");
+	// data_size += 3; // "define" symbol
+    data_size += sizeof("entity"); // "define_type" symbol
 
     // .text segment
     // 0x78 to 0xb0
@@ -3042,16 +3026,16 @@ static void init_data_offsets(void) {
     size_t i = 0;
     size_t offset = 0;
 
-    data_offsets[i++] = offset; // "define" symbol
-    offset += 3;
+    // data_offsets[i++] = offset; // "define" symbol
+    // offset += 3;
 
     data_offsets[i++] = offset; // "define_type" symbol
     offset += sizeof("entity");
 
-    for (size_t j = 0; j < 8; j++) {
-        data_offsets[i++] = offset;
-        offset += sizeof("a^");
-    }
+    // for (size_t j = 0; j < 8; j++) {
+    //     data_offsets[i++] = offset;
+    //     offset += sizeof("a^");
+    // }
 }
 
 // haystack="a" , needle="a" => returns 0
@@ -3323,21 +3307,15 @@ static void generate_simple_so(char *dll_path) {
     reset_generate_simple_so();
 
     // TODO: Use the symbols from the AST
-    push_symbol("define");
+    // push_symbol("define");
     push_symbol("define_type");
-    push_symbol("a");
-    push_symbol("b");
-    push_symbol("c");
-    push_symbol("d");
-    push_symbol("e");
-    push_symbol("f");
-    push_symbol("g");
-    push_symbol("h");
-    push_symbol("fn1_c");
-    push_symbol("fn2_c");
+    // push_symbol("a");
+    // push_symbol("fn1_c");
+    // push_symbol("fn2_c");
 
     // TODO: Let this be gotten with push_text() calls
-    text_size = 12;
+	text_size = 0;
+    // text_size = 12;
 
     init_symbol_name_dynstr_offsets();
 
