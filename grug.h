@@ -62,4 +62,4 @@ void grug_print_mods(void);
 void grug_free_mods(void);
 
 // For the grug-tests repository
-bool grug_test_regenerate_dll(char *grug_file_path, char *dll_path);
+bool grug_test_regenerate_dll(char *grug_file_path, char *dll_path, char *c_path);

@@ -2337,12 +2337,11 @@ static void regenerate_dll(char *grug_file_path, char *dll_path, char *c_path) {
 }
 
 // Returns whether an error occurred
-bool grug_test_regenerate_dll(char *grug_file_path, char *dll_path) {
+bool grug_test_regenerate_dll(char *grug_file_path, char *dll_path, char *c_path) {
     if (setjmp(error_jmp_buffer)) {
         return true;
 	}
-    // TODO: Try using /dev/null for the c_path
-    regenerate_dll(grug_file_path, dll_path, "results/output.c");
+    regenerate_dll(grug_file_path, dll_path, c_path);
     return false;
 }
 
