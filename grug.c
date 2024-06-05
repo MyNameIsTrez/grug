@@ -2566,9 +2566,8 @@ static void push_symtab(void) {
 static void push_data(void) {
     // TODO: Use the data from the AST
 
-    // // "define" symbol
-    // push_number(1337, 2);
-    // push_byte(69);
+    // "define" symbol
+    push_number(42, 8);
 
     // "define_type" symbol
     push_string("entity");
@@ -2849,7 +2848,7 @@ static void push_program_headers(void) {
     push_program_header(PT_LOAD, PF_R, 0, 0, 0, 0, 0, 0x1000);
 
     // TODO: Use the data from the AST
-	// data_size += 3; // "define" symbol
+	data_size += sizeof(uint64_t); // "define" symbol
     data_size += sizeof("entity"); // "define_type" symbol
 
     // .text segment
@@ -3010,8 +3009,8 @@ static void init_data_offsets(void) {
     size_t i = 0;
     size_t offset = 0;
 
-    // data_offsets[i++] = offset; // "define" symbol
-    // offset += 3;
+    data_offsets[i++] = offset; // "define" symbol
+    offset += sizeof(uint64_t);
 
     data_offsets[i++] = offset; // "define_type" symbol
     offset += sizeof("entity");
@@ -3291,11 +3290,11 @@ static void generate_simple_so(char *dll_path) {
     reset_generate_simple_so();
 
     // TODO: Use the symbols from the AST
-    // push_symbol("define");
+    push_symbol("define");
     push_symbol("define_type");
 
 	// TODO: Compute this
-	data_symbols_size = 1;
+	data_symbols_size = 2;
 
     // push_symbol("a");
     push_symbol("get_globals_struct_size");
