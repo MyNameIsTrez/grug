@@ -2461,6 +2461,12 @@ static void push_string(char *str) {
     push_byte('\0');
 }
 
+static void push_slice(char *str, size_t len) {
+	for (size_t i = 0; i < len; i++) {
+		push_byte(str[i]);
+	}
+}
+
 static void push_shstrtab(void) {
     shstrtab_offset = bytes_size;
 
@@ -2574,8 +2580,7 @@ static void push_data(void) {
     // "define" symbol
     push_number(42, 8);
 
-    // "define_type" symbol
-    push_string("entity");
+	push_slice(define_fn.return_type, define_fn.return_type_len);
 
     push_alignment(8);
 }
@@ -2847,7 +2852,7 @@ static void push_program_headers(void) {
 
     // TODO: Use the data from the AST
 	data_size += sizeof(uint64_t); // "define" symbol
-    data_size += sizeof("entity"); // "define_type" symbol
+    data_size += define_fn.return_type_len + 1;
 
     // .text segment
     // 0x78 to 0xb0
@@ -3012,7 +3017,7 @@ static void init_data_offsets(void) {
     offset += sizeof(uint64_t);
 
     data_offsets[i++] = offset; // "define_type" symbol
-    offset += sizeof("entity");
+    offset += define_fn.return_type_len + 1;
 
     // for (size_t j = 0; j < 8; j++) {
     //     data_offsets[i++] = offset;
