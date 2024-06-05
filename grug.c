@@ -2367,6 +2367,8 @@ typedef uint64_t u64;
 static char *symbols[MAX_SYMBOLS];
 static size_t symbols_size;
 
+static size_t data_symbols_size;
+
 static bool is_substrs[MAX_SYMBOLS];
 
 static size_t symbol_name_dynstr_offsets[MAX_SYMBOLS];
@@ -2478,7 +2480,7 @@ static void push_strtab(void) {
     strtab_offset = bytes_size;
 
     push_byte(0);
-    push_string("full.s");
+    push_string("tests_ok/minimal/input.s");
     
     // Local symbols
     // TODO: Add loop
@@ -2532,25 +2534,30 @@ static void push_symtab(void) {
     // Null entry
     push_symbol_entry(0, ELF32_ST_INFO(STB_LOCAL, STT_NOTYPE), SHN_UNDEF, 0);
 
-    // "full.s" entry
+    // "<some_path>.s" entry
     push_symbol_entry(1, ELF32_ST_INFO(STB_LOCAL, STT_FILE), SHN_ABS, 0);
 
     // TODO: ? entry
     push_symbol_entry(0, ELF32_ST_INFO(STB_LOCAL, STT_FILE), SHN_ABS, 0);
 
+	// TODO: Let this use path of the .grug file, instead of the .s that's used purely for testing purposes
+	// The `1 +` is to skip the 0 byte that .strtab always starts with
+	size_t name_offset = 1 + sizeof("tests_ok/minimal/input.s");
+
     // "_DYNAMIC" entry
-    push_symbol_entry(8, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT), 6, DYNAMIC_OFFSET);
+    push_symbol_entry(name_offset, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT), 6, DYNAMIC_OFFSET);
+
+	name_offset += sizeof("_DYNAMIC");
 
     // The symbols are pushed in shuffled_symbols order
     for (size_t i = 0; i < symbols_size; i++) {
         size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
 
-        bool is_data = symbol_index < 10; // TODO: Use the data symbol count from the AST
+        bool is_data = symbol_index < data_symbols_size;
         u16 shndx = is_data ? SYMTAB_SECTION_HEADER_INDEX : EH_FRAME_SECTION_HEADER_INDEX;
-        u32 offset = is_data ? DATA_OFFSET + data_offsets[symbol_index] : TEXT_OFFSET + text_offsets[symbol_index - 10]; // TODO: Use the data symbol count from the AST
+        u32 offset = is_data ? DATA_OFFSET + data_offsets[symbol_index] : TEXT_OFFSET + text_offsets[symbol_index - data_symbols_size];
 
-        // The starting offset of 16 is from "full.s" + "_DYNAMIC"
-        push_symbol_entry(16 + symbol_name_strtab_offsets[symbol_index], ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), shndx, offset);
+        push_symbol_entry(name_offset + symbol_name_strtab_offsets[symbol_index], ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), shndx, offset);
     }
 
     symtab_size = bytes_size - symtab_offset;
@@ -2591,18 +2598,21 @@ static void push_dynamic() {
 
 static void push_text(void) {
     // TODO: Use the code from the AST
+
     push_byte(0xb8);
-    push_byte(0x2a);
+    push_byte(8);
     push_byte(0);
     push_byte(0);
     push_byte(0);
     push_byte(0xc3);
-    push_byte(0xb8);
-    push_byte(0x2a);
-    push_byte(0);
-    push_byte(0);
-    push_byte(0);
-    push_byte(0xc3);
+
+	// fn_2.c
+    // push_byte(0xb8);
+    // push_byte(0x2a);
+    // push_byte(0);
+    // push_byte(0);
+    // push_byte(0);
+    // push_byte(0xc3);
 
     push_alignment(8);
 }
@@ -2811,9 +2821,9 @@ static void push_dynsym(void) {
     for (size_t i = 0; i < symbols_size; i++) {
         size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
 
-        bool is_data = symbol_index < 10; // TODO: Use the data symbol count from the AST
+        bool is_data = symbol_index < data_symbols_size;
         u16 shndx = is_data ? SYMTAB_SECTION_HEADER_INDEX : EH_FRAME_SECTION_HEADER_INDEX;
-        u32 offset = is_data ? DATA_OFFSET + data_offsets[symbol_index] : TEXT_OFFSET + text_offsets[symbol_index - 10]; // TODO: Use the data symbol count from the AST
+        u32 offset = is_data ? DATA_OFFSET + data_offsets[symbol_index] : TEXT_OFFSET + text_offsets[symbol_index - data_symbols_size];
 
         push_symbol_entry(symbol_name_dynstr_offsets[symbol_index], ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), shndx, offset);
     }
@@ -2834,6 +2844,7 @@ static void push_program_header(u32 type, u32 flags, u64 offset, u64 virtual_add
 
 static void push_program_headers(void) {
     // .hash, .dynsym, .dynstr segment
+    // 0x40 to 0x78
     // file_size and mem_size get overwritten later
     push_program_header(PT_LOAD, PF_R, 0, 0, 0, 0, 0, 0x1000);
 
@@ -2842,18 +2853,23 @@ static void push_program_headers(void) {
     data_size += sizeof("entity"); // "define_type" symbol
 
     // .text segment
-    push_program_header(PT_LOAD, PF_R | PF_X, TEXT_OFFSET, TEXT_OFFSET, TEXT_OFFSET, 12, 12, 0x1000);
+    // 0x78 to 0xb0
+    push_program_header(PT_LOAD, PF_R | PF_X, TEXT_OFFSET, TEXT_OFFSET, TEXT_OFFSET, text_size, text_size, 0x1000);
 
     // .eh_frame segment
+    // 0xb0 to 0xe8
     push_program_header(PT_LOAD, PF_R, EH_FRAME_OFFSET, EH_FRAME_OFFSET, EH_FRAME_OFFSET, 0, 0, 0x1000);
 
     // .dynamic, .data
+    // 0xe8 to 0x120
     push_program_header(PT_LOAD, PF_R | PF_W, 0x2f50, 0x2f50, 0x2f50, 0xb0 + data_size, 0xb0 + data_size, 0x1000);
 
     // .dynamic segment
+    // 0x120 to 0x158
     push_program_header(PT_DYNAMIC, PF_R | PF_W, 0x2f50, 0x2f50, 0x2f50, 0xb0, 0xb0, 8);
 
     // .dynamic segment
+    // 0x158 to 0x190
     push_program_header(PT_GNU_RELRO, PF_R, 0x2f50, 0x2f50, 0x2f50, 0xb0, 0xb0, 1);
 }
 
@@ -2982,9 +2998,11 @@ static void push_bytes() {
 
 static void init_text_offsets(void) {
     // TODO: Use the data from the AST
-    for (size_t i = 0; i < 2; i++) {
-        text_offsets[i] = i * 6; // fn1_c takes 6 bytes of instructions
-    }
+	text_offsets[0] = 0; // get_globals_struct_size takes 6 bytes of instructions
+
+    // for (size_t i = 0; i < 2; i++) {
+    //     text_offsets[i] = i * 6; // fn1_c takes 6 bytes of instructions
+    // }
 }
 
 static void init_data_offsets(void) {
@@ -3042,7 +3060,7 @@ static size_t get_ending_index(char *haystack, char *needle) {
 }
 
 static void init_symbol_name_strtab_offsets(void) {
-    size_t offset = 1;
+    size_t offset = 0;
 
     static size_t parent_indices[MAX_SYMBOLS];
     static size_t substr_offsets[MAX_SYMBOLS];
@@ -3275,13 +3293,16 @@ static void generate_simple_so(char *dll_path) {
     // TODO: Use the symbols from the AST
     // push_symbol("define");
     push_symbol("define_type");
+
+	// TODO: Compute this
+	data_symbols_size = 1;
+
     // push_symbol("a");
-    // push_symbol("fn1_c");
+    push_symbol("get_globals_struct_size");
     // push_symbol("fn2_c");
 
     // TODO: Let this be gotten with push_text() calls
-	text_size = 0;
-    // text_size = 12;
+	text_size = 6;
 
     init_symbol_name_dynstr_offsets();
 
