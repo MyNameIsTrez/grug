@@ -2530,19 +2530,15 @@ static void push_symtab(void) {
     symtab_offset = bytes_size;
 
     // Null entry
-    // 0x3020 to 0x3038
     push_symbol_entry(0, ELF32_ST_INFO(STB_LOCAL, STT_NOTYPE), SHN_UNDEF, 0);
 
     // "full.s" entry
-    // 0x3038 to 0x3050
     push_symbol_entry(1, ELF32_ST_INFO(STB_LOCAL, STT_FILE), SHN_ABS, 0);
 
     // TODO: ? entry
-    // 0x3050 to 0x3068
     push_symbol_entry(0, ELF32_ST_INFO(STB_LOCAL, STT_FILE), SHN_ABS, 0);
 
     // "_DYNAMIC" entry
-    // 0x3068 to 0x3080
     push_symbol_entry(8, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT), 6, DYNAMIC_OFFSET);
 
     // The symbols are pushed in shuffled_symbols order
@@ -2770,49 +2766,38 @@ static void push_section_headers(void) {
     section_headers_offset = bytes_size;
 
     // Null section
-    // 0x31f0 to 0x3230
     push_zeros(0x40);
 
     // .hash: Hash section
-    // 0x3230 to 0x3270
     push_section_header(0x1b, SHT_HASH, SHF_ALLOC, hash_offset, hash_offset, hash_size, 2, 0, 8, 4);
 
     // .dynsym: Dynamic linker symbol table section
-    // 0x3270 to 0x32b0
     push_section_header(0x21, SHT_DYNSYM, SHF_ALLOC, dynsym_offset, dynsym_offset, dynsym_size, 3, 1, 8, 0x18);
 
     // .dynstr: String table section
-    // 0x32b0 to 0x32f0
     push_section_header(0x29, SHT_STRTAB, SHF_ALLOC, dynstr_offset, dynstr_offset, dynstr_size, 0, 0, 1, 0);
 
     // .text: Code section
-    // 0x32f0 to 0x3330
     push_section_header(0x31, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, TEXT_OFFSET, TEXT_OFFSET, text_size, 0, 0, 16, 0);
 
     // .eh_frame: Exception stack unwinding section
-    // 0x3330 to 0x3370
     push_section_header(0x37, SHT_PROGBITS, SHF_ALLOC, EH_FRAME_OFFSET, EH_FRAME_OFFSET, 0, 0, 0, 8, 0);
 
     // .dynamic: Dynamic linking information section
-    // 0x3370 to 0x33b0
     push_section_header(0x41, SHT_DYNAMIC, SHF_WRITE | SHF_ALLOC, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0xb0, 3, 0, 8, 0x10);
 
     // .data: Data section
-    // 0x33b0 to 0x33f0
     push_section_header(0x4a, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, DATA_OFFSET, DATA_OFFSET, data_size, 0, 0, 4, 0);
 
     // .symtab: Symbol table section
-    // 0x33f0 to 0x3430
     // The "link" is the section header index of the associated string table
     // The "info" of 4 is the symbol table index of the first non-local symbol, which is the 5th entry in push_symtab(), the global "b" symbol
     push_section_header(0x1, SHT_SYMTAB, 0, 0, symtab_offset, symtab_size, STRTAB_SECTION_HEADER_INDEX, 4, 8, SYMTAB_ENTRY_SIZE);
 
     // .strtab: String table section
-    // 0x3430 to 0x3470
     push_section_header(0x09, SHT_PROGBITS | SHT_SYMTAB, 0, 0, strtab_offset, strtab_size, 0, 0, 1, 0);
 
     // .shstrtab: Section header string table section
-    // 0x3470 to end
     push_section_header(0x11, SHT_PROGBITS | SHT_SYMTAB, 0, 0, shstrtab_offset, shstrtab_size, 0, 0, 1, 0);
 }
 
@@ -2820,7 +2805,6 @@ static void push_dynsym(void) {
     dynsym_offset = bytes_size;
 
     // Null entry
-    // 0x1d8 to 0x1f0
     push_symbol_entry(0, ELF32_ST_INFO(STB_LOCAL, STT_NOTYPE), SHN_UNDEF, 0);
 
     // The symbols are pushed in shuffled_symbols order
@@ -2850,7 +2834,6 @@ static void push_program_header(u32 type, u32 flags, u64 offset, u64 virtual_add
 
 static void push_program_headers(void) {
     // .hash, .dynsym, .dynstr segment
-    // 0x40 to 0x78
     // file_size and mem_size get overwritten later
     push_program_header(PT_LOAD, PF_R, 0, 0, 0, 0, 0, 0x1000);
 
@@ -2859,23 +2842,18 @@ static void push_program_headers(void) {
     data_size += sizeof("entity"); // "define_type" symbol
 
     // .text segment
-    // 0x78 to 0xb0
     push_program_header(PT_LOAD, PF_R | PF_X, TEXT_OFFSET, TEXT_OFFSET, TEXT_OFFSET, 12, 12, 0x1000);
 
     // .eh_frame segment
-    // 0xb0 to 0xe8
     push_program_header(PT_LOAD, PF_R, EH_FRAME_OFFSET, EH_FRAME_OFFSET, EH_FRAME_OFFSET, 0, 0, 0x1000);
 
     // .dynamic, .data
-    // 0xe8 to 0x120
     push_program_header(PT_LOAD, PF_R | PF_W, 0x2f50, 0x2f50, 0x2f50, 0xb0 + data_size, 0xb0 + data_size, 0x1000);
 
     // .dynamic segment
-    // 0x120 to 0x158
     push_program_header(PT_DYNAMIC, PF_R | PF_W, 0x2f50, 0x2f50, 0x2f50, 0xb0, 0xb0, 8);
 
     // .dynamic segment
-    // 0x158 to 0x190
     push_program_header(PT_GNU_RELRO, PF_R, 0x2f50, 0x2f50, 0x2f50, 0xb0, 0xb0, 1);
 }
 
@@ -2977,40 +2955,28 @@ static void push_bytes() {
     // 0x40 to 0x190
     push_program_headers();
 
-    // 0x190 to 0x1d8
     push_hash();
 
-    // 0x1d8 to 0x2f8
     push_dynsym();
 
-    // 0x2f8 to 0x318
     push_dynstr();
 
-    // 0x318 to 0x1000
     push_zeros(TEXT_OFFSET - bytes_size);
 
-    // 0x1000 to 0x1010
     push_text();
 
-    // 0x1010 to 0x2f50
     push_zeros(DYNAMIC_OFFSET - bytes_size);
 
-    // 0x2f50 to 0x3000
     push_dynamic();
 
-    // 0x3000 to 0x3020
     push_data();
 
-    // 0x3020 to 0x3170
     push_symtab();
 
-    // 0x3170 to 0x31a0
     push_strtab();
 
-    // 0x31a0 to 0x31f0
     push_shstrtab();
 
-    // 0x31f0 to end
     push_section_headers();
 }
 
