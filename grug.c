@@ -2270,6 +2270,11 @@ static void serialize_to_c(void) {
 
 // TODO: Write
 
+enum {
+	MOV = 0xb8,
+	RET = 0xc3,
+};
+
 //// LINKING
 
 #include <stdbool.h>
@@ -2598,20 +2603,13 @@ static void push_dynamic() {
 static void push_text(void) {
     // TODO: Use the code from the AST
 
-    push_byte(0xb8);
-    push_byte(8);
-    push_byte(0);
-    push_byte(0);
-    push_byte(0);
-    push_byte(0xc3);
+	// get_globals_struct_size()
+    push_byte(MOV);
+    push_number(0, 4); // Value to mov to eax
+    push_byte(RET);
 
-	// fn_2.c
-    // push_byte(0xb8);
-    // push_byte(0x2a);
-    // push_byte(0);
-    // push_byte(0);
-    // push_byte(0);
-    // push_byte(0xc3);
+	// init_globals_struct()
+    push_byte(RET);
 
     push_alignment(8);
 }
@@ -2997,7 +2995,8 @@ static void push_bytes() {
 
 static void init_text_offsets(void) {
     // TODO: Use the data from the AST
-	text_offsets[0] = 0; // get_globals_struct_size takes 6 bytes of instructions
+	text_offsets[0] = 0;
+	text_offsets[1] = 6; // get_globals_struct_size takes 6 bytes of instructions
 
     // for (size_t i = 0; i < 2; i++) {
     //     text_offsets[i] = i * 6; // fn1_c takes 6 bytes of instructions
@@ -3298,10 +3297,10 @@ static void generate_simple_so(char *dll_path) {
 
     // push_symbol("a");
     push_symbol("get_globals_struct_size");
-    // push_symbol("fn2_c");
+    push_symbol("init_globals_struct");
 
     // TODO: Let this be gotten with push_text() calls
-	text_size = 6;
+	text_size = 7;
 
     init_symbol_name_dynstr_offsets();
 
