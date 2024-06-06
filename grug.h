@@ -5,12 +5,23 @@
 
 typedef void (*init_globals_struct_fn_t)(void *globals_struct);
 
+typedef struct grug_mod_types grug_mod_types_t;
+
 typedef struct grug_file grug_file_t;
 typedef struct mod_dir grug_mod_dir_t;
 
 typedef struct modified grug_modified_t;
 
 typedef struct grug_error grug_error_t;
+
+struct grug_mod_types {
+	// TODO: Write this
+	// structs;
+	// fns;
+
+	// TODO: Remove this
+	int a;
+};
 
 struct grug_file {
 	char *name;
@@ -57,6 +68,7 @@ extern size_t grug_reloads_size;
 
 extern grug_error_t grug_error;
 
+void grug_init(grug_mod_types_t mod_types);
 bool grug_regenerate_modified_mods(void);
 void grug_print_mods(void);
 void grug_free_mods(void);

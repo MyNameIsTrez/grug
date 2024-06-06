@@ -3333,6 +3333,8 @@ static void generate_simple_so(char *grug_path, char *dll_path) {
 
 //// MISC
 
+static bool initialized;
+
 grug_mod_dir_t grug_mods;
 
 grug_modified_t *grug_reloads;
@@ -3340,6 +3342,14 @@ size_t grug_reloads_size;
 static size_t reloads_capacity;
 
 typedef size_t (*get_globals_struct_size_fn)(void);
+
+void grug_init(grug_mod_types_t mod_types) {
+	(void)mod_types;
+
+	// TODO: Write this
+
+	initialized = true;
+}
 
 static void write_c(char *c_path) {
     FILE *f = fopen(c_path, "w");
@@ -3399,6 +3409,7 @@ static void regenerate_dll(char *grug_path, char *dll_path, char *c_path) {
 
 // Returns whether an error occurred
 bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *c_path) {
+	assert(initialized && "grug_init() was not called");
     if (setjmp(error_jmp_buffer)) {
         return true;
 	}
@@ -3483,6 +3494,7 @@ static void free_dir(grug_mod_dir_t dir) {
 }
 
 void grug_free_mods(void) {
+	assert(initialized && "grug_init() was not called");
     free_dir(grug_mods);
     memset(&grug_mods, 0, sizeof(grug_mods));
 }
@@ -3772,6 +3784,7 @@ static char *get_basename(char *path) {
 
 // Returns whether an error occurred
 bool grug_regenerate_modified_mods(void) {
+	assert(initialized && "grug_init() was not called");
 	assert(!strchr(MODS_DIR_PATH, '\\') && "MODS_DIR_PATH can't contain backslashes, so replace them with '/'");
 	assert(MODS_DIR_PATH[strlen(MODS_DIR_PATH) - 1] != '/' && "MODS_DIR_PATH can't have a trailing '/'");
 
@@ -3808,5 +3821,6 @@ static void print_dir(grug_mod_dir_t dir) {
 }
 
 void grug_print_mods(void) {
+	assert(initialized && "grug_init() was not called");
 	print_dir(grug_mods);
 }
