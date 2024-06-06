@@ -3344,9 +3344,28 @@ static size_t reloads_capacity;
 typedef size_t (*get_globals_struct_size_fn)(void);
 
 void grug_init(grug_mod_types_t mod_types) {
-	(void)mod_types;
+	assert(mod_types.variables && "You need to pass the .variables field to this function");
+	assert(mod_types.structs && "You need to pass the .structs field to this function");
+	assert(mod_types.fns && "You need to pass the .fns field to this function");
 
-	// TODO: Write this
+	printf("variables:\n");
+	for (grug_variable_t *v = mod_types.variables; v->name; v++) {
+		printf("    %s: %zu bytes\n", v->name, v->size);
+	}
+
+	printf("\nstructs:\n");
+	for (grug_struct_t *s = mod_types.structs; s->name; s++) {
+		printf("    %s:\n", s->name);
+
+		for (grug_variable_t *f = s->fields; f->name; f++) {
+			printf("        %s: %zu bytes\n", f->name, f->size);
+		}
+	}
+
+	printf("\nfns:\n");
+	for (grug_fn_t *fn = mod_types.fns; fn->name; fn++) {
+		printf("    %s\n", fn->name);
+	}
 
 	initialized = true;
 }

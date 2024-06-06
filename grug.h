@@ -7,6 +7,10 @@ typedef void (*init_globals_struct_fn_t)(void *globals_struct);
 
 typedef struct grug_mod_types grug_mod_types_t;
 
+typedef struct grug_variable grug_variable_t;
+typedef struct grug_struct grug_struct_t;
+typedef struct grug_fn grug_fn_t;
+
 typedef struct grug_file grug_file_t;
 typedef struct mod_dir grug_mod_dir_t;
 
@@ -15,13 +19,23 @@ typedef struct modified grug_modified_t;
 typedef struct grug_error grug_error_t;
 
 struct grug_mod_types {
-	// TODO: Write this
-	// variables;
-	// structs; // TODO: This should maybe be part of variables?
-	// fns;
+	grug_variable_t *variables;
+	grug_struct_t *structs;
+	grug_fn_t *fns;
+};
 
-	// TODO: Remove this
-	int a;
+struct grug_variable {
+	char *name;
+	size_t size;
+};
+
+struct grug_struct {
+	char *name;
+	grug_variable_t *fields;
+};
+
+struct grug_fn {
+	char *name;
 };
 
 struct grug_file {
