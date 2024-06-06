@@ -3350,29 +3350,51 @@ static size_t reloads_capacity;
 
 typedef size_t (*get_globals_struct_size_fn)(void);
 
+static bool is_valid_size(size_t size) {
+	return size == 1 || size == 2 || size == 4 || size == 8;
+}
+
+static void validate_sizes(grug_mod_types_t mod_types) {
+	for (grug_variable_t *v = mod_types.variables; v->name; v++) {
+		assert(is_valid_size(v->size) && "Only 1, 2, 4 and 8 bytes are valid sizes");
+	}
+
+	for (grug_struct_t *s = mod_types.structs; s->name; s++) {
+		for (grug_variable_t *f = s->fields; f->name; f++) {
+			assert(is_valid_size(f->size) && "Only 1, 2, 4 and 8 bytes are valid sizes");
+		}
+	}
+
+	// TODO: Also validate functions
+	// for (grug_fn_t *fn = mod_types.fns; fn->name; fn++) {
+	// }
+}
+
 void grug_init(grug_mod_types_t mod_types) {
 	assert(mod_types.variables && "You need to pass the .variables field to this function");
 	assert(mod_types.structs && "You need to pass the .structs field to this function");
 	assert(mod_types.fns && "You need to pass the .fns field to this function");
 
-	printf("variables:\n");
-	for (grug_variable_t *v = mod_types.variables; v->name; v++) {
-		printf("    %s: %zu bytes\n", v->name, v->size);
-	}
+	validate_sizes(mod_types);
 
-	printf("\nstructs:\n");
-	for (grug_struct_t *s = mod_types.structs; s->name; s++) {
-		printf("    %s:\n", s->name);
+	// printf("variables:\n");
+	// for (grug_variable_t *v = mod_types.variables; v->name; v++) {
+	// 	printf("    %s: %zu bytes\n", v->name, v->size);
+	// }
 
-		for (grug_variable_t *f = s->fields; f->name; f++) {
-			printf("        %s: %zu bytes\n", f->name, f->size);
-		}
-	}
+	// printf("\nstructs:\n");
+	// for (grug_struct_t *s = mod_types.structs; s->name; s++) {
+	// 	printf("    %s:\n", s->name);
 
-	printf("\nfns:\n");
-	for (grug_fn_t *fn = mod_types.fns; fn->name; fn++) {
-		printf("    %s\n", fn->name);
-	}
+	// 	for (grug_variable_t *f = s->fields; f->name; f++) {
+	// 		printf("        %s: %zu bytes\n", f->name, f->size);
+	// 	}
+	// }
+
+	// printf("\nfns:\n");
+	// for (grug_fn_t *fn = mod_types.fns; fn->name; fn++) {
+	// 	printf("    %s\n", fn->name);
+	// }
 
 	initialized = true;
 }
