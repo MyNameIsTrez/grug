@@ -2228,7 +2228,14 @@ static void serialize_define_struct(void) {
 }
 
 static void serialize_to_c(void) {
-	serialize_append("#include \"mod.h\"\n");
+    serialize_append("#include <stdint.h>\n");
+    serialize_append("#include <string.h>\n");
+
+	// TODO: Use the struct definitions passed into grug_init()
+    serialize_append("\n");
+	serialize_append("struct entity {\n");
+	serialize_append("\tuint64_t a;\n");
+	serialize_append("};\n");
     
     serialize_append("\n");
     serialize_define_type();
