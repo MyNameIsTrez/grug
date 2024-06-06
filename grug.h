@@ -16,7 +16,8 @@ typedef struct grug_error grug_error_t;
 
 struct grug_mod_types {
 	// TODO: Write this
-	// structs;
+	// variables;
+	// structs; // TODO: This should maybe be part of variables?
 	// fns;
 
 	// TODO: Remove this
