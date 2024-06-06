@@ -2228,12 +2228,13 @@ static void serialize_define_struct(void) {
 }
 
 static void serialize_to_c(void) {
-	serialize_append("#include \"mod.h\"\n\n");
-
-	serialize_define_struct();
+	serialize_append("#include \"mod.h\"\n");
     
     serialize_append("\n");
     serialize_define_type();
+
+    serialize_append("\n");
+	serialize_define_struct();
 
 	serialize_append("\n");
 	serialize_global_variables();
@@ -2465,6 +2466,7 @@ static void push_slice(char *str, size_t len) {
 	for (size_t i = 0; i < len; i++) {
 		push_byte(str[i]);
 	}
+	push_byte('\0');
 }
 
 static void push_shstrtab(void) {
@@ -2578,9 +2580,9 @@ static void push_data(void) {
     // TODO: Use the data from the AST
 
     // "define" symbol
-    push_number(42, 8);
-
 	push_slice(define_fn.return_type, define_fn.return_type_len);
+
+    push_number(42, 8);
 
     push_alignment(8);
 }
@@ -3013,11 +3015,11 @@ static void init_data_offsets(void) {
     size_t i = 0;
     size_t offset = 0;
 
-    data_offsets[i++] = offset; // "define" symbol
-    offset += sizeof(uint64_t);
-
     data_offsets[i++] = offset; // "define_type" symbol
     offset += define_fn.return_type_len + 1;
+
+    data_offsets[i++] = offset; // "define" symbol
+    offset += sizeof(uint64_t);
 
     // for (size_t j = 0; j < 8; j++) {
     //     data_offsets[i++] = offset;
@@ -3294,8 +3296,8 @@ static void generate_simple_so(char *dll_path) {
     reset_generate_simple_so();
 
     // TODO: Use the symbols from the AST
-    push_symbol("define");
     push_symbol("define_type");
+    push_symbol("define");
 
 	// TODO: Compute this
 	data_symbols_size = 2;
