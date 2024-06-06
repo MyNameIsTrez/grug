@@ -2489,11 +2489,11 @@ static void push_shstrtab(void) {
     push_alignment(8);
 }
 
-static void push_strtab(void) {
+static void push_strtab(char *grug_path) {
     strtab_offset = bytes_size;
 
     push_byte(0);
-    push_string("tests_ok/minimal/input.s");
+    push_string(grug_path);
     
     // Local symbols
     // TODO: Add loop
@@ -2541,7 +2541,7 @@ static void push_symbol_entry(u32 name, u16 info, u16 shndx, u32 offset) {
     push_zeros(SYMTAB_ENTRY_SIZE - 12);
 }
 
-static void push_symtab(void) {
+static void push_symtab(char *grug_path) {
     symtab_offset = bytes_size;
 
     // Null entry
@@ -2555,7 +2555,7 @@ static void push_symtab(void) {
 
 	// TODO: Let this use path of the .grug file, instead of the .s that's used purely for testing purposes
 	// The `1 +` is to skip the 0 byte that .strtab always starts with
-	size_t name_offset = 1 + sizeof("tests_ok/minimal/input.s");
+	size_t name_offset = 1 + strlen(grug_path) + 1;
 
     // "_DYNAMIC" entry
     push_symbol_entry(name_offset, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT), 6, DYNAMIC_OFFSET);
@@ -2968,7 +2968,7 @@ static void push_elf_header(void) {
     push_byte(0);
 }
 
-static void push_bytes() {
+static void push_bytes(char *grug_path) {
     // 0x0 to 0x40
     push_elf_header();
 
@@ -2991,9 +2991,9 @@ static void push_bytes() {
 
     push_data();
 
-    push_symtab();
+    push_symtab(grug_path);
 
-    push_strtab();
+    push_strtab(grug_path);
 
     push_shstrtab();
 
@@ -3292,7 +3292,7 @@ static void reset_generate_simple_so(void) {
     bytes_size = 0;
 }
 
-static void generate_simple_so(char *dll_path) {
+static void generate_simple_so(char *grug_path, char *dll_path) {
     reset_generate_simple_so();
 
     // TODO: Use the symbols from the AST
@@ -3318,7 +3318,7 @@ static void generate_simple_so(char *dll_path) {
     init_data_offsets();
     init_text_offsets();
 
-    push_bytes();
+    push_bytes(grug_path);
 
     fix_bytes();
 
@@ -3369,12 +3369,12 @@ static void reset_regenerate_dll(void) {
 	serialized_size = 0;
 }
 
-static void regenerate_dll(char *grug_file_path, char *dll_path, char *c_path) {
+static void regenerate_dll(char *grug_path, char *dll_path, char *c_path) {
 	grug_log("Regenerating %s\n", dll_path);
 
 	reset_regenerate_dll();
 
-	char *grug_text = read_file(grug_file_path);
+	char *grug_text = read_file(grug_path);
 	grug_log("grug_text:\n%s\n", grug_text);
 
 	tokenize(grug_text);
@@ -3394,15 +3394,15 @@ static void regenerate_dll(char *grug_file_path, char *dll_path, char *c_path) {
 
     write_c(c_path);
 
-    generate_simple_so(dll_path);
+    generate_simple_so(grug_path, dll_path);
 }
 
 // Returns whether an error occurred
-bool grug_test_regenerate_dll(char *grug_file_path, char *dll_path, char *c_path) {
+bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *c_path) {
     if (setjmp(error_jmp_buffer)) {
         return true;
 	}
-    regenerate_dll(grug_file_path, dll_path, c_path);
+    regenerate_dll(grug_path, dll_path, c_path);
     return false;
 }
 
@@ -3434,18 +3434,18 @@ static char *get_file_extension(char *filename) {
 	return "";
 }
 
-static void fill_as_path_with_c_extension(char *c_path, char *grug_file_path) {
+static void fill_as_path_with_c_extension(char *c_path, char *grug_path) {
 	c_path[0] = '\0';
-	strncat(c_path, grug_file_path, STUPID_MAX_PATH - 1);
+	strncat(c_path, grug_path, STUPID_MAX_PATH - 1);
 	char *ext = get_file_extension(c_path);
 	assert(*ext);
 	ext[1] = '\0';
 	strncat(ext + 1, "c", STUPID_MAX_PATH - 1 - strlen(c_path));
 }
 
-static void fill_as_path_with_dll_extension(char *dll_path, char *grug_file_path) {
+static void fill_as_path_with_dll_extension(char *dll_path, char *grug_path) {
 	dll_path[0] = '\0';
-	strncat(dll_path, grug_file_path, STUPID_MAX_PATH - 1);
+	strncat(dll_path, grug_path, STUPID_MAX_PATH - 1);
 	char *ext = get_file_extension(dll_path);
 	assert(*ext);
 	ext[1] = '\0';
