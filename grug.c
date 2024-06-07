@@ -2589,6 +2589,7 @@ static void push_data(void) {
     // "define" symbol
 	push_slice(define_fn.return_type, define_fn.return_type_len);
 
+	// TODO: Use the byte_count from grug_init() its .structs
     push_number(42, 8);
 
     push_alignment(8);
@@ -3350,50 +3351,73 @@ static size_t reloads_capacity;
 
 typedef size_t (*get_globals_struct_size_fn)(void);
 
+static bool is_valid_type(char *type, grug_type_t *types) {
+	for (grug_type_t *t = types; t->name; t++) {
+		if (strcmp(type, t->name) == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
 static bool is_valid_size(size_t size) {
 	return size == 1 || size == 2 || size == 4 || size == 8;
 }
 
-static void validate_sizes(grug_mod_types_t mod_types) {
-	for (grug_variable_t *v = mod_types.variables; v->name; v++) {
-		assert(is_valid_size(v->size) && "Only 1, 2, 4 and 8 bytes are valid sizes");
+static void validate_sizes(grug_init_data_t init_data) {
+	for (grug_type_t *t = init_data.types; t->name; t++) {
+		assert(is_valid_size(t->size) && "Only 1, 2, 4 and 8 bytes are valid sizes");
 	}
 
-	for (grug_struct_t *s = mod_types.structs; s->name; s++) {
+	for (grug_struct_t *s = init_data.structs; s->name; s++) {
 		for (grug_variable_t *f = s->fields; f->name; f++) {
-			assert(is_valid_size(f->size) && "Only 1, 2, 4 and 8 bytes are valid sizes");
+			assert(is_valid_type(f->type, init_data.types) && "Unrecognized struct field type");
 		}
 	}
 
-	// TODO: Also validate functions
-	// for (grug_fn_t *fn = mod_types.fns; fn->name; fn++) {
-	// }
+	for (grug_fn_t *fn = init_data.fns; fn->name; fn++) {
+		assert(is_valid_type(fn->return_type, init_data.types) && "Unrecognized function return type");
+
+		for (grug_variable_t *a = fn->arguments; a->name; a++) {
+			assert(is_valid_type(a->type, init_data.types) && "Unrecognized function argument type");
+		}
+	}
 }
 
-void grug_init(grug_mod_types_t mod_types) {
-	assert(mod_types.variables && "You need to pass the .variables field to this function");
-	assert(mod_types.structs && "You need to pass the .structs field to this function");
-	assert(mod_types.fns && "You need to pass the .fns field to this function");
+void grug_init(grug_init_data_t init_data) {
+	assert(init_data.types && "You need to pass the .types field to this function");
+	assert(init_data.structs && "You need to pass the .structs field to this function");
+	assert(init_data.fns && "You need to pass the .fns field to this function");
 
-	validate_sizes(mod_types);
+	validate_sizes(init_data);
 
 	// printf("variables:\n");
-	// for (grug_variable_t *v = mod_types.variables; v->name; v++) {
-	// 	printf("    %s: %zu bytes\n", v->name, v->size);
+	// for (grug_type_t *t = init_data.types; t->name; t++) {
+	// 	printf("    %s: %zu bytes\n", t->name, t->size);
 	// }
 
 	// printf("\nstructs:\n");
-	// for (grug_struct_t *s = mod_types.structs; s->name; s++) {
+	// for (grug_struct_t *s = init_data.structs; s->name; s++) {
 	// 	printf("    %s:\n", s->name);
 
 	// 	for (grug_variable_t *f = s->fields; f->name; f++) {
-	// 		printf("        %s: %zu bytes\n", f->name, f->size);
+	// 		printf("        %s: %s\n", f->name, f->type);
 	// 	}
 	// }
 
 	// printf("\nfns:\n");
-	// for (grug_fn_t *fn = mod_types.fns; fn->name; fn++) {
-	// 	printf("    %s\n", fn->name);
+	// for (grug_fn_t *fn = init_data.fns; fn->name; fn++) {
+	// 	printf("    %s(", fn->name);
+
+	// 	for (grug_variable_t *a = fn->arguments; a->name; a++) {
+	// 		if (a != fn->arguments) {
+	// 			printf(", ");
+	// 		}
+
+	// 		printf("%s: %s", a->name, a->type);
+	// 	}
+
+	// 	printf("): %s\n", fn->return_type);
 	// }
 
 	initialized = true;
