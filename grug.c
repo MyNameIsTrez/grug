@@ -887,7 +887,7 @@ static void print_compound_literal(compound_literal_t compound_literal) {
 
 		grug_log("\"key\": \"%.*s\",\n", (int)field.key_len, field.key);
 
-		grug_log("\"value\": {,\n");
+		grug_log("\"value\": {\n");
 		print_expr(field.expr_value);
 		grug_log("},\n");
 
