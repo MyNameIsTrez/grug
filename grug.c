@@ -5,10 +5,12 @@
 #include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>
+#include <limits.h>
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,6 +34,7 @@
 #define MODS_DIR_PATH "mods"
 #define DLL_DIR_PATH "mod_dlls"
 #define UNREACHABLE_STR "This line of code is supposed to be unreachable. Please report this bug to the grug developers!"
+#define MAX_NUMBER_LEN 42
 
 // "The problem is that you can't meaningfully define a constant like this
 // in a header file. The maximum path size is actually to be something
@@ -56,6 +59,12 @@
 
 grug_error_t grug_error;
 static jmp_buf error_jmp_buffer;
+
+typedef uint8_t u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
+typedef int64_t i64;
 
 //// READING
 
@@ -441,6 +450,7 @@ static void tokenize(char *grug_text) {
 //// PARSING
 
 typedef struct literal_expr literal_expr_t;
+typedef struct number_expr number_expr_t;
 typedef struct unary_expr unary_expr_t;
 typedef struct binary_expr binary_expr_t;
 typedef struct call_expr call_expr_t;
@@ -463,6 +473,11 @@ typedef struct global_variable global_variable_t;
 struct literal_expr {
 	char *str;
 	size_t len;
+};
+
+// TODO: Support other number types
+struct number_expr {
+	int64_t value;
 };
 
 struct unary_expr {
@@ -515,6 +530,7 @@ struct expr {
 	} type;
 	union {
 		literal_expr_t literal_expr;
+		number_expr_t number_expr;
 		unary_expr_t unary_expr;
 		binary_expr_t binary_expr;
 		call_expr_t call_expr;
@@ -687,8 +703,10 @@ static void print_expr(expr_t expr) {
 			break;
 		case STRING_EXPR:
 		case IDENTIFIER_EXPR:
-		case NUMBER_EXPR:
 			grug_log("\"str\": \"%.*s\",\n", (int)expr.literal_expr.len, expr.literal_expr.str);
+			break;
+		case NUMBER_EXPR:
+			grug_log("\"value\": %ld,\n", expr.number_expr.value);
 			break;
 		case UNARY_EXPR:
 			grug_log("\"operator\": \"%s\",\n", get_token_type_str[expr.unary_expr.operator]);
@@ -957,6 +975,39 @@ static void consume_1_newline(size_t *token_index_ptr) {
 	(*token_index_ptr)++;
 }
 
+// This function is actually more 
+// Inspiration: https://stackoverflow.com/a/12923949/13279557
+static i64 slice_to_i64(char *str, size_t len) {
+	char s[MAX_NUMBER_LEN];
+	if (len >= sizeof(s)) {
+		GRUG_ERROR("The number %.*s... has more than MAX_NUMBER_LEN characters, which is %d", MAX_NUMBER_LEN, str, MAX_NUMBER_LEN);
+	}
+	memcpy(s, str, len);
+	s[len] = '\0';
+
+    char *end;
+    errno = 0;
+    i64 n = strtoll(s, &end, 10);
+
+    if (errno == ERANGE && n == LLONG_MAX) {
+		GRUG_ERROR("The number %s is bigger than LLONG_MAX", s);
+	}
+
+	// This function can't ever return a negative number,
+	// since the minus symbol gets tokenized separately
+	assert(errno != ERANGE);
+	assert(n >= 0);
+    // if (errno == ERANGE && n == LLONG_MIN) {
+	// 	GRUG_ERROR("The number %s is smaller than LLONG_MIN", s);
+	// }
+
+	// This function can't ever have trailing characters,
+	// since the number was tokenized
+	assert(*end == '\0');
+
+    return n;
+}
+
 static expr_t parse_expression(size_t *i);
 
 static expr_t parse_primary(size_t *i) {
@@ -994,8 +1045,7 @@ static expr_t parse_primary(size_t *i) {
 		case NUMBER_TOKEN:
 			(*i)++;
 			expr.type = NUMBER_EXPR;
-			expr.literal_expr.str = token.str;
-			expr.literal_expr.len = token.len;
+			expr.number_expr.value = slice_to_i64(token.str, token.len);
 			return expr;
 		default:
 			GRUG_ERROR("Expected a primary expression token, but got token type %s at token index %zu", get_token_type_str[token.type], *i);
@@ -1795,6 +1845,12 @@ static void serialize_append(char *str) {
 	serialize_append_slice(str, strlen(str));
 }
 
+static void serialize_append_number(number_expr_t number_expr) {
+	char buf[MAX_NUMBER_LEN];
+	snprintf(buf, sizeof(buf), "%ld", number_expr.value);
+	serialize_append(buf);
+}
+
 static void serialize_append_indents(size_t depth) {
 	for (size_t i = 0; i < depth * SPACES_PER_INDENT; i++) {
 		serialize_append(" ");
@@ -1931,7 +1987,7 @@ static void serialize_expr(expr_t expr) {
 			serialize_append_slice(expr.literal_expr.str, expr.literal_expr.len);
 			break;
 		case NUMBER_EXPR:
-			serialize_append_slice(expr.literal_expr.str, expr.literal_expr.len);
+			serialize_append_number(expr.number_expr);
 			break;
 		case UNARY_EXPR:
 			serialize_operator(expr.unary_expr.operator);
@@ -2285,12 +2341,6 @@ enum {
 
 //// LINKING
 
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
 #define MAX_BYTES 420420
 #define MAX_SYMBOLS 420420
 
@@ -2371,11 +2421,6 @@ enum sh_index {
     SHN_UNDEF = 0, // An undefined section reference
     SHN_ABS = 0xfff1, // Absolute values for the corresponding reference
 };
-
-typedef uint8_t u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
 
 static char *symbols[MAX_SYMBOLS];
 static size_t symbols_size;
@@ -2583,14 +2628,34 @@ static void push_symtab(char *grug_path) {
     symtab_size = bytes_size - symtab_offset;
 }
 
+// TODO: Make this recursive, since values can also be compound literals
+static void push_returned_compound_literal(void) {
+	// define_fn.returned_compound_literal
+
+	compound_literal_t compound_literal = define_fn.returned_compound_literal;
+
+	for (size_t field_index = 0; field_index < compound_literal.field_count; field_index++) {
+		// field_t field = fields[compound_literal.fields_offset + field_index];
+
+		// TODO: Use field
+	    push_number(42, 8);
+
+		// serialize_append_indents(1);
+		// serialize_append(".");
+		// serialize_append_slice(field.key, field.key_len);
+		// serialize_append(" = ");
+		// serialize_append_slice(field.value, field.value_len);
+		// serialize_append(",\n");
+	}
+}
+
 static void push_data(void) {
     // TODO: Use the data from the AST
 
     // "define" symbol
 	push_slice(define_fn.return_type, define_fn.return_type_len);
 
-	// TODO: Use the byte_count from grug_init() its .structs
-    push_number(42, 8);
+	push_returned_compound_literal();
 
     push_alignment(8);
 }
