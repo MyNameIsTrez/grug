@@ -454,10 +454,10 @@ typedef struct number_expr number_expr_t;
 typedef struct unary_expr unary_expr_t;
 typedef struct binary_expr binary_expr_t;
 typedef struct call_expr call_expr_t;
-typedef struct field field_t;
-typedef struct compound_literal compound_literal_t;
 typedef struct parenthesized_expr parenthesized_expr_t;
 typedef struct expr expr_t;
+typedef struct field field_t;
+typedef struct compound_literal compound_literal_t;
 typedef struct variable_statement variable_statement_t;
 typedef struct call_statement call_statement_t;
 typedef struct if_statement if_statement_t;
@@ -477,7 +477,7 @@ struct literal_expr {
 
 // TODO: Support other number types
 struct number_expr {
-	int64_t value;
+	i64 value;
 };
 
 struct unary_expr {
@@ -496,20 +496,6 @@ struct call_expr {
 	size_t fn_name_len;
 	size_t arguments_exprs_offset;
 	size_t argument_count;
-};
-
-struct field {
-	char *key;
-	size_t key_len;
-	char *value;
-	size_t value_len;
-};
-static field_t fields[MAX_FIELDS_IN_FILE];
-static size_t fields_size;
-
-struct compound_literal {
-	size_t fields_offset;
-	size_t field_count;
 };
 
 struct parenthesized_expr {
@@ -550,6 +536,19 @@ static char *get_expr_type_str[] = {
 };
 static expr_t exprs[MAX_EXPRS_IN_FILE];
 static size_t exprs_size;
+
+struct field {
+	char *key;
+	size_t key_len;
+	expr_t expr_value;
+};
+static field_t fields[MAX_FIELDS_IN_FILE];
+static size_t fields_size;
+
+struct compound_literal {
+	size_t fields_offset;
+	size_t field_count;
+};
 
 struct variable_statement {
 	char *name;
@@ -887,7 +886,10 @@ static void print_compound_literal(compound_literal_t compound_literal) {
 		field_t field = fields[compound_literal.fields_offset + field_index];
 
 		grug_log("\"key\": \"%.*s\",\n", (int)field.key_len, field.key);
-		grug_log("\"value\": %.*s,\n", (int)field.value_len, field.value);
+
+		grug_log("\"value\": {,\n");
+		print_expr(field.expr_value);
+		grug_log("},\n");
 
 		grug_log("},\n");
 	}
@@ -1537,11 +1539,9 @@ static compound_literal_t parse_compound_literal(size_t *i) {
 		if (token.type != STRING_TOKEN && token.type != NUMBER_TOKEN) {
 			GRUG_ERROR("Expected token type STRING_TOKEN or NUMBER_TOKEN, but got %s at token index %zu", get_token_type_str[token.type], *i);
 		}
-		field.value = token.str;
-		field.value_len = token.len;
+		field.expr_value = parse_expression(i);
 		push_field(field);
 		compound_literal.field_count++;
-		(*i)++;
 
 		consume_token_type(i, COMMA_TOKEN);
 		potentially_skip_comment(i);
@@ -2276,7 +2276,7 @@ static void serialize_define_struct(void) {
 		serialize_append(".");
 		serialize_append_slice(field.key, field.key_len);
 		serialize_append(" = ");
-		serialize_append_slice(field.value, field.value_len);
+		serialize_expr(field.expr_value);
 		serialize_append(",\n");
 	}
 
@@ -2635,17 +2635,10 @@ static void push_returned_compound_literal(void) {
 	compound_literal_t compound_literal = define_fn.returned_compound_literal;
 
 	for (size_t field_index = 0; field_index < compound_literal.field_count; field_index++) {
-		// field_t field = fields[compound_literal.fields_offset + field_index];
+		field_t field = fields[compound_literal.fields_offset + field_index];
 
-		// TODO: Use field
-	    push_number(42, 8);
-
-		// serialize_append_indents(1);
-		// serialize_append(".");
-		// serialize_append_slice(field.key, field.key_len);
-		// serialize_append(" = ");
-		// serialize_append_slice(field.value, field.value_len);
-		// serialize_append(",\n");
+		// TODO: Use the number_expr its type and byte count
+	    push_number(field.expr_value.number_expr.value, sizeof(i64));
 	}
 }
 
@@ -2925,8 +2918,11 @@ static void push_program_headers(void) {
     // file_size and mem_size get overwritten later
     push_program_header(PT_LOAD, PF_R, 0, 0, 0, 0, 0, 0x1000);
 
+	// TODO: Move this to its own function, called somewhere else
+	data_size = 0;
     // TODO: Use the data from the AST
-	data_size += sizeof(uint64_t); // "define" symbol
+	data_size += sizeof(u64); // "define" symbol
+	// data_size += sizeof(u64); // "define" symbol
     data_size += define_fn.return_type_len + 1;
 
     // .text segment
@@ -3092,7 +3088,9 @@ static void init_data_offsets(void) {
     offset += define_fn.return_type_len + 1;
 
     data_offsets[i++] = offset; // "define" symbol
-    offset += sizeof(uint64_t);
+	// TODO: Don't hardcode these
+    offset += sizeof(u64);
+    offset += sizeof(u64);
 
     // for (size_t j = 0; j < 8; j++) {
     //     data_offsets[i++] = offset;
@@ -3456,34 +3454,34 @@ void grug_init(grug_init_data_t init_data) {
 
 	validate_sizes(init_data);
 
-	// printf("variables:\n");
-	// for (grug_type_t *t = init_data.types; t->name; t++) {
-	// 	printf("    %s: %zu bytes\n", t->name, t->size);
-	// }
+	grug_log("variables:\n");
+	for (grug_type_t *t = init_data.types; t->name; t++) {
+		grug_log("    %s: %zu bytes\n", t->name, t->size);
+	}
 
-	// printf("\nstructs:\n");
-	// for (grug_struct_t *s = init_data.structs; s->name; s++) {
-	// 	printf("    %s:\n", s->name);
+	grug_log("\nstructs:\n");
+	for (grug_struct_t *s = init_data.structs; s->name; s++) {
+		grug_log("    %s:\n", s->name);
 
-	// 	for (grug_variable_t *f = s->fields; f->name; f++) {
-	// 		printf("        %s: %s\n", f->name, f->type);
-	// 	}
-	// }
+		for (grug_variable_t *f = s->fields; f->name; f++) {
+			grug_log("        %s: %s\n", f->name, f->type);
+		}
+	}
 
-	// printf("\nfns:\n");
-	// for (grug_fn_t *fn = init_data.fns; fn->name; fn++) {
-	// 	printf("    %s(", fn->name);
+	grug_log("\nfns:\n");
+	for (grug_fn_t *fn = init_data.fns; fn->name; fn++) {
+		grug_log("    %s(", fn->name);
 
-	// 	for (grug_variable_t *a = fn->arguments; a->name; a++) {
-	// 		if (a != fn->arguments) {
-	// 			printf(", ");
-	// 		}
+		for (grug_variable_t *a = fn->arguments; a->name; a++) {
+			if (a != fn->arguments) {
+				grug_log(", ");
+			}
 
-	// 		printf("%s: %s", a->name, a->type);
-	// 	}
+			grug_log("%s: %s", a->name, a->type);
+		}
 
-	// 	printf("): %s\n", fn->return_type);
-	// }
+		grug_log("): %s\n", fn->return_type);
+	}
 
 	initialized = true;
 }
