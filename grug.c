@@ -2918,13 +2918,6 @@ static void push_program_headers(void) {
     // file_size and mem_size get overwritten later
     push_program_header(PT_LOAD, PF_R, 0, 0, 0, 0, 0, 0x1000);
 
-	// TODO: Move this to its own function, called somewhere else
-	data_size = 0;
-    // TODO: Use the data from the AST
-	data_size += sizeof(u64); // "define" symbol
-	// data_size += sizeof(u64); // "define" symbol
-    data_size += define_fn.return_type_len + 1;
-
     // .text segment
     // 0x78 to 0xb0
     push_program_header(PT_LOAD, PF_R | PF_X, TEXT_OFFSET, TEXT_OFFSET, TEXT_OFFSET, text_size, text_size, 0x1000);
@@ -3356,6 +3349,16 @@ static void push_symbol(char *symbol) {
     symbols[symbols_size++] = symbol;
 }
 
+// TODO: This needs to be recursive,
+// since the AST can contain nested compound literals
+static void compute_data_size(void) {
+	data_size = 0;
+    // TODO: Use the data from the AST
+	data_size += sizeof(u64); // "define" symbol
+	// data_size += sizeof(u64); // "define" symbol
+    data_size += define_fn.return_type_len + 1;
+}
+
 static void reset_generate_simple_so(void) {
     symbols_size = 0;
     chains_size = 0;
@@ -3365,6 +3368,8 @@ static void reset_generate_simple_so(void) {
 
 static void generate_simple_so(char *grug_path, char *dll_path) {
     reset_generate_simple_so();
+
+	compute_data_size();
 
     // TODO: Use the symbols from the AST
     push_symbol("define_type");
