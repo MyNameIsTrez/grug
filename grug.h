@@ -7,7 +7,6 @@ typedef void (*init_globals_struct_fn_t)(void *globals_struct);
 
 typedef struct grug_function grug_function_t;
 typedef struct grug_argument grug_argument_t;
-typedef struct grug_type grug_type_t;
 
 typedef struct grug_file grug_file_t;
 typedef struct mod_dir grug_mod_dir_t;
