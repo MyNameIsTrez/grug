@@ -5,12 +5,9 @@
 
 typedef void (*init_globals_struct_fn_t)(void *globals_struct);
 
-typedef struct grug_init_data grug_init_data_t;
-
+typedef struct grug_function grug_function_t;
+typedef struct grug_argument grug_argument_t;
 typedef struct grug_type grug_type_t;
-typedef struct grug_variable grug_variable_t;
-typedef struct grug_struct grug_struct_t;
-typedef struct grug_fn grug_fn_t;
 
 typedef struct grug_file grug_file_t;
 typedef struct mod_dir grug_mod_dir_t;
@@ -19,31 +16,15 @@ typedef struct modified grug_modified_t;
 
 typedef struct grug_error grug_error_t;
 
-struct grug_init_data {
-	grug_type_t *types;
-	grug_struct_t *structs;
-	grug_fn_t *fns;
-};
-
-struct grug_type {
-	char *name;
-	size_t size;
-};
-
-struct grug_variable {
-	char *name;
-	char *type;
-};
-
-struct grug_struct {
-	char *name;
-	grug_variable_t *fields;
-};
-
-struct grug_fn {
+struct grug_function {
 	char *name;
 	char *return_type;
-	grug_variable_t *arguments;
+	grug_argument_t *arguments;
+};
+
+struct grug_argument {
+	char *name;
+	char *type;
 };
 
 struct grug_file {
@@ -91,7 +72,7 @@ extern size_t grug_reloads_size;
 
 extern grug_error_t grug_error;
 
-void grug_init(grug_init_data_t init_data);
+void grug_init(grug_function_t functions[]);
 bool grug_regenerate_modified_mods(void);
 void grug_print_mods(void);
 void grug_free_mods(void);
