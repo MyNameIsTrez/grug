@@ -15,7 +15,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <unistd.h>
 
 #define MAX_CHARACTERS_IN_FILE 420420
@@ -91,8 +90,8 @@ static char *read_file(char *path) {
 
     static char text[MAX_CHARACTERS_IN_FILE];
 
-	ssize_t bytes_read = fread(text, sizeof(char), count, f);
-	if (bytes_read != count) {
+	size_t bytes_read = fread(text, sizeof(char), count, f);
+	if (bytes_read != (size_t)count) {
         GRUG_ERROR("fread: %s", strerror(errno));
 	}
 
@@ -3444,8 +3443,8 @@ static void write_c(char *c_path) {
         GRUG_ERROR("fopen: %s", strerror(errno));
 	}
 
-	ssize_t bytes_written = fwrite(serialized, sizeof(char), strlen(serialized), f);
-	if (bytes_written < 0 || (size_t)bytes_written != strlen(serialized)) {
+	size_t bytes_written = fwrite(serialized, sizeof(char), strlen(serialized), f);
+	if (bytes_written != strlen(serialized)) {
 		GRUG_ERROR("fwrite: %s", strerror(errno));
 	}
 
