@@ -44,8 +44,8 @@
 
 #define GRUG_ERROR(...) {\
 	int ret = snprintf(grug_error.msg, sizeof(grug_error.msg), __VA_ARGS__);\
-    (void)ret;\
-    grug_error.filename = __FILE__;\
+	(void)ret;\
+	grug_error.filename = __FILE__;\
 	grug_error.line_number = __LINE__;\
 	longjmp(error_jmp_buffer, 1);\
 }
@@ -70,36 +70,36 @@ typedef int64_t i64;
 static char *read_file(char *path) {
 	FILE *f = fopen(path, "rb");
 	if (!f) {
-        GRUG_ERROR("fopen: %s", strerror(errno));
+		GRUG_ERROR("fopen: %s", strerror(errno));
 	}
 
 	if (fseek(f, 0, SEEK_END)) {
-        GRUG_ERROR("fseek: %s", strerror(errno));
+		GRUG_ERROR("fseek: %s", strerror(errno));
 	}
 
 	long count = ftell(f);
 	if (count == -1) {
-        GRUG_ERROR("ftell: %s", strerror(errno));
+		GRUG_ERROR("ftell: %s", strerror(errno));
 	}
 
 	rewind(f);
 
-    if (count + 1 > MAX_CHARACTERS_IN_FILE) {
-        GRUG_ERROR("There are more than %d characters in the grug file, exceeding MAX_CHARACTERS_IN_FILE", MAX_CHARACTERS_IN_FILE);
-    }
+	if (count + 1 > MAX_CHARACTERS_IN_FILE) {
+		GRUG_ERROR("There are more than %d characters in the grug file, exceeding MAX_CHARACTERS_IN_FILE", MAX_CHARACTERS_IN_FILE);
+	}
 
-    static char text[MAX_CHARACTERS_IN_FILE];
+	static char text[MAX_CHARACTERS_IN_FILE];
 
 	size_t bytes_read = fread(text, sizeof(char), count, f);
 	if (bytes_read != (size_t)count) {
-        GRUG_ERROR("fread: %s", strerror(errno));
+		GRUG_ERROR("fread: %s", strerror(errno));
 	}
 
 	text[count] = '\0';
 
-    if (fclose(f)) {
-        GRUG_ERROR("fclose: %s", strerror(errno));
-    }
+	if (fclose(f)) {
+		GRUG_ERROR("fclose: %s", strerror(errno));
+	}
 
 	return text;
 }
@@ -986,11 +986,11 @@ static i64 slice_to_i64(char *str, size_t len) {
 	memcpy(s, str, len);
 	s[len] = '\0';
 
-    char *end;
-    errno = 0;
-    i64 n = strtoll(s, &end, 10);
+	char *end;
+	errno = 0;
+	i64 n = strtoll(s, &end, 10);
 
-    if (errno == ERANGE && n == LLONG_MAX) {
+	if (errno == ERANGE && n == LLONG_MAX) {
 		GRUG_ERROR("The number %s is bigger than LLONG_MAX", s);
 	}
 
@@ -998,7 +998,7 @@ static i64 slice_to_i64(char *str, size_t len) {
 	// since the minus symbol gets tokenized separately
 	assert(errno != ERANGE);
 	assert(n >= 0);
-    // if (errno == ERANGE && n == LLONG_MIN) {
+	// if (errno == ERANGE && n == LLONG_MIN) {
 	// 	GRUG_ERROR("The number %s is smaller than LLONG_MIN", s);
 	// }
 
@@ -1006,7 +1006,7 @@ static i64 slice_to_i64(char *str, size_t len) {
 	// since the number was tokenized
 	assert(*end == '\0');
 
-    return n;
+	return n;
 }
 
 static expr_t parse_expression(size_t *i);
@@ -1345,7 +1345,7 @@ static statement_t parse_statement(size_t *i) {
 			} else {
 				statement.return_statement.has_value = true;
 				statement.return_statement.value_expr_index = push_expr(parse_expression(i));
-            }
+			}
 
 			break;
 		}
@@ -2132,25 +2132,25 @@ static void serialize_helper_fns(void) {
 }
 
 static void serialize_exported_on_fns(void) {
-    serialize_append("struct ");
-    serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
-    serialize_append("_on_fns on_fns = {\n");
+	serialize_append("struct ");
+	serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
+	serialize_append("_on_fns on_fns = {\n");
 
-    for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
-        on_fn_t fn = on_fns[fn_index];
+	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
+		on_fn_t fn = on_fns[fn_index];
 
-        serialize_append_indents(1);
-        serialize_append(".");
+		serialize_append_indents(1);
+		serialize_append(".");
 
-        // Skip the "on_"
-        serialize_append_slice(fn.fn_name + 3, fn.fn_name_len - 3);
+		// Skip the "on_"
+		serialize_append_slice(fn.fn_name + 3, fn.fn_name_len - 3);
 
-        serialize_append(" = ");
-        serialize_append_slice(fn.fn_name, fn.fn_name_len);
-        serialize_append(",\n");
-    }
+		serialize_append(" = ");
+		serialize_append_slice(fn.fn_name, fn.fn_name_len);
+		serialize_append(",\n");
+	}
 
-    serialize_append("};\n");
+	serialize_append("};\n");
 }
 
 static void serialize_on_fns(void) {
@@ -2256,9 +2256,9 @@ static void serialize_global_variables(void) {
 }
 
 static void serialize_define_type(void) {
-    serialize_append("char *define_type = \"");
-    serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
-    serialize_append("\";\n");
+	serialize_append("char *define_type = \"");
+	serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
+	serialize_append("\";\n");
 }
 
 static void serialize_define_struct(void) {
@@ -2283,19 +2283,19 @@ static void serialize_define_struct(void) {
 }
 
 static void serialize_to_c(void) {
-    serialize_append("#include <stdint.h>\n");
-    serialize_append("#include <string.h>\n");
+	serialize_append("#include <stdint.h>\n");
+	serialize_append("#include <string.h>\n");
 
 	// TODO: Use the struct definitions passed into grug_init()
-    serialize_append("\n");
+	serialize_append("\n");
 	serialize_append("struct entity {\n");
 	serialize_append("\tuint64_t a;\n");
 	serialize_append("};\n");
-    
-    serialize_append("\n");
-    serialize_define_type();
+	
+	serialize_append("\n");
+	serialize_define_type();
 
-    serialize_append("\n");
+	serialize_append("\n");
 	serialize_define_struct();
 
 	serialize_append("\n");
@@ -2314,9 +2314,9 @@ static void serialize_to_c(void) {
 
 	if (on_fns_size > 0) {
 		serialize_on_fns();
-        serialize_append("\n");
-        serialize_exported_on_fns();
-    }
+		serialize_append("\n");
+		serialize_exported_on_fns();
+	}
 
 	if (helper_fns_size > 0) {
 		serialize_helper_fns();
@@ -2367,58 +2367,58 @@ enum {
 #define ELF32_ST_INFO(bind, type) (((bind)<<4)+((type)&0xf))
 
 enum d_type {
-    DT_NULL = 0, // Marks the end of the _DYNAMIC array
-    DT_HASH = 4, // The address of the symbol hash table. This table refers to the symbol table indicated by the DT_SYMTAB element
-    DT_STRTAB = 5, // The address of the string table
-    DT_SYMTAB = 6, // The address of the symbol table
-    DT_STRSZ = 10, // The total size, in bytes, of the DT_STRTAB string table
-    DT_SYMENT = 11, // The size, in bytes, of the DT_SYMTAB symbol entry
+	DT_NULL = 0, // Marks the end of the _DYNAMIC array
+	DT_HASH = 4, // The address of the symbol hash table. This table refers to the symbol table indicated by the DT_SYMTAB element
+	DT_STRTAB = 5, // The address of the string table
+	DT_SYMTAB = 6, // The address of the symbol table
+	DT_STRSZ = 10, // The total size, in bytes, of the DT_STRTAB string table
+	DT_SYMENT = 11, // The size, in bytes, of the DT_SYMTAB symbol entry
 };
 
 enum p_type {
-    PT_LOAD = 1, // Loadable segment
-    PT_DYNAMIC = 2, // Dynamic linking information
+	PT_LOAD = 1, // Loadable segment
+	PT_DYNAMIC = 2, // Dynamic linking information
 };
 
 enum p_flags {
-    PF_X = 1, // Executable segment
-    PF_W = 2, // Writable segment
-    PF_R = 4, // Readable segment
+	PF_X = 1, // Executable segment
+	PF_W = 2, // Writable segment
+	PF_R = 4, // Readable segment
 };
 
 enum sh_type {
-    SHT_PROGBITS = 0x1, // Program data
-    SHT_SYMTAB = 0x2, // Symbol table
-    SHT_STRTAB = 0x3, // String table
-    SHT_HASH = 0x5, // Symbol hash table
-    SHT_DYNAMIC = 0x6, // Dynamic linking information
-    SHT_DYNSYM = 0xb, // Dynamic linker symbol table
+	SHT_PROGBITS = 0x1, // Program data
+	SHT_SYMTAB = 0x2, // Symbol table
+	SHT_STRTAB = 0x3, // String table
+	SHT_HASH = 0x5, // Symbol hash table
+	SHT_DYNAMIC = 0x6, // Dynamic linking information
+	SHT_DYNSYM = 0xb, // Dynamic linker symbol table
 };
 
 enum sh_flags {
-    SHF_WRITE = 1, // Writable
-    SHF_ALLOC = 2, // Occupies memory during execution
-    SHF_EXECINSTR = 4, // Executable machine instructions
+	SHF_WRITE = 1, // Writable
+	SHF_ALLOC = 2, // Occupies memory during execution
+	SHF_EXECINSTR = 4, // Executable machine instructions
 };
 
 enum e_type {
-    ET_DYN = 3, // Shared object
+	ET_DYN = 3, // Shared object
 };
 
 enum st_binding {
-    STB_LOCAL = 0, // Local symbol
-    STB_GLOBAL = 1, // Global symbol
+	STB_LOCAL = 0, // Local symbol
+	STB_GLOBAL = 1, // Global symbol
 };
 
 enum st_type {
-    STT_NOTYPE = 0, // The symbol type is not specified
-    STT_OBJECT = 1, // This symbol is associated with a data object
-    STT_FILE = 4, // This symbol is associated with a file
+	STT_NOTYPE = 0, // The symbol type is not specified
+	STT_OBJECT = 1, // This symbol is associated with a data object
+	STT_FILE = 4, // This symbol is associated with a file
 };
 
 enum sh_index {
-    SHN_UNDEF = 0, // An undefined section reference
-    SHN_ABS = 0xfff1, // Absolute values for the corresponding reference
+	SHN_UNDEF = 0, // An undefined section reference
+	SHN_ABS = 0xfff1, // Absolute values for the corresponding reference
 };
 
 static char *symbols[MAX_SYMBOLS];
@@ -2465,52 +2465,52 @@ static size_t shstrtab_size;
 static size_t section_headers_offset;
 
 static void overwrite_address(u64 n, size_t bytes_offset) {
-    for (size_t i = 0; i < 8; i++) {
-        // Little-endian requires the least significant byte first
-        bytes[bytes_offset++] = n & 0xff;
+	for (size_t i = 0; i < 8; i++) {
+		// Little-endian requires the least significant byte first
+		bytes[bytes_offset++] = n & 0xff;
 
-        n >>= 8; // Shift right by one byte
-    }
+		n >>= 8; // Shift right by one byte
+	}
 }
 
 static void fix_bytes() {
-    // ELF section header table offset
-    overwrite_address(section_headers_offset, 0x28);
+	// ELF section header table offset
+	overwrite_address(section_headers_offset, 0x28);
 
-    // Segment 0 its file_size
-    overwrite_address(segment_0_size, 0x60);
+	// Segment 0 its file_size
+	overwrite_address(segment_0_size, 0x60);
 
-    // Segment 0 its mem_size
-    overwrite_address(segment_0_size, 0x68);
+	// Segment 0 its mem_size
+	overwrite_address(segment_0_size, 0x68);
 }
 
 static void push_byte(u8 byte) {
-    if (bytes_size + 1 > MAX_BYTES) {
-        fprintf(stderr, "error: MAX_BYTES of %d was exceeded\n", MAX_BYTES);
-        exit(EXIT_FAILURE);
-    }
+	if (bytes_size + 1 > MAX_BYTES) {
+		fprintf(stderr, "error: MAX_BYTES of %d was exceeded\n", MAX_BYTES);
+		exit(EXIT_FAILURE);
+	}
 
-    bytes[bytes_size++] = byte;
+	bytes[bytes_size++] = byte;
 }
 
 static void push_zeros(size_t count) {
-    for (size_t i = 0; i < count; i++) {
-        push_byte(0);
-    }
+	for (size_t i = 0; i < count; i++) {
+		push_byte(0);
+	}
 }
 
 static void push_alignment(size_t alignment) {
-    size_t excess = bytes_size % alignment;
-    if (excess > 0) {
-        push_zeros(alignment - excess);
-    }
+	size_t excess = bytes_size % alignment;
+	if (excess > 0) {
+		push_zeros(alignment - excess);
+	}
 }
 
 static void push_string(char *str) {
-    for (size_t i = 0; i < strlen(str); i++) {
-        push_byte(str[i]);
-    }
-    push_byte('\0');
+	for (size_t i = 0; i < strlen(str); i++) {
+		push_byte(str[i]);
+	}
+	push_byte('\0');
 }
 
 static void push_slice(char *str, size_t len) {
@@ -2521,110 +2521,110 @@ static void push_slice(char *str, size_t len) {
 }
 
 static void push_shstrtab(void) {
-    shstrtab_offset = bytes_size;
+	shstrtab_offset = bytes_size;
 
-    push_byte(0);
-    push_string(".symtab");
-    push_string(".strtab");
-    push_string(".shstrtab");
-    push_string(".hash");
-    push_string(".dynsym");
-    push_string(".dynstr");
-    push_string(".text");
-    push_string(".eh_frame");
-    push_string(".dynamic");
-    push_string(".data");
+	push_byte(0);
+	push_string(".symtab");
+	push_string(".strtab");
+	push_string(".shstrtab");
+	push_string(".hash");
+	push_string(".dynsym");
+	push_string(".dynstr");
+	push_string(".text");
+	push_string(".eh_frame");
+	push_string(".dynamic");
+	push_string(".data");
 
-    shstrtab_size = bytes_size - shstrtab_offset;
+	shstrtab_size = bytes_size - shstrtab_offset;
 
-    push_alignment(8);
+	push_alignment(8);
 }
 
 static void push_strtab(char *grug_path) {
-    strtab_offset = bytes_size;
+	strtab_offset = bytes_size;
 
-    push_byte(0);
-    push_string(grug_path);
-    
-    // Local symbols
-    // TODO: Add loop
+	push_byte(0);
+	push_string(grug_path);
+	
+	// Local symbols
+	// TODO: Add loop
 
-    push_string("_DYNAMIC");
+	push_string("_DYNAMIC");
 
-    // Global symbols
-    // TODO: Don't loop through local symbols
-    for (size_t i = 0; i < symbols_size; i++) {
-        size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
+	// Global symbols
+	// TODO: Don't loop through local symbols
+	for (size_t i = 0; i < symbols_size; i++) {
+		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
 
-        if (!is_substrs[symbol_index]) {
-            push_string(shuffled_symbols[i]);
-        }
-    }
+		if (!is_substrs[symbol_index]) {
+			push_string(shuffled_symbols[i]);
+		}
+	}
 
-    strtab_size = bytes_size - strtab_offset;
+	strtab_size = bytes_size - strtab_offset;
 }
 
 static void push_number(u64 n, size_t byte_count) {
-    while (n > 0) {
-        // Little-endian requires the least significant byte first
-        push_byte(n & 0xff);
-        byte_count--;
+	while (n > 0) {
+		// Little-endian requires the least significant byte first
+		push_byte(n & 0xff);
+		byte_count--;
 
-        n >>= 8; // Shift right by one byte
-    }
+		n >>= 8; // Shift right by one byte
+	}
 
-    // Optional padding
-    push_zeros(byte_count);
+	// Optional padding
+	push_zeros(byte_count);
 }
 
 // See https://docs.oracle.com/cd/E19683-01/816-1386/chapter6-79797/index.html
 // See https://docs.oracle.com/cd/E19683-01/816-1386/6m7qcoblj/index.html#chapter6-tbl-21
 static void push_symbol_entry(u32 name, u16 info, u16 shndx, u32 offset) {
-    push_number(name, 4); // Indexed into .strtab, because .symtab its "link" points to it
-    push_number(info, 2);
-    push_number(shndx, 2);
-    push_number(offset, 4); // In executable and shared object files, st_value holds a virtual address
+	push_number(name, 4); // Indexed into .strtab, because .symtab its "link" points to it
+	push_number(info, 2);
+	push_number(shndx, 2);
+	push_number(offset, 4); // In executable and shared object files, st_value holds a virtual address
 
-    // TODO: I'm confused by why we don't seem to need these
-    // push_number(size, 4);
-    // push_number(other, 4);
+	// TODO: I'm confused by why we don't seem to need these
+	// push_number(size, 4);
+	// push_number(other, 4);
 
-    push_zeros(SYMTAB_ENTRY_SIZE - 12);
+	push_zeros(SYMTAB_ENTRY_SIZE - 12);
 }
 
 static void push_symtab(char *grug_path) {
-    symtab_offset = bytes_size;
+	symtab_offset = bytes_size;
 
-    // Null entry
-    push_symbol_entry(0, ELF32_ST_INFO(STB_LOCAL, STT_NOTYPE), SHN_UNDEF, 0);
+	// Null entry
+	push_symbol_entry(0, ELF32_ST_INFO(STB_LOCAL, STT_NOTYPE), SHN_UNDEF, 0);
 
-    // "<some_path>.s" entry
-    push_symbol_entry(1, ELF32_ST_INFO(STB_LOCAL, STT_FILE), SHN_ABS, 0);
+	// "<some_path>.s" entry
+	push_symbol_entry(1, ELF32_ST_INFO(STB_LOCAL, STT_FILE), SHN_ABS, 0);
 
-    // TODO: ? entry
-    push_symbol_entry(0, ELF32_ST_INFO(STB_LOCAL, STT_FILE), SHN_ABS, 0);
+	// TODO: ? entry
+	push_symbol_entry(0, ELF32_ST_INFO(STB_LOCAL, STT_FILE), SHN_ABS, 0);
 
 	// TODO: Let this use path of the .grug file, instead of the .s that's used purely for testing purposes
 	// The `1 +` is to skip the 0 byte that .strtab always starts with
 	size_t name_offset = 1 + strlen(grug_path) + 1;
 
-    // "_DYNAMIC" entry
-    push_symbol_entry(name_offset, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT), 6, DYNAMIC_OFFSET);
+	// "_DYNAMIC" entry
+	push_symbol_entry(name_offset, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT), 6, DYNAMIC_OFFSET);
 
 	name_offset += sizeof("_DYNAMIC");
 
-    // The symbols are pushed in shuffled_symbols order
-    for (size_t i = 0; i < symbols_size; i++) {
-        size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
+	// The symbols are pushed in shuffled_symbols order
+	for (size_t i = 0; i < symbols_size; i++) {
+		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
 
-        bool is_data = symbol_index < data_symbols_size;
-        u16 shndx = is_data ? SYMTAB_SECTION_HEADER_INDEX : EH_FRAME_SECTION_HEADER_INDEX;
-        u32 offset = is_data ? DATA_OFFSET + data_offsets[symbol_index] : TEXT_OFFSET + text_offsets[symbol_index - data_symbols_size];
+		bool is_data = symbol_index < data_symbols_size;
+		u16 shndx = is_data ? SYMTAB_SECTION_HEADER_INDEX : EH_FRAME_SECTION_HEADER_INDEX;
+		u32 offset = is_data ? DATA_OFFSET + data_offsets[symbol_index] : TEXT_OFFSET + text_offsets[symbol_index - data_symbols_size];
 
-        push_symbol_entry(name_offset + symbol_name_strtab_offsets[symbol_index], ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), shndx, offset);
-    }
+		push_symbol_entry(name_offset + symbol_name_strtab_offsets[symbol_index], ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), shndx, offset);
+	}
 
-    symtab_size = bytes_size - symtab_offset;
+	symtab_size = bytes_size - symtab_offset;
 }
 
 // TODO: Make this recursive, since values can also be compound literals
@@ -2637,118 +2637,118 @@ static void push_returned_compound_literal(void) {
 		field_t field = fields[compound_literal.fields_offset + field_index];
 
 		// TODO: Use the number_expr its type and byte count
-	    push_number(field.expr_value.number_expr.value, sizeof(i64));
+		push_number(field.expr_value.number_expr.value, sizeof(i64));
 	}
 }
 
 static void push_data(void) {
-    // TODO: Use the data from the AST
+	// TODO: Use the data from the AST
 
-    // "define" symbol
+	// "define" symbol
 	push_slice(define_fn.return_type, define_fn.return_type_len);
 
 	push_returned_compound_literal();
 
-    push_alignment(8);
+	push_alignment(8);
 }
 
 // See https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-42444.html
 static void push_dynamic_entry(u64 tag, u64 value) {
-    push_number(tag, 8);
-    push_number(value, 8);
+	push_number(tag, 8);
+	push_number(value, 8);
 }
 
 static void push_dynamic() {
-    push_dynamic_entry(DT_HASH, hash_offset);
-    push_dynamic_entry(DT_STRTAB, dynstr_offset);
-    push_dynamic_entry(DT_SYMTAB, dynsym_offset);
-    push_dynamic_entry(DT_STRSZ, dynstr_size);
-    push_dynamic_entry(DT_SYMENT, SYMTAB_ENTRY_SIZE);
-    push_dynamic_entry(DT_NULL, 0);
-    push_dynamic_entry(DT_NULL, 0);
-    push_dynamic_entry(DT_NULL, 0);
-    push_dynamic_entry(DT_NULL, 0);
-    push_dynamic_entry(DT_NULL, 0);
-    push_dynamic_entry(DT_NULL, 0);
+	push_dynamic_entry(DT_HASH, hash_offset);
+	push_dynamic_entry(DT_STRTAB, dynstr_offset);
+	push_dynamic_entry(DT_SYMTAB, dynsym_offset);
+	push_dynamic_entry(DT_STRSZ, dynstr_size);
+	push_dynamic_entry(DT_SYMENT, SYMTAB_ENTRY_SIZE);
+	push_dynamic_entry(DT_NULL, 0);
+	push_dynamic_entry(DT_NULL, 0);
+	push_dynamic_entry(DT_NULL, 0);
+	push_dynamic_entry(DT_NULL, 0);
+	push_dynamic_entry(DT_NULL, 0);
+	push_dynamic_entry(DT_NULL, 0);
 }
 
 static void push_text(void) {
-    // TODO: Use the code from the AST
+	// TODO: Use the code from the AST
 
 	// get_globals_struct_size()
-    push_byte(MOV);
-    push_number(0, 4); // Value to mov to eax
-    push_byte(RET);
+	push_byte(MOV);
+	push_number(0, 4); // Value to mov to eax
+	push_byte(RET);
 
 	// init_globals_struct()
-    push_byte(RET);
+	push_byte(RET);
 
-    push_alignment(8);
+	push_alignment(8);
 }
 
 static void push_dynstr(void) {
-    dynstr_offset = bytes_size;
+	dynstr_offset = bytes_size;
 
-    // .dynstr always starts with a '\0'
-    dynstr_size = 1;
+	// .dynstr always starts with a '\0'
+	dynstr_size = 1;
 
-    push_byte(0);
-    for (size_t i = 0; i < symbols_size; i++) {
-        if (!is_substrs[i]) {
-            push_string(symbols[i]);
-            dynstr_size += strlen(symbols[i]) + 1;
-        }
-    }
+	push_byte(0);
+	for (size_t i = 0; i < symbols_size; i++) {
+		if (!is_substrs[i]) {
+			push_string(symbols[i]);
+			dynstr_size += strlen(symbols[i]) + 1;
+		}
+	}
 
-    segment_0_size = bytes_size;
+	segment_0_size = bytes_size;
 
-    push_alignment(8);
+	push_alignment(8);
 }
 
 static u32 get_nbucket(void) {
-    // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/elflink.c;h=6db6a9c0b4702c66d73edba87294e2a59ffafcf5;hb=refs/heads/master#l6560
-    //
-    // Array used to determine the number of hash table buckets to use
-    // based on the number of symbols there are. If there are fewer than
-    // 3 symbols we use 1 bucket, fewer than 17 symbols we use 3 buckets,
-    // fewer than 37 we use 17 buckets, and so forth. We never use more
-    // than MAX_HASH_BUCKETS (32771) buckets.
-    static const u32 nbucket_options[] = {
-        1, 3, 17, 37, 67, 97, 131, 197, 263, 521, 1031, 2053, 4099, 8209, 16411, MAX_HASH_BUCKETS, 0
-    };
+	// From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/elflink.c;h=6db6a9c0b4702c66d73edba87294e2a59ffafcf5;hb=refs/heads/master#l6560
+	//
+	// Array used to determine the number of hash table buckets to use
+	// based on the number of symbols there are. If there are fewer than
+	// 3 symbols we use 1 bucket, fewer than 17 symbols we use 3 buckets,
+	// fewer than 37 we use 17 buckets, and so forth. We never use more
+	// than MAX_HASH_BUCKETS (32771) buckets.
+	static const u32 nbucket_options[] = {
+		1, 3, 17, 37, 67, 97, 131, 197, 263, 521, 1031, 2053, 4099, 8209, 16411, MAX_HASH_BUCKETS, 0
+	};
 
-    u32 nbucket = 0;
+	u32 nbucket = 0;
 
-    for (size_t i = 0; nbucket_options[i] != 0; i++) {
-        nbucket = nbucket_options[i];
+	for (size_t i = 0; nbucket_options[i] != 0; i++) {
+		nbucket = nbucket_options[i];
 
-        if (symbols_size < nbucket_options[i + 1]) {
-            break;
-        }
-    }
+		if (symbols_size < nbucket_options[i + 1]) {
+			break;
+		}
+	}
 
-    return nbucket;
+	return nbucket;
 }
 
 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/elf.c#l193
 static u32 elf_hash(const char *namearg) {
-    u32 h = 0;
+	u32 h = 0;
 
-    for (const unsigned char *name = (const unsigned char *) namearg; *name; name++) {
-        h = (h << 4) + *name;
-        h ^= (h >> 24) & 0xf0;
-    }
+	for (const unsigned char *name = (const unsigned char *) namearg; *name; name++) {
+		h = (h << 4) + *name;
+		h ^= (h >> 24) & 0xf0;
+	}
 
-    return h & 0x0fffffff;
+	return h & 0x0fffffff;
 }
 
 static void push_chain(u32 chain) {
-    if (chains_size + 1 > MAX_SYMBOLS) {
-        fprintf(stderr, "error: MAX_SYMBOLS of %d was exceeded\n", MAX_SYMBOLS);
-        exit(EXIT_FAILURE);
-    }
+	if (chains_size + 1 > MAX_SYMBOLS) {
+		fprintf(stderr, "error: MAX_SYMBOLS of %d was exceeded\n", MAX_SYMBOLS);
+		exit(EXIT_FAILURE);
+	}
 
-    chains[chains_size++] = chain;
+	chains[chains_size++] = chain;
 }
 
 // See https://flapenguin.me/elf-dt-hash
@@ -2792,302 +2792,302 @@ static void push_chain(u32 chain) {
 // 15  e                 | 101             2 **               |  (13)----/
 // 16  m                 | 109             1 **               \--(14)
 static void push_hash(void) {
-    hash_offset = bytes_size;
+	hash_offset = bytes_size;
 
-    u32 nbucket = get_nbucket();
-    push_number(nbucket, 4);
+	u32 nbucket = get_nbucket();
+	push_number(nbucket, 4);
 
-    u32 nchain = 1 + symbols_size; // `1 + `, because index 0 is always STN_UNDEF (the value 0)
-    push_number(nchain, 4);
+	u32 nchain = 1 + symbols_size; // `1 + `, because index 0 is always STN_UNDEF (the value 0)
+	push_number(nchain, 4);
 
-    memset(buckets, 0, nbucket * sizeof(u32));
+	memset(buckets, 0, nbucket * sizeof(u32));
 
-    chains_size = 0;
+	chains_size = 0;
 
-    push_chain(0); // The first entry in the chain is always STN_UNDEF
+	push_chain(0); // The first entry in the chain is always STN_UNDEF
 
-    for (size_t i = 0; i < symbols_size; i++) {
-        u32 hash = elf_hash(shuffled_symbols[i]);
-        u32 bucket_index = hash % nbucket;
+	for (size_t i = 0; i < symbols_size; i++) {
+		u32 hash = elf_hash(shuffled_symbols[i]);
+		u32 bucket_index = hash % nbucket;
 
-        push_chain(buckets[bucket_index]);
+		push_chain(buckets[bucket_index]);
 
-        buckets[bucket_index] = i + 1;
-    }
+		buckets[bucket_index] = i + 1;
+	}
 
-    for (size_t i = 0; i < nbucket; i++) {
-        push_number(buckets[i], 4);
-    }
+	for (size_t i = 0; i < nbucket; i++) {
+		push_number(buckets[i], 4);
+	}
 
-    for (size_t i = 0; i < chains_size; i++) {
-        push_number(chains[i], 4);
-    }
+	for (size_t i = 0; i < chains_size; i++) {
+		push_number(chains[i], 4);
+	}
 
-    hash_size = bytes_size - hash_offset;
+	hash_size = bytes_size - hash_offset;
 
-    push_alignment(8);
+	push_alignment(8);
 }
 
 static void push_section_header(u32 name_offset, u32 type, u64 flags, u64 address, u64 offset, u64 size, u32 link, u32 info, u64 alignment, u64 entry_size) {
-    push_number(name_offset, 4);
-    push_number(type, 4);
-    push_number(flags, 8);
-    push_number(address, 8);
-    push_number(offset, 8);
-    push_number(size, 8);
-    push_number(link, 4);
-    push_number(info, 4);
-    push_number(alignment, 8);
-    push_number(entry_size, 8);
+	push_number(name_offset, 4);
+	push_number(type, 4);
+	push_number(flags, 8);
+	push_number(address, 8);
+	push_number(offset, 8);
+	push_number(size, 8);
+	push_number(link, 4);
+	push_number(info, 4);
+	push_number(alignment, 8);
+	push_number(entry_size, 8);
 }
 
 static void push_section_headers(void) {
-    section_headers_offset = bytes_size;
+	section_headers_offset = bytes_size;
 
-    // Null section
-    push_zeros(0x40);
+	// Null section
+	push_zeros(0x40);
 
-    // .hash: Hash section
-    push_section_header(0x1b, SHT_HASH, SHF_ALLOC, hash_offset, hash_offset, hash_size, 2, 0, 8, 4);
+	// .hash: Hash section
+	push_section_header(0x1b, SHT_HASH, SHF_ALLOC, hash_offset, hash_offset, hash_size, 2, 0, 8, 4);
 
-    // .dynsym: Dynamic linker symbol table section
-    push_section_header(0x21, SHT_DYNSYM, SHF_ALLOC, dynsym_offset, dynsym_offset, dynsym_size, 3, 1, 8, 0x18);
+	// .dynsym: Dynamic linker symbol table section
+	push_section_header(0x21, SHT_DYNSYM, SHF_ALLOC, dynsym_offset, dynsym_offset, dynsym_size, 3, 1, 8, 0x18);
 
-    // .dynstr: String table section
-    push_section_header(0x29, SHT_STRTAB, SHF_ALLOC, dynstr_offset, dynstr_offset, dynstr_size, 0, 0, 1, 0);
+	// .dynstr: String table section
+	push_section_header(0x29, SHT_STRTAB, SHF_ALLOC, dynstr_offset, dynstr_offset, dynstr_size, 0, 0, 1, 0);
 
-    // .text: Code section
-    push_section_header(0x31, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, TEXT_OFFSET, TEXT_OFFSET, text_size, 0, 0, 16, 0);
+	// .text: Code section
+	push_section_header(0x31, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, TEXT_OFFSET, TEXT_OFFSET, text_size, 0, 0, 16, 0);
 
-    // .eh_frame: Exception stack unwinding section
-    push_section_header(0x37, SHT_PROGBITS, SHF_ALLOC, EH_FRAME_OFFSET, EH_FRAME_OFFSET, 0, 0, 0, 8, 0);
+	// .eh_frame: Exception stack unwinding section
+	push_section_header(0x37, SHT_PROGBITS, SHF_ALLOC, EH_FRAME_OFFSET, EH_FRAME_OFFSET, 0, 0, 0, 8, 0);
 
-    // .dynamic: Dynamic linking information section
-    push_section_header(0x41, SHT_DYNAMIC, SHF_WRITE | SHF_ALLOC, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0xb0, 3, 0, 8, 0x10);
+	// .dynamic: Dynamic linking information section
+	push_section_header(0x41, SHT_DYNAMIC, SHF_WRITE | SHF_ALLOC, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0xb0, 3, 0, 8, 0x10);
 
-    // .data: Data section
-    push_section_header(0x4a, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, DATA_OFFSET, DATA_OFFSET, data_size, 0, 0, 4, 0);
+	// .data: Data section
+	push_section_header(0x4a, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, DATA_OFFSET, DATA_OFFSET, data_size, 0, 0, 4, 0);
 
-    // .symtab: Symbol table section
-    // The "link" is the section header index of the associated string table
-    // The "info" of 4 is the symbol table index of the first non-local symbol, which is the 5th entry in push_symtab(), the global "b" symbol
-    push_section_header(0x1, SHT_SYMTAB, 0, 0, symtab_offset, symtab_size, STRTAB_SECTION_HEADER_INDEX, 4, 8, SYMTAB_ENTRY_SIZE);
+	// .symtab: Symbol table section
+	// The "link" is the section header index of the associated string table
+	// The "info" of 4 is the symbol table index of the first non-local symbol, which is the 5th entry in push_symtab(), the global "b" symbol
+	push_section_header(0x1, SHT_SYMTAB, 0, 0, symtab_offset, symtab_size, STRTAB_SECTION_HEADER_INDEX, 4, 8, SYMTAB_ENTRY_SIZE);
 
-    // .strtab: String table section
-    push_section_header(0x09, SHT_PROGBITS | SHT_SYMTAB, 0, 0, strtab_offset, strtab_size, 0, 0, 1, 0);
+	// .strtab: String table section
+	push_section_header(0x09, SHT_PROGBITS | SHT_SYMTAB, 0, 0, strtab_offset, strtab_size, 0, 0, 1, 0);
 
-    // .shstrtab: Section header string table section
-    push_section_header(0x11, SHT_PROGBITS | SHT_SYMTAB, 0, 0, shstrtab_offset, shstrtab_size, 0, 0, 1, 0);
+	// .shstrtab: Section header string table section
+	push_section_header(0x11, SHT_PROGBITS | SHT_SYMTAB, 0, 0, shstrtab_offset, shstrtab_size, 0, 0, 1, 0);
 }
 
 static void push_dynsym(void) {
-    dynsym_offset = bytes_size;
+	dynsym_offset = bytes_size;
 
-    // Null entry
-    push_symbol_entry(0, ELF32_ST_INFO(STB_LOCAL, STT_NOTYPE), SHN_UNDEF, 0);
+	// Null entry
+	push_symbol_entry(0, ELF32_ST_INFO(STB_LOCAL, STT_NOTYPE), SHN_UNDEF, 0);
 
-    // The symbols are pushed in shuffled_symbols order
-    for (size_t i = 0; i < symbols_size; i++) {
-        size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
+	// The symbols are pushed in shuffled_symbols order
+	for (size_t i = 0; i < symbols_size; i++) {
+		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
 
-        bool is_data = symbol_index < data_symbols_size;
-        u16 shndx = is_data ? SYMTAB_SECTION_HEADER_INDEX : EH_FRAME_SECTION_HEADER_INDEX;
-        u32 offset = is_data ? DATA_OFFSET + data_offsets[symbol_index] : TEXT_OFFSET + text_offsets[symbol_index - data_symbols_size];
+		bool is_data = symbol_index < data_symbols_size;
+		u16 shndx = is_data ? SYMTAB_SECTION_HEADER_INDEX : EH_FRAME_SECTION_HEADER_INDEX;
+		u32 offset = is_data ? DATA_OFFSET + data_offsets[symbol_index] : TEXT_OFFSET + text_offsets[symbol_index - data_symbols_size];
 
-        push_symbol_entry(symbol_name_dynstr_offsets[symbol_index], ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), shndx, offset);
-    }
+		push_symbol_entry(symbol_name_dynstr_offsets[symbol_index], ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), shndx, offset);
+	}
 
-    dynsym_size = bytes_size - dynsym_offset;
+	dynsym_size = bytes_size - dynsym_offset;
 }
 
 static void push_program_header(u32 type, u32 flags, u64 offset, u64 virtual_address, u64 physical_address, u64 file_size, u64 mem_size, u64 alignment) {
-    push_number(type, 4);
-    push_number(flags, 4);
-    push_number(offset, 8);
-    push_number(virtual_address, 8);
-    push_number(physical_address, 8);
-    push_number(file_size, 8);
-    push_number(mem_size, 8);
-    push_number(alignment, 8);
+	push_number(type, 4);
+	push_number(flags, 4);
+	push_number(offset, 8);
+	push_number(virtual_address, 8);
+	push_number(physical_address, 8);
+	push_number(file_size, 8);
+	push_number(mem_size, 8);
+	push_number(alignment, 8);
 }
 
 static void push_program_headers(void) {
-    // .hash, .dynsym, .dynstr segment
-    // 0x40 to 0x78
-    // file_size and mem_size get overwritten later
-    push_program_header(PT_LOAD, PF_R, 0, 0, 0, 0, 0, 0x1000);
+	// .hash, .dynsym, .dynstr segment
+	// 0x40 to 0x78
+	// file_size and mem_size get overwritten later
+	push_program_header(PT_LOAD, PF_R, 0, 0, 0, 0, 0, 0x1000);
 
-    // .text segment
-    // 0x78 to 0xb0
-    push_program_header(PT_LOAD, PF_R | PF_X, TEXT_OFFSET, TEXT_OFFSET, TEXT_OFFSET, text_size, text_size, 0x1000);
+	// .text segment
+	// 0x78 to 0xb0
+	push_program_header(PT_LOAD, PF_R | PF_X, TEXT_OFFSET, TEXT_OFFSET, TEXT_OFFSET, text_size, text_size, 0x1000);
 
-    // .eh_frame segment
-    // 0xb0 to 0xe8
-    push_program_header(PT_LOAD, PF_R, EH_FRAME_OFFSET, EH_FRAME_OFFSET, EH_FRAME_OFFSET, 0, 0, 0x1000);
+	// .eh_frame segment
+	// 0xb0 to 0xe8
+	push_program_header(PT_LOAD, PF_R, EH_FRAME_OFFSET, EH_FRAME_OFFSET, EH_FRAME_OFFSET, 0, 0, 0x1000);
 
-    // .dynamic, .data
-    // 0xe8 to 0x120
-    push_program_header(PT_LOAD, PF_R | PF_W, 0x2f50, 0x2f50, 0x2f50, 0xb0 + data_size, 0xb0 + data_size, 0x1000);
+	// .dynamic, .data
+	// 0xe8 to 0x120
+	push_program_header(PT_LOAD, PF_R | PF_W, 0x2f50, 0x2f50, 0x2f50, 0xb0 + data_size, 0xb0 + data_size, 0x1000);
 
-    // .dynamic segment
-    // 0x120 to 0x158
-    push_program_header(PT_DYNAMIC, PF_R | PF_W, 0x2f50, 0x2f50, 0x2f50, 0xb0, 0xb0, 8);
+	// .dynamic segment
+	// 0x120 to 0x158
+	push_program_header(PT_DYNAMIC, PF_R | PF_W, 0x2f50, 0x2f50, 0x2f50, 0xb0, 0xb0, 8);
 
-    // .dynamic segment
-    // 0x158 to 0x190
-    push_program_header(PT_GNU_RELRO, PF_R, 0x2f50, 0x2f50, 0x2f50, 0xb0, 0xb0, 1);
+	// .dynamic segment
+	// 0x158 to 0x190
+	push_program_header(PT_GNU_RELRO, PF_R, 0x2f50, 0x2f50, 0x2f50, 0xb0, 0xb0, 1);
 }
 
 static void push_elf_header(void) {
-    // Magic number
-    // 0x0 to 0x4
-    push_byte(0x7f);
-    push_byte('E');
-    push_byte('L');
-    push_byte('F');
+	// Magic number
+	// 0x0 to 0x4
+	push_byte(0x7f);
+	push_byte('E');
+	push_byte('L');
+	push_byte('F');
 
-    // 64-bit
-    // 0x4 to 0x5
-    push_byte(2);
+	// 64-bit
+	// 0x4 to 0x5
+	push_byte(2);
 
-    // Little-endian
-    // 0x5 to 0x6
-    push_byte(1);
+	// Little-endian
+	// 0x5 to 0x6
+	push_byte(1);
 
-    // Version
-    // 0x6 to 0x7
-    push_byte(1);
+	// Version
+	// 0x6 to 0x7
+	push_byte(1);
 
-    // SysV OS ABI
-    // 0x7 to 0x8
-    push_byte(0);
+	// SysV OS ABI
+	// 0x7 to 0x8
+	push_byte(0);
 
-    // Padding
-    // 0x8 to 0x10
-    push_zeros(8);
+	// Padding
+	// 0x8 to 0x10
+	push_zeros(8);
 
-    // Shared object
-    // 0x10 to 0x12
-    push_byte(ET_DYN);
-    push_byte(0);
+	// Shared object
+	// 0x10 to 0x12
+	push_byte(ET_DYN);
+	push_byte(0);
 
-    // x86-64 instruction set architecture
-    // 0x12 to 0x14
-    push_byte(0x3E);
-    push_byte(0);
+	// x86-64 instruction set architecture
+	// 0x12 to 0x14
+	push_byte(0x3E);
+	push_byte(0);
 
-    // Original version of ELF
-    // 0x14 to 0x18
-    push_byte(1);
-    push_zeros(3);
+	// Original version of ELF
+	// 0x14 to 0x18
+	push_byte(1);
+	push_zeros(3);
 
-    // Execution entry point address
-    // 0x18 to 0x20
-    push_zeros(8);
+	// Execution entry point address
+	// 0x18 to 0x20
+	push_zeros(8);
 
-    // Program header table offset
-    // 0x20 to 0x28
-    push_byte(0x40);
-    push_zeros(7);
+	// Program header table offset
+	// 0x20 to 0x28
+	push_byte(0x40);
+	push_zeros(7);
 
-    // Section header table offset (this value gets overwritten later)
-    // 0x28 to 0x30
-    push_zeros(8);
+	// Section header table offset (this value gets overwritten later)
+	// 0x28 to 0x30
+	push_zeros(8);
 
-    // Processor-specific flags
-    // 0x30 to 0x34
-    push_zeros(4);
+	// Processor-specific flags
+	// 0x30 to 0x34
+	push_zeros(4);
 
-    // ELF header size
-    // 0x34 to 0x36
-    push_byte(0x40);
-    push_byte(0);
+	// ELF header size
+	// 0x34 to 0x36
+	push_byte(0x40);
+	push_byte(0);
 
-    // Single program header size
-    // 0x36 to 0x38
-    push_byte(0x38);
-    push_byte(0);
+	// Single program header size
+	// 0x36 to 0x38
+	push_byte(0x38);
+	push_byte(0);
 
-    // Number of program header entries
-    // 0x38 to 0x3a
-    push_byte(6);
-    push_byte(0);
+	// Number of program header entries
+	// 0x38 to 0x3a
+	push_byte(6);
+	push_byte(0);
 
-    // Single section header entry size
-    // 0x3a to 0x3c
-    push_byte(0x40);
-    push_byte(0);
+	// Single section header entry size
+	// 0x3a to 0x3c
+	push_byte(0x40);
+	push_byte(0);
 
-    // Number of section header entries
-    // 0x3c to 0x3e
-    push_byte(11);
-    push_byte(0);
+	// Number of section header entries
+	// 0x3c to 0x3e
+	push_byte(11);
+	push_byte(0);
 
-    // Index of entry with section names
-    // 0x3e to 0x40
-    push_byte(10);
-    push_byte(0);
+	// Index of entry with section names
+	// 0x3e to 0x40
+	push_byte(10);
+	push_byte(0);
 }
 
 static void push_bytes(char *grug_path) {
-    // 0x0 to 0x40
-    push_elf_header();
+	// 0x0 to 0x40
+	push_elf_header();
 
-    // 0x40 to 0x190
-    push_program_headers();
+	// 0x40 to 0x190
+	push_program_headers();
 
-    push_hash();
+	push_hash();
 
-    push_dynsym();
+	push_dynsym();
 
-    push_dynstr();
+	push_dynstr();
 
-    push_zeros(TEXT_OFFSET - bytes_size);
+	push_zeros(TEXT_OFFSET - bytes_size);
 
-    push_text();
+	push_text();
 
-    push_zeros(DYNAMIC_OFFSET - bytes_size);
+	push_zeros(DYNAMIC_OFFSET - bytes_size);
 
-    push_dynamic();
+	push_dynamic();
 
-    push_data();
+	push_data();
 
-    push_symtab(grug_path);
+	push_symtab(grug_path);
 
-    push_strtab(grug_path);
+	push_strtab(grug_path);
 
-    push_shstrtab();
+	push_shstrtab();
 
-    push_section_headers();
+	push_section_headers();
 }
 
 static void init_text_offsets(void) {
-    // TODO: Use the data from the AST
+	// TODO: Use the data from the AST
 	text_offsets[0] = 0;
 	text_offsets[1] = 6; // get_globals_struct_size takes 6 bytes of instructions
 
-    // for (size_t i = 0; i < 2; i++) {
-    //     text_offsets[i] = i * 6; // fn1_c takes 6 bytes of instructions
-    // }
+	// for (size_t i = 0; i < 2; i++) {
+	//     text_offsets[i] = i * 6; // fn1_c takes 6 bytes of instructions
+	// }
 }
 
 static void init_data_offsets(void) {
-    // TODO: Use the data from the AST
-    size_t i = 0;
-    size_t offset = 0;
+	// TODO: Use the data from the AST
+	size_t i = 0;
+	size_t offset = 0;
 
-    data_offsets[i++] = offset; // "define_type" symbol
-    offset += define_fn.return_type_len + 1;
+	data_offsets[i++] = offset; // "define_type" symbol
+	offset += define_fn.return_type_len + 1;
 
-    data_offsets[i++] = offset; // "define" symbol
+	data_offsets[i++] = offset; // "define" symbol
 	// TODO: Don't hardcode these
-    offset += sizeof(u64);
-    offset += sizeof(u64);
+	offset += sizeof(u64);
+	offset += sizeof(u64);
 
-    // for (size_t j = 0; j < 8; j++) {
-    //     data_offsets[i++] = offset;
-    //     offset += sizeof("a^");
-    // }
+	// for (size_t j = 0; j < 8; j++) {
+	//     data_offsets[i++] = offset;
+	//     offset += sizeof("a^");
+	// }
 }
 
 // haystack="a" , needle="a" => returns 0
@@ -3098,110 +3098,110 @@ static size_t get_ending_index(char *haystack, char *needle) {
   // Go to the end of the haystack and the needle
   char *hp = haystack;
   while (*hp) {
-    hp++;
+	hp++;
   }
   char *np = needle;
   while (*np) {
-    np++;
+	np++;
   }
 
   // If the needle is longer than the haystack, it can't fit
   if (np - needle > hp - haystack) {
-    return -1;
+	return -1;
   }
 
   while (true) {
-    // If one of the characters doesn't match
-    if (*hp != *np) {
-      return -1;
-    }
+	// If one of the characters doesn't match
+	if (*hp != *np) {
+	  return -1;
+	}
 
-    // If the needle entirely fits into the end of the haystack,
-    // return the index where needle starts in haystack
-    if (np == needle) {
-      return hp - haystack; 
-    }
+	// If the needle entirely fits into the end of the haystack,
+	// return the index where needle starts in haystack
+	if (np == needle) {
+	  return hp - haystack; 
+	}
 
-    hp--;
-    np--;
+	hp--;
+	np--;
   }
 }
 
 static void init_symbol_name_strtab_offsets(void) {
-    size_t offset = 0;
+	size_t offset = 0;
 
-    static size_t parent_indices[MAX_SYMBOLS];
-    static size_t substr_offsets[MAX_SYMBOLS];
+	static size_t parent_indices[MAX_SYMBOLS];
+	static size_t substr_offsets[MAX_SYMBOLS];
 
-    memset(parent_indices, -1, symbols_size * sizeof(size_t));
+	memset(parent_indices, -1, symbols_size * sizeof(size_t));
 
-    // This function could be optimized from O(n^2) to O(n) with a hash map
-    for (size_t i = 0; i < symbols_size; i++) {
-        size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
-        char *symbol = symbols[symbol_index];
+	// This function could be optimized from O(n^2) to O(n) with a hash map
+	for (size_t i = 0; i < symbols_size; i++) {
+		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
+		char *symbol = symbols[symbol_index];
 
-        size_t parent_index;
-        size_t ending_index;
-        for (parent_index = 0; parent_index < symbols_size; parent_index++) {
-            if (symbol_index != parent_index) {
-                ending_index = get_ending_index(symbols[parent_index], symbol);
-                if (ending_index != (size_t)-1) {
-                    break;
-                }
-            }
-        }
+		size_t parent_index;
+		size_t ending_index;
+		for (parent_index = 0; parent_index < symbols_size; parent_index++) {
+			if (symbol_index != parent_index) {
+				ending_index = get_ending_index(symbols[parent_index], symbol);
+				if (ending_index != (size_t)-1) {
+					break;
+				}
+			}
+		}
 
-        // If symbol wasn't in the end of another symbol
-        bool is_substr = parent_index != symbols_size;
+		// If symbol wasn't in the end of another symbol
+		bool is_substr = parent_index != symbols_size;
 
-        if (is_substr) {
-            parent_indices[symbol_index] = parent_index;
-            substr_offsets[symbol_index] = ending_index;
-        } else {
-            symbol_name_strtab_offsets[symbol_index] = offset;
-            offset += strlen(symbol) + 1;
-        }
-    }
+		if (is_substr) {
+			parent_indices[symbol_index] = parent_index;
+			substr_offsets[symbol_index] = ending_index;
+		} else {
+			symbol_name_strtab_offsets[symbol_index] = offset;
+			offset += strlen(symbol) + 1;
+		}
+	}
 
-    // Now that all the parents have been given final offsets in .strtab,
-    // it is clear what index their substring symbols have
-    for (size_t i = 0; i < symbols_size; i++) {
-        size_t parent_index = parent_indices[i];
-        if (parent_index != (size_t)-1) {
-            size_t parent_offset = symbol_name_strtab_offsets[parent_index];
-            symbol_name_strtab_offsets[i] = parent_offset + substr_offsets[i];
-        }
-    }
+	// Now that all the parents have been given final offsets in .strtab,
+	// it is clear what index their substring symbols have
+	for (size_t i = 0; i < symbols_size; i++) {
+		size_t parent_index = parent_indices[i];
+		if (parent_index != (size_t)-1) {
+			size_t parent_offset = symbol_name_strtab_offsets[parent_index];
+			symbol_name_strtab_offsets[i] = parent_offset + substr_offsets[i];
+		}
+	}
 }
 
 static void push_shuffled_symbol(char *shuffled_symbol) {
-    if (shuffled_symbols_size + 1 > MAX_SYMBOLS) {
-        fprintf(stderr, "error: MAX_SYMBOLS of %d was exceeded\n", MAX_SYMBOLS);
-        exit(EXIT_FAILURE);
-    }
+	if (shuffled_symbols_size + 1 > MAX_SYMBOLS) {
+		fprintf(stderr, "error: MAX_SYMBOLS of %d was exceeded\n", MAX_SYMBOLS);
+		exit(EXIT_FAILURE);
+	}
 
-    shuffled_symbols[shuffled_symbols_size++] = shuffled_symbol;
+	shuffled_symbols[shuffled_symbols_size++] = shuffled_symbol;
 }
 
 // This is solely here to put the symbols in the same weird order as ld does
 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l508
 static unsigned long bfd_hash_hash(const char *string) {
-    const unsigned char *s;
-    unsigned long hash;
-    unsigned int len;
-    unsigned int c;
+	const unsigned char *s;
+	unsigned long hash;
+	unsigned int len;
+	unsigned int c;
 
-    hash = 0;
-    len = 0;
-    s = (const unsigned char *) string;
-    while ((c = *s++) != '\0') {
-        hash += c + (c << 17);
-        hash ^= hash >> 2;
-    }
-    len = (s - (const unsigned char *) string) - 1;
-    hash += len + (len << 17);
-    hash ^= hash >> 2;
-    return hash;
+	hash = 0;
+	len = 0;
+	s = (const unsigned char *) string;
+	while ((c = *s++) != '\0') {
+		hash += c + (c << 17);
+		hash ^= hash >> 2;
+	}
+	len = (s - (const unsigned char *) string) - 1;
+	hash += len + (len << 17);
+	hash ^= hash >> 2;
+	return hash;
 }
 
 // See the documentation of push_hash() for how this function roughly works
@@ -3243,167 +3243,167 @@ static unsigned long bfd_hash_hash(const char *string) {
 // "e"
 // "m"
 static void generate_shuffled_symbols(void) {
-    #define DEFAULT_SIZE 4051 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l345
+	#define DEFAULT_SIZE 4051 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l345
 
-    static u32 buckets[DEFAULT_SIZE];
+	static u32 buckets[DEFAULT_SIZE];
 
-    memset(buckets, 0, DEFAULT_SIZE * sizeof(u32));
+	memset(buckets, 0, DEFAULT_SIZE * sizeof(u32));
 
-    chains_size = 0;
+	chains_size = 0;
 
-    push_chain(0); // The first entry in the chain is always STN_UNDEF
+	push_chain(0); // The first entry in the chain is always STN_UNDEF
 
-    for (size_t i = 0; i < symbols_size; i++) {
-        u32 hash = bfd_hash_hash(symbols[i]);
-        u32 bucket_index = hash % DEFAULT_SIZE;
+	for (size_t i = 0; i < symbols_size; i++) {
+		u32 hash = bfd_hash_hash(symbols[i]);
+		u32 bucket_index = hash % DEFAULT_SIZE;
 
-        push_chain(buckets[bucket_index]);
+		push_chain(buckets[bucket_index]);
 
-        buckets[bucket_index] = i + 1;
-    }
+		buckets[bucket_index] = i + 1;
+	}
 
-    for (size_t i = 0; i < DEFAULT_SIZE; i++) {
-        u32 chain_index = buckets[i];
-        if (chain_index == 0) {
-            continue;
-        }
+	for (size_t i = 0; i < DEFAULT_SIZE; i++) {
+		u32 chain_index = buckets[i];
+		if (chain_index == 0) {
+			continue;
+		}
 
-        char *symbol = symbols[chain_index - 1];
+		char *symbol = symbols[chain_index - 1];
 
-        shuffled_symbol_index_to_symbol_index[shuffled_symbols_size] = chain_index - 1;
+		shuffled_symbol_index_to_symbol_index[shuffled_symbols_size] = chain_index - 1;
 
-        push_shuffled_symbol(symbol);
+		push_shuffled_symbol(symbol);
 
-        while (true) {
-            chain_index = chains[chain_index];
-            if (chain_index == 0) {
-                break;
-            }
+		while (true) {
+			chain_index = chains[chain_index];
+			if (chain_index == 0) {
+				break;
+			}
 
-            symbol = symbols[chain_index - 1];
+			symbol = symbols[chain_index - 1];
 
-            shuffled_symbol_index_to_symbol_index[shuffled_symbols_size] = chain_index - 1;
+			shuffled_symbol_index_to_symbol_index[shuffled_symbols_size] = chain_index - 1;
 
-            push_shuffled_symbol(symbol);
-        }
-    }
+			push_shuffled_symbol(symbol);
+		}
+	}
 }
 
 static void init_symbol_name_dynstr_offsets(void) {
-    size_t offset = 1;
+	size_t offset = 1;
 
-    static size_t parent_indices[MAX_SYMBOLS];
-    static size_t substr_offsets[MAX_SYMBOLS];
+	static size_t parent_indices[MAX_SYMBOLS];
+	static size_t substr_offsets[MAX_SYMBOLS];
 
-    memset(parent_indices, -1, symbols_size * sizeof(size_t));
+	memset(parent_indices, -1, symbols_size * sizeof(size_t));
 
-    memset(is_substrs, false, symbols_size * sizeof(bool));
+	memset(is_substrs, false, symbols_size * sizeof(bool));
 
-    // This function could be optimized from O(n^2) to O(n) with a hash map
-    for (size_t i = 0; i < symbols_size; i++) {
-        char *symbol = symbols[i];
+	// This function could be optimized from O(n^2) to O(n) with a hash map
+	for (size_t i = 0; i < symbols_size; i++) {
+		char *symbol = symbols[i];
 
-        size_t parent_index;
-        size_t ending_index;
-        for (parent_index = 0; parent_index < symbols_size; parent_index++) {
-            if (i != parent_index) {
-                ending_index = get_ending_index(symbols[parent_index], symbol);
-                if (ending_index != (size_t)-1) {
-                    break;
-                }
-            }
-        }
+		size_t parent_index;
+		size_t ending_index;
+		for (parent_index = 0; parent_index < symbols_size; parent_index++) {
+			if (i != parent_index) {
+				ending_index = get_ending_index(symbols[parent_index], symbol);
+				if (ending_index != (size_t)-1) {
+					break;
+				}
+			}
+		}
 
-        // If symbol wasn't in the end of another symbol
-        bool is_substr = parent_index != symbols_size;
+		// If symbol wasn't in the end of another symbol
+		bool is_substr = parent_index != symbols_size;
 
-        if (is_substr) {
-            parent_indices[i] = parent_index;
-            substr_offsets[i] = ending_index;
-        } else {
-            symbol_name_dynstr_offsets[i] = offset;
-            offset += strlen(symbol) + 1;
-        }
+		if (is_substr) {
+			parent_indices[i] = parent_index;
+			substr_offsets[i] = ending_index;
+		} else {
+			symbol_name_dynstr_offsets[i] = offset;
+			offset += strlen(symbol) + 1;
+		}
 
-        is_substrs[i] = is_substr;
-    }
+		is_substrs[i] = is_substr;
+	}
 
-    // Now that all the parents have been given final offsets in .dynstr,
-    // it is clear what index their substring symbols have
-    for (size_t i = 0; i < symbols_size; i++) {
-        size_t parent_index = parent_indices[i];
-        if (parent_index != (size_t)-1) {
-            size_t parent_offset = symbol_name_dynstr_offsets[parent_index];
-            symbol_name_dynstr_offsets[i] = parent_offset + substr_offsets[i];
-        }
-    }
+	// Now that all the parents have been given final offsets in .dynstr,
+	// it is clear what index their substring symbols have
+	for (size_t i = 0; i < symbols_size; i++) {
+		size_t parent_index = parent_indices[i];
+		if (parent_index != (size_t)-1) {
+			size_t parent_offset = symbol_name_dynstr_offsets[parent_index];
+			symbol_name_dynstr_offsets[i] = parent_offset + substr_offsets[i];
+		}
+	}
 }
 
 static void push_symbol(char *symbol) {
-    if (symbols_size + 1 > MAX_SYMBOLS) {
-        fprintf(stderr, "error: MAX_SYMBOLS of %d was exceeded\n", MAX_SYMBOLS);
-        exit(EXIT_FAILURE);
-    }
+	if (symbols_size + 1 > MAX_SYMBOLS) {
+		fprintf(stderr, "error: MAX_SYMBOLS of %d was exceeded\n", MAX_SYMBOLS);
+		exit(EXIT_FAILURE);
+	}
 
-    symbols[symbols_size++] = symbol;
+	symbols[symbols_size++] = symbol;
 }
 
 // TODO: This needs to be recursive,
 // since the AST can contain nested compound literals
 static void compute_data_size(void) {
 	data_size = 0;
-    // TODO: Use the data from the AST
+	// TODO: Use the data from the AST
 	data_size += sizeof(u64); // "define" symbol
 	// data_size += sizeof(u64); // "define" symbol
-    data_size += define_fn.return_type_len + 1;
+	data_size += define_fn.return_type_len + 1;
 }
 
 static void reset_generate_simple_so(void) {
-    symbols_size = 0;
-    chains_size = 0;
-    shuffled_symbols_size = 0;
-    bytes_size = 0;
+	symbols_size = 0;
+	chains_size = 0;
+	shuffled_symbols_size = 0;
+	bytes_size = 0;
 }
 
 static void generate_simple_so(char *grug_path, char *dll_path) {
-    reset_generate_simple_so();
+	reset_generate_simple_so();
 
 	compute_data_size();
 
-    // TODO: Use the symbols from the AST
-    push_symbol("define_type");
-    push_symbol("define");
+	// TODO: Use the symbols from the AST
+	push_symbol("define_type");
+	push_symbol("define");
 
 	// TODO: Compute this
 	data_symbols_size = 2;
 
-    // push_symbol("a");
-    push_symbol("get_globals_struct_size");
-    push_symbol("init_globals_struct");
+	// push_symbol("a");
+	push_symbol("get_globals_struct_size");
+	push_symbol("init_globals_struct");
 
-    // TODO: Let this be gotten with push_text() calls
+	// TODO: Let this be gotten with push_text() calls
 	text_size = 7;
 
-    init_symbol_name_dynstr_offsets();
+	init_symbol_name_dynstr_offsets();
 
-    generate_shuffled_symbols();
+	generate_shuffled_symbols();
 
-    init_symbol_name_strtab_offsets();
+	init_symbol_name_strtab_offsets();
 
-    init_data_offsets();
-    init_text_offsets();
+	init_data_offsets();
+	init_text_offsets();
 
-    push_bytes(grug_path);
+	push_bytes(grug_path);
 
-    fix_bytes();
+	fix_bytes();
 
-    FILE *f = fopen(dll_path, "w");
-    if (!f) {
-        perror("fopen");
-        exit(EXIT_FAILURE);
-    }
-    fwrite(bytes, sizeof(u8), bytes_size, f);
-    fclose(f);
+	FILE *f = fopen(dll_path, "w");
+	if (!f) {
+		perror("fopen");
+		exit(EXIT_FAILURE);
+	}
+	fwrite(bytes, sizeof(u8), bytes_size, f);
+	fclose(f);
 }
 
 //// MISC
@@ -3438,9 +3438,9 @@ void grug_init(grug_function_t functions[]) {
 }
 
 static void write_c(char *c_path) {
-    FILE *f = fopen(c_path, "w");
+	FILE *f = fopen(c_path, "w");
 	if (!f) {
-        GRUG_ERROR("fopen: %s", strerror(errno));
+		GRUG_ERROR("fopen: %s", strerror(errno));
 	}
 
 	size_t bytes_written = fwrite(serialized, sizeof(char), strlen(serialized), f);
@@ -3448,9 +3448,9 @@ static void write_c(char *c_path) {
 		GRUG_ERROR("fwrite: %s", strerror(errno));
 	}
 
-    if (fclose(f)) {
-        GRUG_ERROR("fclose: %s", strerror(errno));
-    }
+	if (fclose(f)) {
+		GRUG_ERROR("fclose: %s", strerror(errno));
+	}
 }
 
 static void reset_regenerate_dll(void) {
@@ -3488,19 +3488,19 @@ static void regenerate_dll(char *grug_path, char *dll_path, char *c_path) {
 	serialize_to_c();
 	grug_log("\nserialized:\n%s\n", serialized);
 
-    write_c(c_path);
+	write_c(c_path);
 
-    generate_simple_so(grug_path, dll_path);
+	generate_simple_so(grug_path, dll_path);
 }
 
 // Returns whether an error occurred
 bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *c_path) {
 	assert(initialized && "grug_init() was not called");
-    if (setjmp(error_jmp_buffer)) {
-        return true;
+	if (setjmp(error_jmp_buffer)) {
+		return true;
 	}
-    regenerate_dll(grug_path, dll_path, c_path);
-    return false;
+	regenerate_dll(grug_path, dll_path, c_path);
+	return false;
 }
 
 static void try_create_parent_dirs(char *file_path) {
@@ -3558,11 +3558,11 @@ static void print_dlerror(char *function_name) {
 }
 
 static void free_file(grug_file_t file) {
-    free(file.name);
+	free(file.name);
 
-    if (file.dll && dlclose(file.dll)) {
-        print_dlerror("dlclose");
-    }
+	if (file.dll && dlclose(file.dll)) {
+		print_dlerror("dlclose");
+	}
 }
 
 static void free_dir(grug_mod_dir_t dir) {
@@ -3581,8 +3581,8 @@ static void free_dir(grug_mod_dir_t dir) {
 
 void grug_free_mods(void) {
 	assert(initialized && "grug_init() was not called");
-    free_dir(grug_mods);
-    memset(&grug_mods, 0, sizeof(grug_mods));
+	free_dir(grug_mods);
+	memset(&grug_mods, 0, sizeof(grug_mods));
 }
 
 static void *grug_get(void *dll, char *symbol_name) {
@@ -3590,66 +3590,66 @@ static void *grug_get(void *dll, char *symbol_name) {
 }
 
 static void push_reload(grug_modified_t modified) {
-    if (grug_reloads_size + 1 > reloads_capacity) {
-        reloads_capacity = reloads_capacity == 0 ? 1 : reloads_capacity * 2;
-        grug_reloads = realloc(grug_reloads, reloads_capacity * sizeof(*grug_reloads));
-        if (!grug_reloads) {
-            GRUG_ERROR("realloc: %s", strerror(errno));
-        }
-    }
-    grug_reloads[grug_reloads_size++] = modified;
+	if (grug_reloads_size + 1 > reloads_capacity) {
+		reloads_capacity = reloads_capacity == 0 ? 1 : reloads_capacity * 2;
+		grug_reloads = realloc(grug_reloads, reloads_capacity * sizeof(*grug_reloads));
+		if (!grug_reloads) {
+			GRUG_ERROR("realloc: %s", strerror(errno));
+		}
+	}
+	grug_reloads[grug_reloads_size++] = modified;
 }
 
 static void push_file(grug_mod_dir_t *dir, grug_file_t file) {
-    if (dir->files_size + 1 > dir->files_capacity) {
-        dir->files_capacity = dir->files_capacity == 0 ? 1 : dir->files_capacity * 2;
-        dir->files = realloc(dir->files, dir->files_capacity * sizeof(*dir->files));
-        if (!dir->files) {
-            GRUG_ERROR("realloc: %s", strerror(errno));
-        }
-    }
-    dir->files[dir->files_size++] = file;
+	if (dir->files_size + 1 > dir->files_capacity) {
+		dir->files_capacity = dir->files_capacity == 0 ? 1 : dir->files_capacity * 2;
+		dir->files = realloc(dir->files, dir->files_capacity * sizeof(*dir->files));
+		if (!dir->files) {
+			GRUG_ERROR("realloc: %s", strerror(errno));
+		}
+	}
+	dir->files[dir->files_size++] = file;
 }
 
 static void push_subdir(grug_mod_dir_t *dir, grug_mod_dir_t subdir) {
-    if (dir->dirs_size + 1 > dir->dirs_capacity) {
-        dir->dirs_capacity = dir->dirs_capacity == 0 ? 1 : dir->dirs_capacity * 2;
-        dir->dirs = realloc(dir->dirs, dir->dirs_capacity * sizeof(*dir->dirs));
-        if (!dir->dirs) {
-            GRUG_ERROR("realloc: %s", strerror(errno));
-        }
-    }
-    dir->dirs[dir->dirs_size++] = subdir;
+	if (dir->dirs_size + 1 > dir->dirs_capacity) {
+		dir->dirs_capacity = dir->dirs_capacity == 0 ? 1 : dir->dirs_capacity * 2;
+		dir->dirs = realloc(dir->dirs, dir->dirs_capacity * sizeof(*dir->dirs));
+		if (!dir->dirs) {
+			GRUG_ERROR("realloc: %s", strerror(errno));
+		}
+	}
+	dir->dirs[dir->dirs_size++] = subdir;
 }
 
 // Profiling may indicate that rewriting this to use an O(1) technique like a hashmap is worth it
 static grug_file_t *get_file(grug_mod_dir_t *dir, char *name) {
-    for (size_t i = 0; i < dir->files_size; i++) {
-        if (strcmp(dir->files[i].name, name) == 0) {
-            return dir->files + i;
-        }
-    }
-    return NULL;
+	for (size_t i = 0; i < dir->files_size; i++) {
+		if (strcmp(dir->files[i].name, name) == 0) {
+			return dir->files + i;
+		}
+	}
+	return NULL;
 }
 
 // Profiling may indicate that rewriting this to use an O(1) technique like a hashmap is worth it
 static grug_mod_dir_t *get_subdir(grug_mod_dir_t *dir, char *name) {
-    for (size_t i = 0; i < dir->dirs_size; i++) {
-        if (strcmp(dir->dirs[i].name, name) == 0) {
-            return dir->dirs + i;
-        }
-    }
-    return NULL;
+	for (size_t i = 0; i < dir->dirs_size; i++) {
+		if (strcmp(dir->dirs[i].name, name) == 0) {
+			return dir->dirs + i;
+		}
+	}
+	return NULL;
 }
 
 // Profiling may indicate that rewriting this to use an O(1) technique like a hashmap is worth it
 static bool has_been_seen(char *name, char **seen_names, size_t seen_names_size) {
-    for (size_t i = 0; i < seen_names_size; i++) {
-        if (strcmp(seen_names[i], name) == 0) {
-            return true;
-        }
-    }
-    return false;
+	for (size_t i = 0; i < seen_names_size; i++) {
+		if (strcmp(seen_names[i], name) == 0) {
+			return true;
+		}
+	}
+	return false;
 }
 
 static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_mod_dir_t *dir) {
@@ -3658,13 +3658,13 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 		GRUG_ERROR("opendir: %s", strerror(errno));
 	}
 
-    char **seen_dir_names = NULL;
-    size_t seen_dir_names_size = 0;
-    size_t seen_dir_names_capacity = 0;
+	char **seen_dir_names = NULL;
+	size_t seen_dir_names_size = 0;
+	size_t seen_dir_names_capacity = 0;
 
-    char **seen_file_names = NULL;
-    size_t seen_file_names_size = 0;
-    size_t seen_file_names_capacity = 0;
+	char **seen_file_names = NULL;
+	size_t seen_file_names_size = 0;
+	size_t seen_file_names_capacity = 0;
 
 	errno = 0;
 	struct dirent *dp;
@@ -3685,34 +3685,34 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 		}
 
 		if (S_ISDIR(entry_stat.st_mode)) {
-            if (seen_dir_names_size + 1 > seen_dir_names_capacity) {
-                seen_dir_names_capacity = seen_dir_names_capacity == 0 ? 1 : seen_dir_names_capacity * 2;
-                seen_dir_names = realloc(seen_dir_names, seen_dir_names_capacity * sizeof(*seen_dir_names));
-                if (!seen_dir_names) {
-                    GRUG_ERROR("realloc: %s", strerror(errno));
-                }
-            }
-            seen_dir_names[seen_dir_names_size++] = strdup(dp->d_name);
+			if (seen_dir_names_size + 1 > seen_dir_names_capacity) {
+				seen_dir_names_capacity = seen_dir_names_capacity == 0 ? 1 : seen_dir_names_capacity * 2;
+				seen_dir_names = realloc(seen_dir_names, seen_dir_names_capacity * sizeof(*seen_dir_names));
+				if (!seen_dir_names) {
+					GRUG_ERROR("realloc: %s", strerror(errno));
+				}
+			}
+			seen_dir_names[seen_dir_names_size++] = strdup(dp->d_name);
 
-            grug_mod_dir_t *subdir = get_subdir(dir, dp->d_name);
-            if (!subdir) {
-                grug_mod_dir_t inserted_subdir = {.name = strdup(dp->d_name)};
-                if (!inserted_subdir.name) {
-                    GRUG_ERROR("strdup: %s", strerror(errno));
-                }
-                push_subdir(dir, inserted_subdir);
-                subdir = dir->dirs + dir->dirs_size - 1;
-            }
+			grug_mod_dir_t *subdir = get_subdir(dir, dp->d_name);
+			if (!subdir) {
+				grug_mod_dir_t inserted_subdir = {.name = strdup(dp->d_name)};
+				if (!inserted_subdir.name) {
+					GRUG_ERROR("strdup: %s", strerror(errno));
+				}
+				push_subdir(dir, inserted_subdir);
+				subdir = dir->dirs + dir->dirs_size - 1;
+			}
 			reload_modified_mods(entry_path, dll_entry_path, subdir);
 		} else if (S_ISREG(entry_stat.st_mode) && strcmp(get_file_extension(dp->d_name), ".grug") == 0) {
-            if (seen_file_names_size + 1 > seen_file_names_capacity) {
-                seen_file_names_capacity = seen_file_names_capacity == 0 ? 1 : seen_file_names_capacity * 2;
-                seen_file_names = realloc(seen_file_names, seen_file_names_capacity * sizeof(*seen_file_names));
-                if (!seen_file_names) {
-                    GRUG_ERROR("realloc: %s", strerror(errno));
-                }
-            }
-            seen_file_names[seen_file_names_size++] = strdup(dp->d_name);
+			if (seen_file_names_size + 1 > seen_file_names_capacity) {
+				seen_file_names_capacity = seen_file_names_capacity == 0 ? 1 : seen_file_names_capacity * 2;
+				seen_file_names = realloc(seen_file_names, seen_file_names_capacity * sizeof(*seen_file_names));
+				if (!seen_file_names) {
+					GRUG_ERROR("realloc: %s", strerror(errno));
+				}
+			}
+			seen_file_names[seen_file_names_size++] = strdup(dp->d_name);
 
 			char dll_path[STUPID_MAX_PATH];
 			fill_as_path_with_dll_extension(dll_path, dll_entry_path);
@@ -3732,94 +3732,94 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 				}
 			}
 
-            // If the dll doesn't exist or is outdated
-            bool needs_regeneration = !dll_exists || entry_stat.st_mtime > dll_stat.st_mtime;
+			// If the dll doesn't exist or is outdated
+			bool needs_regeneration = !dll_exists || entry_stat.st_mtime > dll_stat.st_mtime;
 
-            grug_file_t *old_file = get_file(dir, dp->d_name);
+			grug_file_t *old_file = get_file(dir, dp->d_name);
 
 			if (needs_regeneration || !old_file) {
-                grug_modified_t modified = {0};
+				grug_modified_t modified = {0};
 
-                if (old_file) {
-                    modified.old_dll = old_file->dll;
-                    if (dlclose(old_file->dll)) {
-                        print_dlerror("dlclose");
-                    }
-                }
+				if (old_file) {
+					modified.old_dll = old_file->dll;
+					if (dlclose(old_file->dll)) {
+						print_dlerror("dlclose");
+					}
+				}
 
-                if (needs_regeneration) {
-                    char c_path[STUPID_MAX_PATH];
-                    fill_as_path_with_c_extension(c_path, dll_entry_path);
+				if (needs_regeneration) {
+					char c_path[STUPID_MAX_PATH];
+					fill_as_path_with_c_extension(c_path, dll_entry_path);
 
-				    regenerate_dll(entry_path, dll_path, c_path);
-                }
+					regenerate_dll(entry_path, dll_path, c_path);
+				}
 
-                grug_file_t file = {0};
-                if (old_file) {
-                    file.name = old_file->name;
-                } else {
-                    file.name = strdup(dp->d_name);
-                    if (!file.name) {
-                        GRUG_ERROR("strdup: %s", strerror(errno));
-                    }
-                }
+				grug_file_t file = {0};
+				if (old_file) {
+					file.name = old_file->name;
+				} else {
+					file.name = strdup(dp->d_name);
+					if (!file.name) {
+						GRUG_ERROR("strdup: %s", strerror(errno));
+					}
+				}
 
-                file.dll = dlopen(dll_path, RTLD_NOW);
-                if (!file.dll) {
-                    print_dlerror("dlopen");
-                }
+				file.dll = dlopen(dll_path, RTLD_NOW);
+				if (!file.dll) {
+					print_dlerror("dlopen");
+				}
 
-                #pragma GCC diagnostic push
-                #pragma GCC diagnostic ignored "-Wpedantic"
-                get_globals_struct_size_fn get_globals_struct_size_fn = grug_get(file.dll, "get_globals_struct_size");
-                #pragma GCC diagnostic pop
-                if (!get_globals_struct_size_fn) {
-                    GRUG_ERROR("Retrieving the get_globals_struct_size() function with grug_get() failed for %s", dll_path);
-                }
-                file.globals_struct_size = get_globals_struct_size_fn();
+				#pragma GCC diagnostic push
+				#pragma GCC diagnostic ignored "-Wpedantic"
+				get_globals_struct_size_fn get_globals_struct_size_fn = grug_get(file.dll, "get_globals_struct_size");
+				#pragma GCC diagnostic pop
+				if (!get_globals_struct_size_fn) {
+					GRUG_ERROR("Retrieving the get_globals_struct_size() function with grug_get() failed for %s", dll_path);
+				}
+				file.globals_struct_size = get_globals_struct_size_fn();
 
-                #pragma GCC diagnostic push
-                #pragma GCC diagnostic ignored "-Wpedantic"
-                file.init_globals_struct_fn = grug_get(file.dll, "init_globals_struct");
-                #pragma GCC diagnostic pop
-                if (!file.init_globals_struct_fn) {
-                    GRUG_ERROR("Retrieving the init_globals_struct() function with grug_get() failed for %s", dll_path);
-                }
+				#pragma GCC diagnostic push
+				#pragma GCC diagnostic ignored "-Wpedantic"
+				file.init_globals_struct_fn = grug_get(file.dll, "init_globals_struct");
+				#pragma GCC diagnostic pop
+				if (!file.init_globals_struct_fn) {
+					GRUG_ERROR("Retrieving the init_globals_struct() function with grug_get() failed for %s", dll_path);
+				}
 
-                char **define_type_ptr = grug_get(file.dll, "define_type");
-                if (!define_type_ptr) {
-                    GRUG_ERROR("Retrieving the define_type string with grug_get() failed for %s", dll_path);
-                }
-                file.define_type = *define_type_ptr;
+				char **define_type_ptr = grug_get(file.dll, "define_type");
+				if (!define_type_ptr) {
+					GRUG_ERROR("Retrieving the define_type string with grug_get() failed for %s", dll_path);
+				}
+				file.define_type = *define_type_ptr;
 
-                file.define = grug_get(file.dll, "define");
-                if (!file.define) {
-                    GRUG_ERROR("Retrieving the define struct with grug_get() failed for %s", dll_path);
-                }
+				file.define = grug_get(file.dll, "define");
+				if (!file.define) {
+					GRUG_ERROR("Retrieving the define struct with grug_get() failed for %s", dll_path);
+				}
 
-                // on_fns is optional, so don't check for NULL
-                file.on_fns = grug_get(file.dll, "on_fns");
+				// on_fns is optional, so don't check for NULL
+				file.on_fns = grug_get(file.dll, "on_fns");
 
-                if (old_file) {
-                    old_file->dll = file.dll;
-                    old_file->globals_struct_size = file.globals_struct_size;
-                    old_file->init_globals_struct_fn = file.init_globals_struct_fn;
-                    old_file->define_type = file.define_type;
-                    old_file->define = file.define;
-                    old_file->on_fns = file.on_fns;
-                } else {
-                    push_file(dir, file);
-                }
+				if (old_file) {
+					old_file->dll = file.dll;
+					old_file->globals_struct_size = file.globals_struct_size;
+					old_file->init_globals_struct_fn = file.init_globals_struct_fn;
+					old_file->define_type = file.define_type;
+					old_file->define = file.define;
+					old_file->on_fns = file.on_fns;
+				} else {
+					push_file(dir, file);
+				}
 
-                if (needs_regeneration) {
-                    modified.new_dll = file.dll;
-                    modified.globals_struct_size = file.globals_struct_size;
-                    modified.init_globals_struct_fn = file.init_globals_struct_fn;
-                    modified.define_type = file.define_type;
-                    modified.define = file.define;
-                    modified.on_fns = file.on_fns;
-                    push_reload(modified);
-                }
+				if (needs_regeneration) {
+					modified.new_dll = file.dll;
+					modified.globals_struct_size = file.globals_struct_size;
+					modified.init_globals_struct_fn = file.init_globals_struct_fn;
+					modified.define_type = file.define_type;
+					modified.define = file.define;
+					modified.on_fns = file.on_fns;
+					push_reload(modified);
+				}
 			}
 		}
 	}
@@ -3829,32 +3829,32 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 
 	closedir(dirp);
 
-    // If the directory used to contain a subdirectory or file
-    // that doesn't exist anymore, free it
-    //
-    // TODO: This can be made O(n) rather than O(n*m) by letting every directory contain a "seen" boolean,
-    // so that we can iterate over all directories and files once here
-    for (size_t i = 0; i < dir->dirs_size; i++) {
-        if (!has_been_seen(dir->dirs[i].name, seen_dir_names, seen_dir_names_size)) {
-            free_dir(dir->dirs[i]);
-            dir->dirs[i] = dir->dirs[--dir->dirs_size]; // Swap-remove
-        }
-    }
-    for (size_t i = 0; i < dir->files_size; i++) {
-        if (!has_been_seen(dir->files[i].name, seen_file_names, seen_file_names_size)) {
-            free_file(dir->files[i]);
-            dir->files[i] = dir->files[--dir->files_size]; // Swap-remove
-        }
-    }
+	// If the directory used to contain a subdirectory or file
+	// that doesn't exist anymore, free it
+	//
+	// TODO: This can be made O(n) rather than O(n*m) by letting every directory contain a "seen" boolean,
+	// so that we can iterate over all directories and files once here
+	for (size_t i = 0; i < dir->dirs_size; i++) {
+		if (!has_been_seen(dir->dirs[i].name, seen_dir_names, seen_dir_names_size)) {
+			free_dir(dir->dirs[i]);
+			dir->dirs[i] = dir->dirs[--dir->dirs_size]; // Swap-remove
+		}
+	}
+	for (size_t i = 0; i < dir->files_size; i++) {
+		if (!has_been_seen(dir->files[i].name, seen_file_names, seen_file_names_size)) {
+			free_file(dir->files[i]);
+			dir->files[i] = dir->files[--dir->files_size]; // Swap-remove
+		}
+	}
 
-    for (size_t i = 0; i < seen_dir_names_size; i++) {
-        free(seen_dir_names[i]);
-    }
-    free(seen_dir_names);
-    for (size_t i = 0; i < seen_file_names_size; i++) {
-        free(seen_file_names[i]);
-    }
-    free(seen_file_names);
+	for (size_t i = 0; i < seen_dir_names_size; i++) {
+		free(seen_dir_names[i]);
+	}
+	free(seen_dir_names);
+	for (size_t i = 0; i < seen_file_names_size; i++) {
+		free(seen_file_names[i]);
+	}
+	free(seen_file_names);
 }
 
 // Cases:
@@ -3874,21 +3874,21 @@ bool grug_regenerate_modified_mods(void) {
 	assert(!strchr(MODS_DIR_PATH, '\\') && "MODS_DIR_PATH can't contain backslashes, so replace them with '/'");
 	assert(MODS_DIR_PATH[strlen(MODS_DIR_PATH) - 1] != '/' && "MODS_DIR_PATH can't have a trailing '/'");
 
-    if (setjmp(error_jmp_buffer)) {
-        return true;
+	if (setjmp(error_jmp_buffer)) {
+		return true;
 	}
 
-    grug_reloads_size = 0;
+	grug_reloads_size = 0;
 
-    if (!grug_mods.name) {
-        grug_mods.name = strdup(get_basename(MODS_DIR_PATH));
-        if (!grug_mods.name) {
-            GRUG_ERROR("strdup: %s", strerror(errno));
-        }
-    }
+	if (!grug_mods.name) {
+		grug_mods.name = strdup(get_basename(MODS_DIR_PATH));
+		if (!grug_mods.name) {
+			GRUG_ERROR("strdup: %s", strerror(errno));
+		}
+	}
 
 	reload_modified_mods(MODS_DIR_PATH, DLL_DIR_PATH, &grug_mods);
-    return false;
+	return false;
 }
 
 static void print_dir(grug_mod_dir_t dir) {
