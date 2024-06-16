@@ -3927,25 +3927,26 @@ typedef struct grug_argument grug_argument_t;
 
 typedef size_t (*get_globals_struct_size_fn)(void);
 
+enum type {
+	i32,
+};
+
 struct grug_function {
 	char *name;
-	char *return_type;
+	enum type return_type;
 	grug_argument_t *arguments;
 };
 
 struct grug_argument {
 	char *name;
-	char *type;
-};
-
-enum type {
-	i32,
+	enum type type;
 };
 
 static enum type parse_type(char *type) {
 	if (strcmp(type, "i32") == 0) {
 		return i32;
 	}
+	// TODO: Make sure to add any new types to this error message
 	GRUG_ERROR("mod_api.json its types must be one of i32/...");
 }
 
