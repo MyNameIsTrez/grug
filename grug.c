@@ -3922,11 +3922,85 @@ grug_modified_t *grug_reloads;
 size_t grug_reloads_size;
 static size_t reloads_capacity;
 
+typedef struct grug_function grug_function_t;
+typedef struct grug_argument grug_argument_t;
+
 typedef size_t (*get_globals_struct_size_fn)(void);
 
+struct grug_function {
+	char *name;
+	char *return_type;
+	grug_argument_t *arguments;
+};
+
+struct grug_argument {
+	char *name;
+	char *type;
+};
+
 static void init(void) {
+	assert(!initialized);
+
 	struct json_node node;
 	json(MOD_API_JSON_PATH, &node);
+
+	assert(node.type == JSON_NODE_ARRAY && "mod_api.json must start with an array");
+	struct json_array fn_array = node.data.array;
+
+	for (size_t fn_index = 0; fn_index < fn_array.value_count; fn_index++) {
+		assert(fn_array.values[fn_index].type == JSON_NODE_OBJECT && "mod_api.json its array must only contain objects");
+		struct json_object fn = fn_array.values[fn_index].data.object;
+		assert(fn.field_count == 4 && "mod_api.json its objects must contain exactly four fields");
+
+		struct json_field *field = fn.fields;
+
+		assert(strcmp(field->key, "name") == 0 && "mod_api.json its functions must have \"name\" as the first field");
+		assert(field->value->type == JSON_NODE_STRING && "mod_api.json its function names must be strings");
+		char *fn_name = field->value->data.string;
+		assert(strcmp(fn_name, "") != 0 && "mod_api.json its function names must not be an empty string");
+		// TODO: Store fn_name
+		field++;
+
+		assert(strcmp(field->key, "description") == 0 && "mod_api.json its functions must have \"description\" as the second field");
+		assert(field->value->type == JSON_NODE_STRING && "mod_api.json its function descriptions must be strings");
+		char *description = field->value->data.string;
+		assert(strcmp(description, "") != 0 && "mod_api.json its function descriptions must not be an empty string");
+		// TODO: Store description
+		field++;
+
+		assert(strcmp(field->key, "return_type") == 0 && "mod_api.json its functions must have \"return_type\" as the third field");
+		assert(field->value->type == JSON_NODE_STRING && "mod_api.json its function return types must be strings");
+		char *return_type = field->value->data.string;
+		assert(strcmp(return_type, "") != 0 && "mod_api.json its function return types must not be an empty string");
+		// TODO: Store return_type
+		field++;
+
+		assert(strcmp(field->key, "arguments") == 0 && "mod_api.json its functions must have \"arguments\" as the fourth field");
+		assert(field->value->type == JSON_NODE_ARRAY && "mod_api.json its function arguments must be an array");
+		struct json_node *value = field->value->data.array.values;
+
+		for (size_t field_index = 0; field_index < field->value->data.array.value_count; field_index++) {
+			assert(value->type == JSON_NODE_OBJECT && "mod_api.json its function arguments must only contain objects");
+			assert(value->data.object.field_count == 2 && "mod_api.json its function arguments must only contain a name and type field");
+			struct json_field *field = value->data.object.fields;
+
+			assert(strcmp(field->key, "name") == 0 && "mod_api.json its function arguments must always have \"name\" be their first field");
+			assert(field->value->type == JSON_NODE_STRING && "mod_api.json its function arguments must always have string values");
+			char *argument_name = field->value->data.string;
+			// TODO: Store argument_name
+			(void)argument_name;
+			field++;
+
+			assert(strcmp(field->key, "type") == 0 && "mod_api.json its function arguments must always have \"type\" be their second field");
+			assert(field->value->type == JSON_NODE_STRING && "mod_api.json its function arguments must always have string values");
+			char *argument_value = field->value->data.string;
+			// TODO: Store argument_value
+			(void)argument_value;
+			field++;
+
+			value++;
+		}
+	}
 
 	initialized = true;
 }
