@@ -3938,6 +3938,17 @@ struct grug_argument {
 	char *type;
 };
 
+enum type {
+	i32,
+};
+
+static enum type parse_type(char *type) {
+	if (strcmp(type, "i32") == 0) {
+		return i32;
+	}
+	GRUG_ERROR("mod_api.json its types must be one of i32/...");
+}
+
 static void init(void) {
 	assert(!initialized);
 
@@ -3965,14 +3976,13 @@ static void init(void) {
 		assert(field->value->type == JSON_NODE_STRING && "mod_api.json its function descriptions must be strings");
 		char *description = field->value->data.string;
 		assert(strcmp(description, "") != 0 && "mod_api.json its function descriptions must not be an empty string");
-		// TODO: Store description
 		field++;
 
 		assert(strcmp(field->key, "return_type") == 0 && "mod_api.json its functions must have \"return_type\" as the third field");
 		assert(field->value->type == JSON_NODE_STRING && "mod_api.json its function return types must be strings");
-		char *return_type = field->value->data.string;
-		assert(strcmp(return_type, "") != 0 && "mod_api.json its function return types must not be an empty string");
+		enum type return_type = parse_type(field->value->data.string);
 		// TODO: Store return_type
+		(void)return_type;
 		field++;
 
 		assert(strcmp(field->key, "arguments") == 0 && "mod_api.json its functions must have \"arguments\" as the fourth field");
@@ -3993,9 +4003,9 @@ static void init(void) {
 
 			assert(strcmp(field->key, "type") == 0 && "mod_api.json its function arguments must always have \"type\" be their second field");
 			assert(field->value->type == JSON_NODE_STRING && "mod_api.json its function arguments must always have string values");
-			char *argument_value = field->value->data.string;
-			// TODO: Store argument_value
-			(void)argument_value;
+			enum type argument_type = parse_type(field->value->data.string);
+			// TODO: Store argument_type
+			(void)argument_type;
 			field++;
 
 			value++;
