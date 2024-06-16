@@ -3912,20 +3912,13 @@ static void generate_simple_so(char *grug_path, char *dll_path) {
 	fclose(f);
 }
 
-//// MISC
+//// INIT
 
-static bool initialized;
-
-grug_mod_dir_t grug_mods;
-
-grug_modified_t *grug_reloads;
-size_t grug_reloads_size;
-static size_t reloads_capacity;
+#define MAX_GRUG_FUNCTIONS 420420
+#define MAX_GRUG_ARGUMENTS 420420
 
 typedef struct grug_function grug_function_t;
 typedef struct grug_argument grug_argument_t;
-
-typedef size_t (*get_globals_struct_size_fn)(void);
 
 enum type {
 	i32,
@@ -3941,6 +3934,28 @@ struct grug_argument {
 	char *name;
 	enum type type;
 };
+
+static bool initialized;
+
+struct grug_function grug_functions[MAX_GRUG_FUNCTIONS];
+static size_t grug_functions_size;
+
+struct grug_argument grug_arguments[MAX_GRUG_ARGUMENTS];
+static size_t grug_arguments_size;
+
+static void push_grug_function(struct grug_function grug_fn) {
+	if (grug_functions_size >= MAX_GRUG_FUNCTIONS) {
+		GRUG_ERROR("There are more than %d grug functions, exceeding MAX_GRUG_FUNCTIONS", MAX_GRUG_FUNCTIONS);
+	}
+	grug_functions[grug_functions_size++] = grug_fn;
+}
+
+static void push_grug_argument(struct grug_argument argument) {
+	if (grug_arguments_size >= MAX_GRUG_ARGUMENTS) {
+		GRUG_ERROR("There are more than %d grug arguments, exceeding MAX_GRUG_ARGUMENTS", MAX_GRUG_ARGUMENTS);
+	}
+	grug_arguments[grug_arguments_size++] = argument;
+}
 
 static enum type parse_type(char *type) {
 	if (strcmp(type, "i32") == 0) {
@@ -3960,6 +3975,8 @@ static void init(void) {
 	struct json_array fn_array = node.data.array;
 
 	for (size_t fn_index = 0; fn_index < fn_array.value_count; fn_index++) {
+		struct grug_function grug_fn;
+
 		assert(fn_array.values[fn_index].type == JSON_NODE_OBJECT && "mod_api.json its array must only contain objects");
 		struct json_object fn = fn_array.values[fn_index].data.object;
 		assert(fn.field_count == 4 && "mod_api.json its objects must contain exactly four fields");
@@ -3968,9 +3985,8 @@ static void init(void) {
 
 		assert(strcmp(field->key, "name") == 0 && "mod_api.json its functions must have \"name\" as the first field");
 		assert(field->value->type == JSON_NODE_STRING && "mod_api.json its function names must be strings");
-		char *fn_name = field->value->data.string;
-		assert(strcmp(fn_name, "") != 0 && "mod_api.json its function names must not be an empty string");
-		// TODO: Store fn_name
+		grug_fn.name = field->value->data.string;
+		assert(strcmp(grug_fn.name, "") != 0 && "mod_api.json its function names must not be an empty string");
 		field++;
 
 		assert(strcmp(field->key, "description") == 0 && "mod_api.json its functions must have \"description\" as the second field");
@@ -3981,9 +3997,7 @@ static void init(void) {
 
 		assert(strcmp(field->key, "return_type") == 0 && "mod_api.json its functions must have \"return_type\" as the third field");
 		assert(field->value->type == JSON_NODE_STRING && "mod_api.json its function return types must be strings");
-		enum type return_type = parse_type(field->value->data.string);
-		// TODO: Store return_type
-		(void)return_type;
+		grug_fn.return_type = parse_type(field->value->data.string);
 		field++;
 
 		assert(strcmp(field->key, "arguments") == 0 && "mod_api.json its functions must have \"arguments\" as the fourth field");
@@ -3991,30 +4005,41 @@ static void init(void) {
 		struct json_node *value = field->value->data.array.values;
 
 		for (size_t field_index = 0; field_index < field->value->data.array.value_count; field_index++) {
+			struct grug_argument grug_arg;
+
 			assert(value->type == JSON_NODE_OBJECT && "mod_api.json its function arguments must only contain objects");
 			assert(value->data.object.field_count == 2 && "mod_api.json its function arguments must only contain a name and type field");
 			struct json_field *field = value->data.object.fields;
 
 			assert(strcmp(field->key, "name") == 0 && "mod_api.json its function arguments must always have \"name\" be their first field");
 			assert(field->value->type == JSON_NODE_STRING && "mod_api.json its function arguments must always have string values");
-			char *argument_name = field->value->data.string;
-			// TODO: Store argument_name
-			(void)argument_name;
+			grug_arg.name = field->value->data.string;
 			field++;
 
 			assert(strcmp(field->key, "type") == 0 && "mod_api.json its function arguments must always have \"type\" be their second field");
 			assert(field->value->type == JSON_NODE_STRING && "mod_api.json its function arguments must always have string values");
-			enum type argument_type = parse_type(field->value->data.string);
-			// TODO: Store argument_type
-			(void)argument_type;
+			grug_arg.type = parse_type(field->value->data.string);
 			field++;
 
+			push_grug_argument(grug_arg);
 			value++;
 		}
+
+		push_grug_function(grug_fn);
 	}
 
 	initialized = true;
 }
+
+//// MISC
+
+grug_mod_dir_t grug_mods;
+
+grug_modified_t *grug_reloads;
+size_t grug_reloads_size;
+static size_t reloads_capacity;
+
+typedef size_t (*get_globals_struct_size_fn)(void);
 
 static void write_c(char *c_path) {
 	FILE *f = fopen(c_path, "w");
