@@ -3,11 +3,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-typedef void (*init_globals_struct_fn_t)(void *globals_struct);
-
-typedef struct grug_function grug_function_t;
-typedef struct grug_argument grug_argument_t;
-
 typedef struct grug_file grug_file_t;
 typedef struct mod_dir grug_mod_dir_t;
 
@@ -15,16 +10,7 @@ typedef struct modified grug_modified_t;
 
 typedef struct grug_error grug_error_t;
 
-struct grug_function {
-	char *name;
-	char *return_type;
-	grug_argument_t *arguments;
-};
-
-struct grug_argument {
-	char *name;
-	char *type;
-};
+typedef void (*init_globals_struct_fn_t)(void *globals_struct);
 
 struct grug_file {
 	char *name;
@@ -71,7 +57,6 @@ extern size_t grug_reloads_size;
 
 extern grug_error_t grug_error;
 
-void grug_init(grug_function_t functions[]);
 bool grug_regenerate_modified_mods(void);
 void grug_print_mods(void);
 void grug_free_mods(void);

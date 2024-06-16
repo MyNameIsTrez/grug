@@ -32,6 +32,7 @@
 #define MAX_SERIALIZED_TO_C_CHARS 420420
 #define MODS_DIR_PATH "mods"
 #define DLL_DIR_PATH "mod_dlls"
+#define MOD_API_JSON_PATH "mod_api.json"
 #define UNREACHABLE_STR "This line of code is supposed to be unreachable. Please report this bug to the grug developers!"
 #define MAX_NUMBER_LEN 42
 
@@ -64,6 +65,510 @@ typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
 typedef int64_t i64;
+
+//// JSON
+
+#include <ctype.h>
+#include <setjmp.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+
+#define MAX_CHARACTERS_IN_JSON_FILE 420420
+#define MAX_TOKENS 420420
+#define MAX_STRINGS_CHARACTERS 420420
+#define MAX_NODES 420420
+#define MAX_FIELDS 420420
+#define MAX_CHILD_NODES 420
+#define MAX_RECURSION_DEPTH 42
+
+#define JSON_ERROR(error) {\
+	GRUG_ERROR("JSON error: %s", json_error_messages[error]);\
+}
+
+struct json_array {
+	struct json_node *values;
+	size_t value_count;
+};
+
+struct json_object {
+	struct json_field *fields;
+	size_t field_count;
+};
+
+struct json_field {
+	char *key;
+	struct json_node *value;
+};
+
+struct json_node {
+	enum {
+		JSON_NODE_STRING,
+		JSON_NODE_ARRAY,
+		JSON_NODE_OBJECT,
+	} type;
+	union {
+		char *string;
+		struct json_array array;
+		struct json_object object;
+	} data;
+};
+
+enum json_error {
+	JSON_NO_ERROR,
+	JSON_ERROR_FAILED_TO_OPEN_FILE,
+	JSON_ERROR_FAILED_TO_CLOSE_FILE,
+	JSON_ERROR_FILE_EMPTY,
+	JSON_ERROR_FILE_TOO_BIG,
+	JSON_ERROR_FILE_READING_ERROR,
+	JSON_ERROR_UNRECOGNIZED_CHARACTER,
+	JSON_ERROR_UNCLOSED_STRING,
+	JSON_ERROR_TOO_MANY_TOKENS,
+	JSON_ERROR_TOO_MANY_NODES,
+	JSON_ERROR_TOO_MANY_FIELDS,
+	JSON_ERROR_TOO_MANY_STRINGS_CHARACTERS,
+	JSON_ERROR_TOO_MANY_CHILD_NODES,
+	JSON_ERROR_MAX_RECURSION_DEPTH_EXCEEDED,
+	JSON_ERROR_EXPECTED_ARRAY_CLOSE,
+	JSON_ERROR_EXPECTED_OBJECT_CLOSE,
+	JSON_ERROR_EXPECTED_COLON,
+	JSON_ERROR_EXPECTED_VALUE,
+	JSON_ERROR_UNEXPECTED_STRING,
+	JSON_ERROR_UNEXPECTED_ARRAY_OPEN,
+	JSON_ERROR_UNEXPECTED_ARRAY_CLOSE,
+	JSON_ERROR_UNEXPECTED_OBJECT_OPEN,
+	JSON_ERROR_UNEXPECTED_OBJECT_CLOSE,
+	JSON_ERROR_UNEXPECTED_COMMA,
+	JSON_ERROR_UNEXPECTED_COLON,
+	JSON_ERROR_UNEXPECTED_EXTRA_CHARACTER,
+};
+
+char *json_error_messages[] = {
+	[JSON_NO_ERROR] = "No error",
+	[JSON_ERROR_FAILED_TO_OPEN_FILE] = "Failed to open file",
+	[JSON_ERROR_FAILED_TO_CLOSE_FILE] = "Failed to close file",
+	[JSON_ERROR_FILE_EMPTY] = "File is empty",
+	[JSON_ERROR_FILE_TOO_BIG] = "File is too big",
+	[JSON_ERROR_FILE_READING_ERROR] = "File reading error",
+	[JSON_ERROR_UNRECOGNIZED_CHARACTER] = "Unrecognized character",
+	[JSON_ERROR_UNCLOSED_STRING] = "Unclosed string",
+	[JSON_ERROR_TOO_MANY_TOKENS] = "Too many tokens",
+	[JSON_ERROR_TOO_MANY_NODES] = "Too many nodes",
+	[JSON_ERROR_TOO_MANY_FIELDS] = "Too many fields",
+	[JSON_ERROR_TOO_MANY_STRINGS_CHARACTERS] = "Too many strings[] characters",
+	[JSON_ERROR_TOO_MANY_CHILD_NODES] = "Too many child nodes",
+	[JSON_ERROR_MAX_RECURSION_DEPTH_EXCEEDED] = "Max recursion depth exceeded",
+	[JSON_ERROR_EXPECTED_ARRAY_CLOSE] = "Expected ']'",
+	[JSON_ERROR_EXPECTED_OBJECT_CLOSE] = "Expected '}'",
+	[JSON_ERROR_EXPECTED_COLON] = "Expected colon",
+	[JSON_ERROR_EXPECTED_VALUE] = "Expected value",
+	[JSON_ERROR_UNEXPECTED_STRING] = "Unexpected string",
+	[JSON_ERROR_UNEXPECTED_ARRAY_OPEN] = "Unexpected '['",
+	[JSON_ERROR_UNEXPECTED_ARRAY_CLOSE] = "Unexpected ']'",
+	[JSON_ERROR_UNEXPECTED_OBJECT_OPEN] = "Unexpected '{'",
+	[JSON_ERROR_UNEXPECTED_OBJECT_CLOSE] = "Unexpected '}'",
+	[JSON_ERROR_UNEXPECTED_COMMA] = "Unexpected ','",
+	[JSON_ERROR_UNEXPECTED_COLON] = "Unexpected ':'",
+	[JSON_ERROR_UNEXPECTED_EXTRA_CHARACTER] = "Unexpected extra character",
+};
+
+static size_t json_recursion_depth;
+
+static char json_text[MAX_CHARACTERS_IN_JSON_FILE];
+static size_t json_text_size;
+
+enum json_token_type {
+	TOKEN_TYPE_STRING,
+	TOKEN_TYPE_ARRAY_OPEN,
+	TOKEN_TYPE_ARRAY_CLOSE,
+	TOKEN_TYPE_OBJECT_OPEN,
+	TOKEN_TYPE_OBJECT_CLOSE,
+	TOKEN_TYPE_COMMA,
+	TOKEN_TYPE_COLON,
+};
+
+struct json_token {
+	enum json_token_type type;
+	size_t offset;
+	size_t length;
+};
+static struct json_token json_tokens[MAX_TOKENS];
+static size_t json_tokens_size;
+
+struct json_node json_nodes[MAX_NODES];
+static size_t json_nodes_size;
+
+static char json_strings[MAX_STRINGS_CHARACTERS];
+static size_t json_strings_size;
+
+struct json_field json_fields[MAX_FIELDS];
+static size_t json_fields_size;
+
+static struct json_node json_parse_string(size_t *i);
+static struct json_node json_parse_array(size_t *i);
+
+static void json_push_node(struct json_node node) {
+	if (json_nodes_size >= MAX_NODES) {
+		JSON_ERROR(JSON_ERROR_TOO_MANY_NODES);
+	}
+	json_nodes[json_nodes_size++] = node;
+}
+
+static void json_push_field(struct json_field field) {
+	if (json_fields_size >= MAX_FIELDS) {
+		JSON_ERROR(JSON_ERROR_TOO_MANY_FIELDS);
+	}
+	json_fields[json_fields_size++] = field;
+}
+
+static void json_push_string(size_t offset, size_t length) {
+	if (json_strings_size + length >= MAX_STRINGS_CHARACTERS) {
+		JSON_ERROR(JSON_ERROR_TOO_MANY_STRINGS_CHARACTERS);
+	}
+	for (size_t i = 0; i < length; i++) {
+		json_strings[json_strings_size++] = json_text[offset + i];
+	}
+	json_strings[json_strings_size++] = '\0';
+}
+
+static struct json_node json_parse_object(size_t *i) {
+	struct json_node node;
+
+	node.type = JSON_NODE_OBJECT;
+	(*i)++;
+
+	json_recursion_depth++;
+	if (json_recursion_depth > MAX_RECURSION_DEPTH) {
+		JSON_ERROR(JSON_ERROR_MAX_RECURSION_DEPTH_EXCEEDED);
+	}
+
+	node.data.object.field_count = 0;
+
+	struct json_field child_fields[MAX_CHILD_NODES];
+
+	bool seen_key = false;
+	bool seen_colon = false;
+	bool seen_value = false;
+
+	struct json_field field;
+	struct json_token *token;
+
+	struct json_node string;
+	struct json_node array;
+	struct json_node object;
+
+	while (*i < json_tokens_size) {
+		struct json_token *t = json_tokens + *i;
+
+		switch (t->type) {
+		case TOKEN_TYPE_STRING:
+			if (!seen_key) {
+				seen_key = true;
+				field.key = json_strings + json_strings_size;
+				token = json_tokens + *i;
+				json_push_string(token->offset, token->length);
+				(*i)++;
+			} else if (seen_colon && !seen_value) {
+				seen_value = true;
+				string = json_parse_string(i);
+				field.value = json_nodes + json_nodes_size;
+				json_push_node(string);
+				if (node.data.object.field_count >= MAX_CHILD_NODES) {
+					JSON_ERROR(JSON_ERROR_TOO_MANY_CHILD_NODES);
+				}
+				child_fields[node.data.object.field_count++] = field;
+			} else {
+				JSON_ERROR(JSON_ERROR_UNEXPECTED_STRING);
+			}
+			break;
+		case TOKEN_TYPE_ARRAY_OPEN:
+			if (seen_colon && !seen_value) {
+				seen_value = true;
+				array = json_parse_array(i);
+				field.value = json_nodes + json_nodes_size;
+				json_push_node(array);
+				if (node.data.object.field_count >= MAX_CHILD_NODES) {
+					JSON_ERROR(JSON_ERROR_TOO_MANY_CHILD_NODES);
+				}
+				child_fields[node.data.object.field_count++] = field;
+			} else {
+				JSON_ERROR(JSON_ERROR_UNEXPECTED_ARRAY_OPEN);
+			}
+			break;
+		case TOKEN_TYPE_ARRAY_CLOSE:
+			JSON_ERROR(JSON_ERROR_UNEXPECTED_ARRAY_CLOSE);
+		case TOKEN_TYPE_OBJECT_OPEN:
+			if (seen_colon && !seen_value) {
+				seen_value = true;
+				object = json_parse_object(i);
+				field.value = json_nodes + json_nodes_size;
+				json_push_node(object);
+				if (node.data.object.field_count >= MAX_CHILD_NODES) {
+					JSON_ERROR(JSON_ERROR_TOO_MANY_CHILD_NODES);
+				}
+				child_fields[node.data.object.field_count++] = field;
+			} else {
+				JSON_ERROR(JSON_ERROR_UNEXPECTED_OBJECT_OPEN);
+			}
+			break;
+		case TOKEN_TYPE_OBJECT_CLOSE:
+			if (seen_key && !seen_colon) {
+				JSON_ERROR(JSON_ERROR_EXPECTED_COLON);
+			} else if (seen_colon && !seen_value) {
+				JSON_ERROR(JSON_ERROR_EXPECTED_VALUE);
+			}
+			node.data.object.fields = json_fields + json_fields_size;
+			for (size_t i = 0; i < node.data.object.field_count; i++) {
+				json_push_field(child_fields[i]);
+			}
+			(*i)++;
+			return node;
+		case TOKEN_TYPE_COMMA:
+			if (!seen_value) {
+				JSON_ERROR(JSON_ERROR_UNEXPECTED_COMMA);
+			}
+			seen_key = false;
+			seen_colon = false;
+			seen_value = false;
+			(*i)++;
+			break;
+		case TOKEN_TYPE_COLON:
+			if (!seen_key) {
+				JSON_ERROR(JSON_ERROR_UNEXPECTED_COLON);
+			}
+			seen_colon = true;
+			(*i)++;
+			break;
+		}
+	}
+
+	JSON_ERROR(JSON_ERROR_EXPECTED_OBJECT_CLOSE);
+}
+
+static struct json_node json_parse_array(size_t *i) {
+	struct json_node node;
+
+	node.type = JSON_NODE_ARRAY;
+	(*i)++;
+
+	json_recursion_depth++;
+	if (json_recursion_depth > MAX_RECURSION_DEPTH) {
+		JSON_ERROR(JSON_ERROR_MAX_RECURSION_DEPTH_EXCEEDED);
+	}
+
+	node.data.array.value_count = 0;
+
+	struct json_node child_nodes[MAX_CHILD_NODES];
+
+	bool expecting_value = true;
+
+	while (*i < json_tokens_size) {
+		struct json_token *t = json_tokens + *i;
+
+		switch (t->type) {
+		case TOKEN_TYPE_STRING:
+			if (!expecting_value) {
+				JSON_ERROR(JSON_ERROR_UNEXPECTED_STRING);
+			}
+			expecting_value = false;
+			if (node.data.array.value_count >= MAX_CHILD_NODES) {
+				JSON_ERROR(JSON_ERROR_TOO_MANY_CHILD_NODES);
+			}
+			child_nodes[node.data.array.value_count++] = json_parse_string(i);
+			break;
+		case TOKEN_TYPE_ARRAY_OPEN:
+			if (!expecting_value) {
+				JSON_ERROR(JSON_ERROR_UNEXPECTED_ARRAY_OPEN);
+			}
+			expecting_value = false;
+			if (node.data.array.value_count >= MAX_CHILD_NODES) {
+				JSON_ERROR(JSON_ERROR_TOO_MANY_CHILD_NODES);
+			}
+			child_nodes[node.data.array.value_count++] = json_parse_array(i);
+			break;
+		case TOKEN_TYPE_ARRAY_CLOSE:
+			node.data.array.values = json_nodes + json_nodes_size;
+			for (size_t i = 0; i < node.data.array.value_count; i++) {
+				json_push_node(child_nodes[i]);
+			}
+			(*i)++;
+			return node;
+		case TOKEN_TYPE_OBJECT_OPEN:
+			if (!expecting_value) {
+				JSON_ERROR(JSON_ERROR_UNEXPECTED_OBJECT_OPEN);
+			}
+			expecting_value = false;
+			if (node.data.array.value_count >= MAX_CHILD_NODES) {
+				JSON_ERROR(JSON_ERROR_TOO_MANY_CHILD_NODES);
+			}
+			child_nodes[node.data.array.value_count++] = json_parse_object(i);
+			break;
+		case TOKEN_TYPE_OBJECT_CLOSE:
+			JSON_ERROR(JSON_ERROR_UNEXPECTED_OBJECT_CLOSE);
+		case TOKEN_TYPE_COMMA:
+			if (expecting_value) {
+				JSON_ERROR(JSON_ERROR_UNEXPECTED_COMMA);
+			}
+			expecting_value = true;
+			(*i)++;
+			break;
+		case TOKEN_TYPE_COLON:
+			JSON_ERROR(JSON_ERROR_UNEXPECTED_COLON);
+		}
+	}
+
+	JSON_ERROR(JSON_ERROR_EXPECTED_ARRAY_CLOSE);
+}
+
+static struct json_node json_parse_string(size_t *i) {
+	struct json_node node;
+
+	node.type = JSON_NODE_STRING;
+
+	node.data.string = json_strings + json_strings_size;
+
+	struct json_token *t = json_tokens + *i;
+	json_push_string(t->offset, t->length);
+
+	(*i)++;
+
+	return node;
+}
+
+static struct json_node json_parse(size_t *i) {
+	struct json_token *t = json_tokens + *i;
+	struct json_node node;
+
+	switch (t->type) {
+	case TOKEN_TYPE_STRING:
+		node = json_parse_string(i);
+		break;
+	case TOKEN_TYPE_ARRAY_OPEN:
+		node = json_parse_array(i);
+		break;
+	case TOKEN_TYPE_ARRAY_CLOSE:
+		JSON_ERROR(JSON_ERROR_UNEXPECTED_ARRAY_CLOSE);
+	case TOKEN_TYPE_OBJECT_OPEN:
+		node = json_parse_object(i);
+		break;
+	case TOKEN_TYPE_OBJECT_CLOSE:
+		JSON_ERROR(JSON_ERROR_UNEXPECTED_OBJECT_CLOSE);
+	case TOKEN_TYPE_COMMA:
+		JSON_ERROR(JSON_ERROR_UNEXPECTED_COMMA);
+	case TOKEN_TYPE_COLON:
+		JSON_ERROR(JSON_ERROR_UNEXPECTED_COLON);
+	}
+
+	if (*i < json_tokens_size) {
+		JSON_ERROR(JSON_ERROR_UNEXPECTED_EXTRA_CHARACTER);
+	}
+
+	return node;
+}
+
+static void json_push_token(enum json_token_type type, size_t offset, size_t length) {
+	if (json_tokens_size >= MAX_TOKENS) {
+		JSON_ERROR(JSON_ERROR_TOO_MANY_TOKENS);
+	}
+	json_tokens[json_tokens_size++] = (struct json_token){
+		.type = type,
+		.offset = offset,
+		.length = length,
+	};
+}
+
+static void json_tokenize(void) {
+	size_t i = 0;
+	bool in_string = false;
+	size_t string_start_index;
+
+	while (i < json_text_size) {
+		if (json_text[i] == '"') {
+			if (in_string) {
+				json_push_token(
+					TOKEN_TYPE_STRING,
+					string_start_index + 1,
+					i - string_start_index - 1
+				);
+			} else {
+				string_start_index = i;
+			}
+			in_string = !in_string;
+		} else if (json_text[i] == '[') {
+			json_push_token(TOKEN_TYPE_ARRAY_OPEN, i, 1);
+		} else if (json_text[i] == ']') {
+			json_push_token(TOKEN_TYPE_ARRAY_CLOSE, i, 1);
+		} else if (json_text[i] == '{') {
+			json_push_token(TOKEN_TYPE_OBJECT_OPEN, i, 1);
+		} else if (json_text[i] == '}') {
+			json_push_token(TOKEN_TYPE_OBJECT_CLOSE, i, 1);
+		} else if (json_text[i] == ',') {
+			json_push_token(TOKEN_TYPE_COMMA, i, 1);
+		} else if (json_text[i] == ':') {
+			json_push_token(TOKEN_TYPE_COLON, i, 1);
+		} else if (!isspace(json_text[i]) && !in_string) {
+			JSON_ERROR(JSON_ERROR_UNRECOGNIZED_CHARACTER);
+		}
+		i++;
+	}
+
+	if (in_string) {
+		JSON_ERROR(JSON_ERROR_UNCLOSED_STRING);
+	}
+}
+
+static void json_read_text(char *json_file_path) {
+	FILE *f = fopen(json_file_path, "r");
+	if (!f) {
+		JSON_ERROR(JSON_ERROR_FAILED_TO_OPEN_FILE);
+	}
+
+	json_text_size = fread(
+		json_text,
+		sizeof(char),
+		MAX_CHARACTERS_IN_JSON_FILE,
+		f
+	);
+
+	int is_eof = feof(f);
+	int err = ferror(f);
+
+    if (fclose(f)) {
+		JSON_ERROR(JSON_ERROR_FAILED_TO_CLOSE_FILE);
+    }
+
+	if (json_text_size == 0) {
+		JSON_ERROR(JSON_ERROR_FILE_EMPTY);
+	}
+	if (!is_eof || json_text_size == MAX_CHARACTERS_IN_JSON_FILE) {
+		JSON_ERROR(JSON_ERROR_FILE_TOO_BIG);
+	}
+	if (err) {
+		JSON_ERROR(JSON_ERROR_FILE_READING_ERROR);
+	}
+
+	json_text[json_text_size] = '\0';
+}
+
+static void json_reset(void) {
+	json_recursion_depth = 0;
+	json_text_size = 0;
+	json_tokens_size = 0;
+	json_nodes_size = 0;
+	json_strings_size = 0;
+	json_fields_size = 0;
+}
+
+void json(char *json_file_path, struct json_node *returned) {
+	json_reset();
+
+	json_read_text(json_file_path);
+
+	json_tokenize();
+
+	size_t token_index = 0;
+	*returned = json_parse(&token_index);
+}
 
 //// READING
 
@@ -2286,7 +2791,8 @@ static void serialize_to_c(void) {
 	serialize_append("#include <stdint.h>\n");
 	serialize_append("#include <string.h>\n");
 
-	// TODO: Use the struct definitions passed into grug_init()
+	// TODO: Since grug doesn't know what structs the game has anymore,
+	// remove this code
 	serialize_append("\n");
 	serialize_append("struct entity {\n");
 	serialize_append("\tuint64_t a;\n");
@@ -3418,21 +3924,9 @@ static size_t reloads_capacity;
 
 typedef size_t (*get_globals_struct_size_fn)(void);
 
-void grug_init(grug_function_t functions[]) {
-	grug_log("\nfns:\n");
-	for (grug_function_t *fn = functions; fn->name; fn++) {
-		grug_log("    %s(", fn->name);
-
-		for (grug_argument_t *a = fn->arguments; a->name; a++) {
-			if (a != fn->arguments) {
-				grug_log(", ");
-			}
-
-			grug_log("%s: %s", a->name, a->type);
-		}
-
-		grug_log("): %s\n", fn->return_type);
-	}
+static void init(void) {
+	struct json_node node;
+	json(MOD_API_JSON_PATH, &node);
 
 	initialized = true;
 }
@@ -3495,9 +3989,11 @@ static void regenerate_dll(char *grug_path, char *dll_path, char *c_path) {
 
 // Returns whether an error occurred
 bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *c_path) {
-	assert(initialized && "grug_init() was not called");
 	if (setjmp(error_jmp_buffer)) {
 		return true;
+	}
+	if (!initialized) {
+		init();
 	}
 	regenerate_dll(grug_path, dll_path, c_path);
 	return false;
@@ -3580,7 +4076,6 @@ static void free_dir(grug_mod_dir_t dir) {
 }
 
 void grug_free_mods(void) {
-	assert(initialized && "grug_init() was not called");
 	free_dir(grug_mods);
 	memset(&grug_mods, 0, sizeof(grug_mods));
 }
@@ -3870,12 +4365,14 @@ static char *get_basename(char *path) {
 
 // Returns whether an error occurred
 bool grug_regenerate_modified_mods(void) {
-	assert(initialized && "grug_init() was not called");
 	assert(!strchr(MODS_DIR_PATH, '\\') && "MODS_DIR_PATH can't contain backslashes, so replace them with '/'");
 	assert(MODS_DIR_PATH[strlen(MODS_DIR_PATH) - 1] != '/' && "MODS_DIR_PATH can't have a trailing '/'");
 
 	if (setjmp(error_jmp_buffer)) {
 		return true;
+	}
+	if (!initialized) {
+		init();
 	}
 
 	grug_reloads_size = 0;
@@ -3907,6 +4404,5 @@ static void print_dir(grug_mod_dir_t dir) {
 }
 
 void grug_print_mods(void) {
-	assert(initialized && "grug_init() was not called");
 	print_dir(grug_mods);
 }
