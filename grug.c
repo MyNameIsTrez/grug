@@ -2939,7 +2939,7 @@ static size_t symbol_name_strtab_offsets[MAX_SYMBOLS];
 
 static u32 buckets[MAX_HASH_BUCKETS];
 
-static u32 chains[MAX_SYMBOLS];
+static u32 chains[MAX_SYMBOLS + 1]; // +1, because [0] is STN_UNDEF
 static size_t chains_size;
 
 static char *shuffled_symbols[MAX_SYMBOLS];
@@ -3248,8 +3248,8 @@ static u32 elf_hash(const char *namearg) {
 }
 
 static void push_chain(u32 chain) {
-	if (chains_size >= MAX_SYMBOLS) {
-		GRUG_ERROR("There are more than %d symbols, exceeding MAX_SYMBOLS", MAX_SYMBOLS);
+	if (chains_size >= MAX_SYMBOLS + 1) {
+		GRUG_ERROR("There are more than %d chains, exceeding MAX_SYMBOLS + 1", MAX_SYMBOLS + 1);
 	}
 
 	chains[chains_size++] = chain;
