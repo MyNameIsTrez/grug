@@ -2992,8 +2992,7 @@ static void fix_bytes() {
 
 static void push_byte(u8 byte) {
 	if (bytes_size + 1 > MAX_BYTES) {
-		fprintf(stderr, "error: MAX_BYTES of %d was exceeded\n", MAX_BYTES);
-		exit(EXIT_FAILURE);
+		GRUG_ERROR("There are more than %d bytes, exceeding MAX_BYTES", MAX_BYTES);
 	}
 
 	bytes[bytes_size++] = byte;
@@ -3250,8 +3249,7 @@ static u32 elf_hash(const char *namearg) {
 
 static void push_chain(u32 chain) {
 	if (chains_size + 1 > MAX_SYMBOLS) {
-		fprintf(stderr, "error: MAX_SYMBOLS of %d was exceeded\n", MAX_SYMBOLS);
-		exit(EXIT_FAILURE);
+		GRUG_ERROR("There are more than %d symbols, exceeding MAX_SYMBOLS", MAX_SYMBOLS);
 	}
 
 	chains[chains_size++] = chain;
@@ -3682,8 +3680,7 @@ static void init_symbol_name_strtab_offsets(void) {
 
 static void push_shuffled_symbol(char *shuffled_symbol) {
 	if (shuffled_symbols_size + 1 > MAX_SYMBOLS) {
-		fprintf(stderr, "error: MAX_SYMBOLS of %d was exceeded\n", MAX_SYMBOLS);
-		exit(EXIT_FAILURE);
+		GRUG_ERROR("There are more than %d symbols, exceeding MAX_SYMBOLS", MAX_SYMBOLS);
 	}
 
 	shuffled_symbols[shuffled_symbols_size++] = shuffled_symbol;
@@ -3847,8 +3844,7 @@ static void init_symbol_name_dynstr_offsets(void) {
 
 static void push_symbol(char *symbol) {
 	if (symbols_size + 1 > MAX_SYMBOLS) {
-		fprintf(stderr, "error: MAX_SYMBOLS of %d was exceeded\n", MAX_SYMBOLS);
-		exit(EXIT_FAILURE);
+		GRUG_ERROR("There are more than %d symbols, exceeding MAX_SYMBOLS", MAX_SYMBOLS);
 	}
 
 	symbols[symbols_size++] = symbol;
@@ -3905,8 +3901,7 @@ static void generate_simple_so(char *grug_path, char *dll_path) {
 
 	FILE *f = fopen(dll_path, "w");
 	if (!f) {
-		perror("fopen");
-		exit(EXIT_FAILURE);
+		GRUG_ERROR("fopen: %s", strerror(errno));
 	}
 	fwrite(bytes, sizeof(u8), bytes_size, f);
 	fclose(f);
