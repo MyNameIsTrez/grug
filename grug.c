@@ -589,7 +589,7 @@ static char *read_file(char *path) {
 
 	rewind(f);
 
-	if (count + 1 > MAX_CHARACTERS_IN_FILE) {
+	if (count >= MAX_CHARACTERS_IN_FILE) {
 		GRUG_ERROR("There are more than %d characters in the grug file, exceeding MAX_CHARACTERS_IN_FILE", MAX_CHARACTERS_IN_FILE);
 	}
 
@@ -778,7 +778,7 @@ static bool is_escaped_char(char c) {
 }
 
 static void push_token(token_t token) {
-	if (tokens_size + 1 > MAX_TOKENS_IN_FILE) {
+	if (tokens_size >= MAX_TOKENS_IN_FILE) {
 		GRUG_ERROR("There are more than %d tokens in the grug file, exceeding MAX_TOKENS_IN_FILE", MAX_TOKENS_IN_FILE);
 	}
 	tokens[tokens_size++] = token;
@@ -1423,21 +1423,21 @@ static void print_fns(void) {
 }
 
 static void push_helper_fn(helper_fn_t helper_fn) {
-	if (helper_fns_size + 1 > MAX_HELPER_FNS_IN_FILE) {
+	if (helper_fns_size >= MAX_HELPER_FNS_IN_FILE) {
 		GRUG_ERROR("There are more than %d helper_fns in the grug file, exceeding MAX_HELPER_FNS_IN_FILE", MAX_HELPER_FNS_IN_FILE);
 	}
 	helper_fns[helper_fns_size++] = helper_fn;
 }
 
 static void push_on_fn(on_fn_t on_fn) {
-	if (on_fns_size + 1 > MAX_ON_FNS_IN_FILE) {
+	if (on_fns_size >= MAX_ON_FNS_IN_FILE) {
 		GRUG_ERROR("There are more than %d on_fns in the grug file, exceeding MAX_ON_FNS_IN_FILE", MAX_ON_FNS_IN_FILE);
 	}
 	on_fns[on_fns_size++] = on_fn;
 }
 
 static size_t push_statement(statement_t statement) {
-	if (statements_size + 1 > MAX_STATEMENTS_IN_FILE) {
+	if (statements_size >= MAX_STATEMENTS_IN_FILE) {
 		GRUG_ERROR("There are more than %d statements in the grug file, exceeding MAX_STATEMENTS_IN_FILE", MAX_STATEMENTS_IN_FILE);
 	}
 	statements[statements_size] = statement;
@@ -1445,7 +1445,7 @@ static size_t push_statement(statement_t statement) {
 }
 
 static size_t push_expr(expr_t expr) {
-	if (exprs_size + 1 > MAX_EXPRS_IN_FILE) {
+	if (exprs_size >= MAX_EXPRS_IN_FILE) {
 		GRUG_ERROR("There are more than %d exprs in the grug file, exceeding MAX_EXPRS_IN_FILE", MAX_EXPRS_IN_FILE);
 	}
 	exprs[exprs_size] = expr;
@@ -1584,7 +1584,7 @@ static expr_t parse_call(size_t *i) {
 			while (true) {
 				expr_t call_argument = parse_expression(i);
 
-				if (expr.call_expr.argument_count + 1 > MAX_CALL_ARGUMENTS_PER_STACK_FRAME) {
+				if (expr.call_expr.argument_count >= MAX_CALL_ARGUMENTS_PER_STACK_FRAME) {
 					GRUG_ERROR("There are more than %d arguments to a function call in one of the grug file's stack frames, exceeding MAX_CALL_ARGUMENTS_PER_STACK_FRAME", MAX_CALL_ARGUMENTS_PER_STACK_FRAME);
 				}
 				local_call_arguments[expr.call_expr.argument_count++] = call_argument;
@@ -1787,7 +1787,7 @@ static variable_statement_t parse_variable_statement(size_t *i) {
 }
 
 static void push_global_variable(global_variable_t global_variable) {
-	if (global_variables_size + 1 > MAX_GLOBAL_VARIABLES_IN_FILE) {
+	if (global_variables_size >= MAX_GLOBAL_VARIABLES_IN_FILE) {
 		GRUG_ERROR("There are more than %d global variables in the grug file, exceeding MAX_GLOBAL_VARIABLES_IN_FILE", MAX_GLOBAL_VARIABLES_IN_FILE);
 	}
 	global_variables[global_variables_size++] = global_variable;
@@ -1893,7 +1893,7 @@ static void parse_statements(size_t *i, size_t *body_statements_offset, size_t *
 		if (token.type != COMMENT_TOKEN) {
 			statement_t statement = parse_statement(i);
 
-			if (*body_statement_count + 1 > MAX_STATEMENTS_PER_STACK_FRAME) {
+			if (*body_statement_count >= MAX_STATEMENTS_PER_STACK_FRAME) {
 				GRUG_ERROR("There are more than %d statements in one of the grug file's stack frames, exceeding MAX_STATEMENTS_PER_STACK_FRAME", MAX_STATEMENTS_PER_STACK_FRAME);
 			}
 			local_statements[(*body_statement_count)++] = statement;
@@ -1916,7 +1916,7 @@ static void parse_statements(size_t *i, size_t *body_statements_offset, size_t *
 }
 
 static size_t push_argument(argument_t argument) {
-	if (arguments_size + 1 > MAX_ARGUMENTS_IN_FILE) {
+	if (arguments_size >= MAX_ARGUMENTS_IN_FILE) {
 		GRUG_ERROR("There are more than %d arguments in the grug file, exceeding MAX_ARGUMENTS_IN_FILE", MAX_ARGUMENTS_IN_FILE);
 	}
 	arguments[arguments_size] = argument;
@@ -2010,7 +2010,7 @@ static void parse_on_fn(size_t *i) {
 }
 
 static void push_field(field_t field) {
-	if (fields_size + 1 > MAX_FIELDS_IN_FILE) {
+	if (fields_size >= MAX_FIELDS_IN_FILE) {
 		GRUG_ERROR("There are more than %d fields in the grug file, exceeding MAX_FIELDS_IN_FILE", MAX_FIELDS_IN_FILE);
 	}
 	fields[fields_size++] = field;
@@ -2991,7 +2991,7 @@ static void fix_bytes() {
 }
 
 static void push_byte(u8 byte) {
-	if (bytes_size + 1 > MAX_BYTES) {
+	if (bytes_size >= MAX_BYTES) {
 		GRUG_ERROR("There are more than %d bytes, exceeding MAX_BYTES", MAX_BYTES);
 	}
 
@@ -3248,7 +3248,7 @@ static u32 elf_hash(const char *namearg) {
 }
 
 static void push_chain(u32 chain) {
-	if (chains_size + 1 > MAX_SYMBOLS) {
+	if (chains_size >= MAX_SYMBOLS) {
 		GRUG_ERROR("There are more than %d symbols, exceeding MAX_SYMBOLS", MAX_SYMBOLS);
 	}
 
@@ -3679,7 +3679,7 @@ static void init_symbol_name_strtab_offsets(void) {
 }
 
 static void push_shuffled_symbol(char *shuffled_symbol) {
-	if (shuffled_symbols_size + 1 > MAX_SYMBOLS) {
+	if (shuffled_symbols_size >= MAX_SYMBOLS) {
 		GRUG_ERROR("There are more than %d symbols, exceeding MAX_SYMBOLS", MAX_SYMBOLS);
 	}
 
@@ -3843,7 +3843,7 @@ static void init_symbol_name_dynstr_offsets(void) {
 }
 
 static void push_symbol(char *symbol) {
-	if (symbols_size + 1 > MAX_SYMBOLS) {
+	if (symbols_size >= MAX_SYMBOLS) {
 		GRUG_ERROR("There are more than %d symbols, exceeding MAX_SYMBOLS", MAX_SYMBOLS);
 	}
 
@@ -4190,7 +4190,7 @@ static void *grug_get(void *dll, char *symbol_name) {
 }
 
 static void push_reload(grug_modified_t modified) {
-	if (grug_reloads_size + 1 > reloads_capacity) {
+	if (grug_reloads_size >= reloads_capacity) {
 		reloads_capacity = reloads_capacity == 0 ? 1 : reloads_capacity * 2;
 		grug_reloads = realloc(grug_reloads, reloads_capacity * sizeof(*grug_reloads));
 		if (!grug_reloads) {
@@ -4201,7 +4201,7 @@ static void push_reload(grug_modified_t modified) {
 }
 
 static void push_file(grug_mod_dir_t *dir, grug_file_t file) {
-	if (dir->files_size + 1 > dir->files_capacity) {
+	if (dir->files_size >= dir->files_capacity) {
 		dir->files_capacity = dir->files_capacity == 0 ? 1 : dir->files_capacity * 2;
 		dir->files = realloc(dir->files, dir->files_capacity * sizeof(*dir->files));
 		if (!dir->files) {
@@ -4212,7 +4212,7 @@ static void push_file(grug_mod_dir_t *dir, grug_file_t file) {
 }
 
 static void push_subdir(grug_mod_dir_t *dir, grug_mod_dir_t subdir) {
-	if (dir->dirs_size + 1 > dir->dirs_capacity) {
+	if (dir->dirs_size >= dir->dirs_capacity) {
 		dir->dirs_capacity = dir->dirs_capacity == 0 ? 1 : dir->dirs_capacity * 2;
 		dir->dirs = realloc(dir->dirs, dir->dirs_capacity * sizeof(*dir->dirs));
 		if (!dir->dirs) {
@@ -4285,7 +4285,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 		}
 
 		if (S_ISDIR(entry_stat.st_mode)) {
-			if (seen_dir_names_size + 1 > seen_dir_names_capacity) {
+			if (seen_dir_names_size >= seen_dir_names_capacity) {
 				seen_dir_names_capacity = seen_dir_names_capacity == 0 ? 1 : seen_dir_names_capacity * 2;
 				seen_dir_names = realloc(seen_dir_names, seen_dir_names_capacity * sizeof(*seen_dir_names));
 				if (!seen_dir_names) {
@@ -4305,7 +4305,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 			}
 			reload_modified_mods(entry_path, dll_entry_path, subdir);
 		} else if (S_ISREG(entry_stat.st_mode) && strcmp(get_file_extension(dp->d_name), ".grug") == 0) {
-			if (seen_file_names_size + 1 > seen_file_names_capacity) {
+			if (seen_file_names_size >= seen_file_names_capacity) {
 				seen_file_names_capacity = seen_file_names_capacity == 0 ? 1 : seen_file_names_capacity * 2;
 				seen_file_names = realloc(seen_file_names, seen_file_names_capacity * sizeof(*seen_file_names));
 				if (!seen_file_names) {
