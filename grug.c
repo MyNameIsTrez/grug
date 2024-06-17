@@ -3272,7 +3272,7 @@ static void push_chain(u32 chain) {
 //  1  16         m
 //  2  15         e
 // 
-// Two asterisks ** and parens () indicate the start of a chain, so it's easier to see.
+// Two asterisks ** and parens () indicate the start of a chain
 // 
 //        SYMBOL TABLE   |
 //                       |
