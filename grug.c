@@ -586,6 +586,7 @@ struct grug_function {
 	char *name;
 	enum type return_type;
 	grug_argument_t *arguments;
+	size_t argument_count;
 };
 
 struct grug_argument {
@@ -662,7 +663,9 @@ static void init(void) {
 		assert(field->value->type == JSON_NODE_ARRAY && "mod_api.json its function arguments must be an array");
 		struct json_node *value = field->value->data.array.values;
 
-		for (size_t field_index = 0; field_index < field->value->data.array.value_count; field_index++) {
+		grug_fn.argument_count = field->value->data.array.value_count;
+
+		for (size_t field_index = 0; field_index < grug_fn.argument_count; field_index++) {
 			struct grug_argument grug_arg;
 
 			assert(value->type == JSON_NODE_OBJECT && "mod_api.json its function arguments must only contain objects");
