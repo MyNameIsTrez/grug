@@ -4493,22 +4493,3 @@ bool grug_regenerate_modified_mods(void) {
 	reload_modified_mods(MODS_DIR_PATH, DLL_DIR_PATH, &grug_mods);
 	return false;
 }
-
-static void print_dir(grug_mod_dir_t dir) {
-	static int depth;
-
-	printf("%*s%s/\n", depth * 2, "", dir.name);
-
-	depth++;
-	for (size_t i = 0; i < dir.dirs_size; i++) {
-		print_dir(dir.dirs[i]);
-	}
-	for (size_t i = 0; i < dir.files_size; i++) {
-		printf("%*s%s\n", depth * 2, "", dir.files[i].name);
-	}
-	depth--;
-}
-
-void grug_print_mods(void) {
-	print_dir(grug_mods);
-}
