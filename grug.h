@@ -58,7 +58,6 @@ extern size_t grug_reloads_size;
 extern grug_error_t grug_error;
 
 bool grug_regenerate_modified_mods(void);
-void grug_print_mods(void);
 void grug_free_mods(void);
 
 // For the grug-tests repository
