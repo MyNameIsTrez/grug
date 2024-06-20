@@ -2857,8 +2857,8 @@ static void serialize_init_globals_struct(void) {
 	serialize_append("}\n");
 }
 
-static void serialize_get_globals_struct_size(void) {
-	serialize_append("size_t get_globals_struct_size(void) {\n");
+static void serialize_get_globals_size(void) {
+	serialize_append("size_t get_globals_size(void) {\n");
 	serialize_append_indents(1);
 	serialize_append("return sizeof(struct globals);\n");
 	serialize_append("}\n");
@@ -2930,7 +2930,7 @@ static void serialize_to_c(void) {
 	serialize_global_variables();
 
 	serialize_append("\n");
-	serialize_get_globals_struct_size();
+	serialize_get_globals_size();
 
 	serialize_append("\n");
 	serialize_init_globals_struct();
@@ -3303,7 +3303,7 @@ static void push_dynamic() {
 static void push_text(void) {
 	// TODO: Use the code from the AST
 
-	// get_globals_struct_size()
+	// get_globals_size()
 	push_byte(MOV);
 	push_number(0, 4); // Value to mov to eax
 	push_byte(RET);
@@ -3691,7 +3691,7 @@ static void push_bytes(char *grug_path) {
 static void init_text_offsets(void) {
 	// TODO: Use the data from the AST
 	text_offsets[0] = 0;
-	text_offsets[1] = 6; // get_globals_struct_size takes 6 bytes of instructions
+	text_offsets[1] = 6; // get_globals_size takes 6 bytes of instructions
 
 	// for (size_t i = 0; i < 2; i++) {
 	//     text_offsets[i] = i * 6; // fn1_c takes 6 bytes of instructions
@@ -4003,7 +4003,7 @@ static void generate_simple_so(char *grug_path, char *dll_path) {
 	data_symbols_size = 2;
 
 	// push_symbol("a");
-	push_symbol("get_globals_struct_size");
+	push_symbol("get_globals_size");
 	push_symbol("init_globals_struct");
 
 	// TODO: Let this be gotten with push_text() calls
@@ -4038,7 +4038,7 @@ grug_modified_t *grug_reloads;
 size_t grug_reloads_size;
 static size_t reloads_capacity;
 
-typedef size_t (*get_globals_struct_size_fn)(void);
+typedef size_t (*get_globals_size_fn)(void);
 
 static void write_c(char *c_path) {
 	FILE *f = fopen(c_path, "w");
@@ -4375,12 +4375,12 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 
 				#pragma GCC diagnostic push
 				#pragma GCC diagnostic ignored "-Wpedantic"
-				get_globals_struct_size_fn get_globals_struct_size_fn = grug_get(file.dll, "get_globals_struct_size");
+				get_globals_size_fn get_globals_size_fn = grug_get(file.dll, "get_globals_size");
 				#pragma GCC diagnostic pop
-				if (!get_globals_struct_size_fn) {
-					GRUG_ERROR("Retrieving the get_globals_struct_size() function with grug_get() failed for %s", dll_path);
+				if (!get_globals_size_fn) {
+					GRUG_ERROR("Retrieving the get_globals_size() function with grug_get() failed for %s", dll_path);
 				}
-				file.globals_struct_size = get_globals_struct_size_fn();
+				file.globals_struct_size = get_globals_size_fn();
 
 				#pragma GCC diagnostic push
 				#pragma GCC diagnostic ignored "-Wpedantic"
