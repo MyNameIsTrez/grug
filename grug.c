@@ -1091,7 +1091,7 @@ typedef struct return_statement return_statement_t;
 typedef struct loop_statement loop_statement_t;
 typedef struct statement statement_t;
 typedef struct argument argument_t;
-typedef struct define_fn define_fn_t;
+typedef struct parsed_define_fn parsed_define_fn_t;
 typedef struct on_fn on_fn_t;
 typedef struct helper_fn helper_fn_t;
 typedef struct global_variable global_variable_t;
@@ -1247,12 +1247,12 @@ struct argument {
 static argument_t arguments[MAX_ARGUMENTS_IN_FILE];
 static size_t arguments_size;
 
-struct define_fn {
+struct parsed_define_fn {
 	char *return_type;
 	size_t return_type_len;
 	compound_literal_t returned_compound_literal;
 };
-static define_fn_t define_fn;
+static parsed_define_fn_t define_fn;
 
 struct on_fn {
 	char *fn_name;
@@ -3251,25 +3251,25 @@ static void push_symtab(char *grug_path) {
 	symtab_size = bytes_size - symtab_offset;
 }
 
-// TODO: Make this recursive, since values can also be compound literals
-static void push_returned_compound_literal(void) {
-	// define_fn.returned_compound_literal
+// TODO: Use or remove
+// static void push_returned_compound_literal(void) {
+// 	// define_fn.returned_compound_literal
 
-	compound_literal_t compound_literal = define_fn.returned_compound_literal;
+// 	compound_literal_t compound_literal = define_fn.returned_compound_literal;
 
-	for (size_t field_index = 0; field_index < compound_literal.field_count; field_index++) {
-		field_t field = fields[compound_literal.fields_offset + field_index];
+// 	for (size_t field_index = 0; field_index < compound_literal.field_count; field_index++) {
+// 		field_t field = fields[compound_literal.fields_offset + field_index];
 
-		// TODO: Use the number_expr its type and byte count
-		push_number(field.expr_value.number_expr.value, sizeof(i64));
-	}
-}
+// 		// TODO: Use the number_expr its type and byte count
+// 		push_number(field.expr_value.number_expr.value, sizeof(i64));
+// 	}
+// }
 
 static void push_data(void) {
-	// "define" symbol
+	// "define_type" symbol
 	push_slice(define_fn.return_type, define_fn.return_type_len);
 
-	push_returned_compound_literal();
+	// push_returned_compound_literal();
 
 	push_alignment(8);
 }
@@ -3695,11 +3695,6 @@ static void init_data_offsets(void) {
 
 	data_offsets[i++] = offset; // "define_type" symbol
 	offset += define_fn.return_type_len + 1;
-
-	data_offsets[i++] = offset; // "define" symbol
-	// TODO: Don't hardcode these
-	offset += sizeof(u64);
-	offset += sizeof(u64);
 
 	// for (size_t j = 0; j < 8; j++) {
 	//     data_offsets[i++] = offset;
@@ -4325,6 +4320,14 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 
 				#pragma GCC diagnostic push
 				#pragma GCC diagnostic ignored "-Wpedantic"
+				file.define_fn = grug_get(file.dll, "define");
+				#pragma GCC diagnostic pop
+				if (!file.define_fn) {
+					GRUG_ERROR("Retrieving the define() function with grug_get() failed for %s", dll_path);
+				}
+
+				#pragma GCC diagnostic push
+				#pragma GCC diagnostic ignored "-Wpedantic"
 				get_globals_size_fn get_globals_size_fn = grug_get(file.dll, "get_globals_size");
 				#pragma GCC diagnostic pop
 				if (!get_globals_size_fn) {
@@ -4346,20 +4349,15 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 				}
 				file.define_type = *define_type_ptr;
 
-				file.define = grug_get(file.dll, "define");
-				if (!file.define) {
-					GRUG_ERROR("Retrieving the define struct with grug_get() failed for %s", dll_path);
-				}
-
 				// on_fns is optional, so don't check for NULL
 				file.on_fns = grug_get(file.dll, "on_fns");
 
 				if (old_file) {
 					old_file->dll = file.dll;
+					old_file->define_fn = file.define_fn;
 					old_file->globals_size = file.globals_size;
 					old_file->init_globals_fn = file.init_globals_fn;
 					old_file->define_type = file.define_type;
-					old_file->define = file.define;
 					old_file->on_fns = file.on_fns;
 				} else {
 					push_file(dir, file);
@@ -4367,10 +4365,10 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 
 				if (needs_regeneration) {
 					modified.new_dll = file.dll;
+					modified.define_fn = file.define_fn;
 					modified.globals_size = file.globals_size;
 					modified.init_globals_fn = file.init_globals_fn;
 					modified.define_type = file.define_type;
-					modified.define = file.define;
 					modified.on_fns = file.on_fns;
 					push_reload(modified);
 				}

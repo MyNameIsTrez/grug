@@ -10,15 +10,16 @@ typedef struct modified grug_modified_t;
 
 typedef struct grug_error grug_error_t;
 
+typedef void (*define_fn_t)(void);
 typedef void (*init_globals_fn_t)(void *globals);
 
 struct grug_file {
 	char *name;
 	void *dll;
+	define_fn_t define_fn;
 	size_t globals_size;
 	init_globals_fn_t init_globals_fn;
 	char *define_type;
-	void *define;
 	void *on_fns;
 };
 
@@ -37,10 +38,10 @@ struct mod_dir {
 struct modified {
 	void *old_dll;
 	void *new_dll;
+	define_fn_t define_fn;
 	size_t globals_size;
 	init_globals_fn_t init_globals_fn;
 	char *define_type;
-	void *define;
 	void *on_fns;
 };
 
