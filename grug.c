@@ -2982,9 +2982,9 @@ enum {
 // From https://refspecs.linuxfoundation.org/LSB_5.0.0/LSB-Core-generic/LSB-Core-generic/progheader.html
 #define PT_GNU_RELRO 0x6474e552
 
-#define EH_FRAME_SECTION_HEADER_INDEX 6
-#define SYMTAB_SECTION_HEADER_INDEX 10
-#define STRTAB_SECTION_HEADER_INDEX 9
+#define TEXT_SECTION_HEADER_INDEX 6
+#define DATA_SECTION_HEADER_INDEX 10
+#define STRTAB_SECTION_HEADER_INDEX 12
 
 // From "st_info" its description here:
 // https://docs.oracle.com/cd/E19683-01/816-1386/chapter6-79797/index.html
@@ -3049,6 +3049,7 @@ static char *symbols[MAX_SYMBOLS];
 static size_t symbols_size;
 
 static size_t data_symbols_size;
+static size_t extern_symbols_size;
 
 static bool is_substrs[MAX_SYMBOLS];
 
@@ -3242,8 +3243,10 @@ static void push_symtab(char *grug_path) {
 		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
 
 		bool is_data = symbol_index < data_symbols_size;
-		u16 shndx = is_data ? SYMTAB_SECTION_HEADER_INDEX : EH_FRAME_SECTION_HEADER_INDEX;
-		u32 offset = is_data ? DATA_OFFSET + data_offsets[symbol_index] : TEXT_OFFSET + text_offsets[symbol_index - data_symbols_size];
+		bool is_extern = symbol_index < data_symbols_size + extern_symbols_size;
+
+		u16 shndx = is_data ? DATA_SECTION_HEADER_INDEX : is_extern ? SHN_UNDEF : TEXT_SECTION_HEADER_INDEX;
+		u32 offset = is_data ? DATA_OFFSET + data_offsets[symbol_index] : is_extern ? 0 : TEXT_OFFSET + text_offsets[symbol_index - data_symbols_size];
 
 		push_symbol_entry(name_offset + symbol_name_strtab_offsets[symbol_index], ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), shndx, offset);
 	}
@@ -3510,8 +3513,10 @@ static void push_dynsym(void) {
 		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
 
 		bool is_data = symbol_index < data_symbols_size;
-		u16 shndx = is_data ? SYMTAB_SECTION_HEADER_INDEX : EH_FRAME_SECTION_HEADER_INDEX;
-		u32 offset = is_data ? DATA_OFFSET + data_offsets[symbol_index] : TEXT_OFFSET + text_offsets[symbol_index - data_symbols_size];
+		bool is_extern = symbol_index < data_symbols_size + extern_symbols_size;
+
+		u16 shndx = is_data ? DATA_SECTION_HEADER_INDEX : is_extern ? SHN_UNDEF : TEXT_SECTION_HEADER_INDEX;
+		u32 offset = is_data ? DATA_OFFSET + data_offsets[symbol_index] : is_extern ? 0 : TEXT_OFFSET + text_offsets[symbol_index - data_symbols_size];
 
 		push_symbol_entry(symbol_name_dynstr_offsets[symbol_index], ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), shndx, offset);
 	}
@@ -3975,11 +3980,11 @@ static void generate_simple_so(char *grug_path, char *dll_path) {
 
 	compute_data_size();
 
-	push_symbol("define_entity");
-
 	push_symbol("define_type");
-	// TODO: Compute this
 	data_symbols_size = 1;
+
+	push_symbol("define_entity");
+	extern_symbols_size = 1;
 
 	push_symbol("define");
 	push_symbol("get_globals_size");
