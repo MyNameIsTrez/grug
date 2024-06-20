@@ -2831,10 +2831,10 @@ static void serialize_forward_declare_helper_fns(void) {
 }
 
 static void serialize_init_globals(void) {
-	serialize_append("void init_globals(void *globals_struct) {\n");
+	serialize_append("void init_globals(void *globals) {\n");
 
 	serialize_append_indents(1);
-	serialize_append("memcpy(globals_struct, &(struct globals){\n");
+	serialize_append("memcpy(globals, &(struct globals){\n");
 
 	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
 		global_variable_t global_variable = global_variables[global_variable_index];
@@ -4380,7 +4380,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 				if (!get_globals_size_fn) {
 					GRUG_ERROR("Retrieving the get_globals_size() function with grug_get() failed for %s", dll_path);
 				}
-				file.globals_struct_size = get_globals_size_fn();
+				file.globals_size = get_globals_size_fn();
 
 				#pragma GCC diagnostic push
 				#pragma GCC diagnostic ignored "-Wpedantic"
@@ -4406,7 +4406,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 
 				if (old_file) {
 					old_file->dll = file.dll;
-					old_file->globals_struct_size = file.globals_struct_size;
+					old_file->globals_size = file.globals_size;
 					old_file->init_globals_fn = file.init_globals_fn;
 					old_file->define_type = file.define_type;
 					old_file->define = file.define;
@@ -4417,7 +4417,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 
 				if (needs_regeneration) {
 					modified.new_dll = file.dll;
-					modified.globals_struct_size = file.globals_struct_size;
+					modified.globals_size = file.globals_size;
 					modified.init_globals_fn = file.init_globals_fn;
 					modified.define_type = file.define_type;
 					modified.define = file.define;
