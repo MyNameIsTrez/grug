@@ -2830,8 +2830,8 @@ static void serialize_forward_declare_helper_fns(void) {
 	}
 }
 
-static void serialize_init_globals_struct(void) {
-	serialize_append("void init_globals_struct(void *globals_struct) {\n");
+static void serialize_init_globals(void) {
+	serialize_append("void init_globals(void *globals_struct) {\n");
 
 	serialize_append_indents(1);
 	serialize_append("memcpy(globals_struct, &(struct globals){\n");
@@ -2933,7 +2933,7 @@ static void serialize_to_c(void) {
 	serialize_get_globals_size();
 
 	serialize_append("\n");
-	serialize_init_globals_struct();
+	serialize_init_globals();
 
 	if (helper_fns_size > 0) {
 		serialize_append("\n");
@@ -3308,7 +3308,7 @@ static void push_text(void) {
 	push_number(0, 4); // Value to mov to eax
 	push_byte(RET);
 
-	// init_globals_struct()
+	// init_globals()
 	push_byte(RET);
 
 	push_alignment(8);
@@ -4004,7 +4004,7 @@ static void generate_simple_so(char *grug_path, char *dll_path) {
 
 	// push_symbol("a");
 	push_symbol("get_globals_size");
-	push_symbol("init_globals_struct");
+	push_symbol("init_globals");
 
 	// TODO: Let this be gotten with push_text() calls
 	text_size = 7;
@@ -4384,10 +4384,10 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 
 				#pragma GCC diagnostic push
 				#pragma GCC diagnostic ignored "-Wpedantic"
-				file.init_globals_struct_fn = grug_get(file.dll, "init_globals_struct");
+				file.init_globals_fn = grug_get(file.dll, "init_globals");
 				#pragma GCC diagnostic pop
-				if (!file.init_globals_struct_fn) {
-					GRUG_ERROR("Retrieving the init_globals_struct() function with grug_get() failed for %s", dll_path);
+				if (!file.init_globals_fn) {
+					GRUG_ERROR("Retrieving the init_globals() function with grug_get() failed for %s", dll_path);
 				}
 
 				char **define_type_ptr = grug_get(file.dll, "define_type");
@@ -4407,7 +4407,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 				if (old_file) {
 					old_file->dll = file.dll;
 					old_file->globals_struct_size = file.globals_struct_size;
-					old_file->init_globals_struct_fn = file.init_globals_struct_fn;
+					old_file->init_globals_fn = file.init_globals_fn;
 					old_file->define_type = file.define_type;
 					old_file->define = file.define;
 					old_file->on_fns = file.on_fns;
@@ -4418,7 +4418,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 				if (needs_regeneration) {
 					modified.new_dll = file.dll;
 					modified.globals_struct_size = file.globals_struct_size;
-					modified.init_globals_struct_fn = file.init_globals_struct_fn;
+					modified.init_globals_fn = file.init_globals_fn;
 					modified.define_type = file.define_type;
 					modified.define = file.define;
 					modified.on_fns = file.on_fns;
