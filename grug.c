@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <dlfcn.h>
+#include <elf.h>
 #include <errno.h>
 #include <limits.h>
 #include <setjmp.h>
@@ -2969,8 +2970,8 @@ enum {
 
 #define MAX_HASH_BUCKETS 32771 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/elflink.c;h=6db6a9c0b4702c66d73edba87294e2a59ffafcf5;hb=refs/heads/master#l6560
 
-// TODO: These need to be able to grow
-#define TEXT_OFFSET 0x1000
+#define PLT_OFFSET 0x1000
+#define TEXT_OFFSET 0x1020
 #define EH_FRAME_OFFSET 0x2000
 #define DYNAMIC_OFFSET 0x2f10
 #define DATA_OFFSET 0x3000
@@ -2985,65 +2986,6 @@ enum {
 #define TEXT_SECTION_HEADER_INDEX 6
 #define DATA_SECTION_HEADER_INDEX 10
 #define STRTAB_SECTION_HEADER_INDEX 12
-
-// From "st_info" its description here:
-// https://docs.oracle.com/cd/E19683-01/816-1386/chapter6-79797/index.html
-#define ELF32_ST_INFO(bind, type) (((bind)<<4)+((type)&0xf))
-
-enum d_type {
-	DT_NULL = 0, // Marks the end of the _DYNAMIC array
-	DT_HASH = 4, // The address of the symbol hash table. This table refers to the symbol table indicated by the DT_SYMTAB element
-	DT_STRTAB = 5, // The address of the string table
-	DT_SYMTAB = 6, // The address of the symbol table
-	DT_STRSZ = 10, // The total size, in bytes, of the DT_STRTAB string table
-	DT_SYMENT = 11, // The size, in bytes, of the DT_SYMTAB symbol entry
-};
-
-enum p_type {
-	PT_LOAD = 1, // Loadable segment
-	PT_DYNAMIC = 2, // Dynamic linking information
-};
-
-enum p_flags {
-	PF_X = 1, // Executable segment
-	PF_W = 2, // Writable segment
-	PF_R = 4, // Readable segment
-};
-
-enum sh_type {
-	SHT_PROGBITS = 0x1, // Program data
-	SHT_SYMTAB = 0x2, // Symbol table
-	SHT_STRTAB = 0x3, // String table
-	SHT_HASH = 0x5, // Symbol hash table
-	SHT_DYNAMIC = 0x6, // Dynamic linking information
-	SHT_DYNSYM = 0xb, // Dynamic linker symbol table
-};
-
-enum sh_flags {
-	SHF_WRITE = 1, // Writable
-	SHF_ALLOC = 2, // Occupies memory during execution
-	SHF_EXECINSTR = 4, // Executable machine instructions
-};
-
-enum e_type {
-	ET_DYN = 3, // Shared object
-};
-
-enum st_binding {
-	STB_LOCAL = 0, // Local symbol
-	STB_GLOBAL = 1, // Global symbol
-};
-
-enum st_type {
-	STT_NOTYPE = 0, // The symbol type is not specified
-	STT_OBJECT = 1, // This symbol is associated with a data object
-	STT_FILE = 4, // This symbol is associated with a file
-};
-
-enum sh_index {
-	SHN_UNDEF = 0, // An undefined section reference
-	SHN_ABS = 0xfff1, // Absolute values for the corresponding reference
-};
 
 static char *symbols[MAX_SYMBOLS];
 static size_t symbols_size;
@@ -3307,6 +3249,19 @@ static void push_text(void) {
 	push_byte(RET);
 
 	push_alignment(8);
+}
+
+static void push_plt(void) {
+}
+
+// Source:
+// https://docs.oracle.com/cd/E19683-01/816-1386/6m7qcoblk/index.html#chapter6-1235
+// https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-54839.html
+static void push_rela_plt(void) {
+	push_number(0x3018, 8);
+
+	size_t define_entity_index = 1;
+	push_number(ELF64_R_INFO(define_entity_index, 7), 8);
 }
 
 static void push_dynstr(void) {
@@ -3666,12 +3621,15 @@ static void push_bytes(char *grug_path) {
 
 	push_dynstr();
 
-	push_zeros(TEXT_OFFSET - bytes_size);
+	push_rela_plt();
 
+	push_zeros(PLT_OFFSET - bytes_size);
+	push_plt();
+
+	push_zeros(TEXT_OFFSET - bytes_size);
 	push_text();
 
 	push_zeros(DYNAMIC_OFFSET - bytes_size);
-
 	push_dynamic();
 
 	push_data();
