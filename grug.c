@@ -2972,7 +2972,7 @@ enum {
 // TODO: These need to be able to grow
 #define TEXT_OFFSET 0x1000
 #define EH_FRAME_OFFSET 0x2000
-#define DYNAMIC_OFFSET 0x2f50
+#define DYNAMIC_OFFSET 0x2f10
 #define DATA_OFFSET 0x3000
 
 #define SYMTAB_ENTRY_SIZE 24
@@ -2982,8 +2982,8 @@ enum {
 // From https://refspecs.linuxfoundation.org/LSB_5.0.0/LSB-Core-generic/LSB-Core-generic/progheader.html
 #define PT_GNU_RELRO 0x6474e552
 
-#define EH_FRAME_SECTION_HEADER_INDEX 4
-#define SYMTAB_SECTION_HEADER_INDEX 7
+#define EH_FRAME_SECTION_HEADER_INDEX 6
+#define SYMTAB_SECTION_HEADER_INDEX 10
 #define STRTAB_SECTION_HEADER_INDEX 9
 
 // From "st_info" its description here:
@@ -3266,8 +3266,6 @@ static void push_returned_compound_literal(void) {
 }
 
 static void push_data(void) {
-	// TODO: Use the data from the AST
-
 	// "define" symbol
 	push_slice(define_fn.return_type, define_fn.return_type_len);
 
@@ -3297,8 +3295,6 @@ static void push_dynamic() {
 }
 
 static void push_text(void) {
-	// TODO: Use the code from the AST
-
 	// get_globals_size()
 	push_byte(MOV);
 	push_number(0, 4); // Value to mov to eax
@@ -3535,12 +3531,12 @@ static void push_program_header(u32 type, u32 flags, u64 offset, u64 virtual_add
 }
 
 static void push_program_headers(void) {
-	// .hash, .dynsym, .dynstr segment
+	// .hash, .dynsym, .dynstr, .rela.plt segment
 	// 0x40 to 0x78
 	// file_size and mem_size get overwritten later
 	push_program_header(PT_LOAD, PF_R, 0, 0, 0, 0, 0, 0x1000);
 
-	// .text segment
+	// .plt, .text segment
 	// 0x78 to 0xb0
 	push_program_header(PT_LOAD, PF_R | PF_X, TEXT_OFFSET, TEXT_OFFSET, TEXT_OFFSET, text_size, text_size, 0x1000);
 
@@ -3548,17 +3544,17 @@ static void push_program_headers(void) {
 	// 0xb0 to 0xe8
 	push_program_header(PT_LOAD, PF_R, EH_FRAME_OFFSET, EH_FRAME_OFFSET, EH_FRAME_OFFSET, 0, 0, 0x1000);
 
-	// .dynamic, .data
+	// .dynamic, .got.plt, .data
 	// 0xe8 to 0x120
-	push_program_header(PT_LOAD, PF_R | PF_W, 0x2f50, 0x2f50, 0x2f50, 0xb0 + data_size, 0xb0 + data_size, 0x1000);
+	push_program_header(PT_LOAD, PF_R | PF_W, DYNAMIC_OFFSET, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0x110 + data_size, 0x110 + data_size, 0x1000);
 
 	// .dynamic segment
 	// 0x120 to 0x158
-	push_program_header(PT_DYNAMIC, PF_R | PF_W, 0x2f50, 0x2f50, 0x2f50, 0xb0, 0xb0, 8);
+	push_program_header(PT_DYNAMIC, PF_R | PF_W, DYNAMIC_OFFSET, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0xf0, 0xf0, 8);
 
 	// .dynamic segment
 	// 0x158 to 0x190
-	push_program_header(PT_GNU_RELRO, PF_R, 0x2f50, 0x2f50, 0x2f50, 0xb0, 0xb0, 1);
+	push_program_header(PT_GNU_RELRO, PF_R, DYNAMIC_OFFSET, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0xf0, 0xf0, 1);
 }
 
 static void push_elf_header(void) {
@@ -3685,7 +3681,6 @@ static void push_bytes(char *grug_path) {
 }
 
 static void init_text_offsets(void) {
-	// TODO: Use the data from the AST
 	text_offsets[0] = 0;
 	text_offsets[1] = 6; // get_globals_size takes 6 bytes of instructions
 
@@ -3695,7 +3690,6 @@ static void init_text_offsets(void) {
 }
 
 static void init_data_offsets(void) {
-	// TODO: Use the data from the AST
 	size_t i = 0;
 	size_t offset = 0;
 
@@ -3969,13 +3963,8 @@ static void push_symbol(char *symbol) {
 	symbols[symbols_size++] = symbol;
 }
 
-// TODO: This needs to be recursive,
-// since the AST can contain nested compound literals
 static void compute_data_size(void) {
 	data_size = 0;
-	// TODO: Use the data from the AST
-	data_size += sizeof(u64); // "define" symbol
-	// data_size += sizeof(u64); // "define" symbol
 	data_size += define_fn.return_type_len + 1;
 }
 
@@ -3991,14 +3980,13 @@ static void generate_simple_so(char *grug_path, char *dll_path) {
 
 	compute_data_size();
 
-	// TODO: Use the symbols from the AST
+	push_symbol("define_entity");
+
 	push_symbol("define_type");
-	push_symbol("define");
-
 	// TODO: Compute this
-	data_symbols_size = 2;
+	data_symbols_size = 1;
 
-	// push_symbol("a");
+	push_symbol("define");
 	push_symbol("get_globals_size");
 	push_symbol("init_globals");
 
