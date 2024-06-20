@@ -2454,508 +2454,504 @@ static void verify_and_trim_spaces(void) {
 	tokens_size = new_index;
 }
 
-//// SERIALIZING TO C
-
-static char serialized[MAX_SERIALIZED_TO_C_CHARS + 1];
-static size_t serialized_size;
-
-static void serialize_append_slice(char *str, size_t len) {
-	if (serialized_size + len > MAX_SERIALIZED_TO_C_CHARS) {
-		GRUG_ERROR("There are more than %d characters in the output C file, exceeding MAX_SERIALIZED_TO_C_CHARS", MAX_SERIALIZED_TO_C_CHARS);
-	}
-	memcpy(serialized + serialized_size, str, len);
-	serialized_size += len;
-}
-
-static void serialize_append(char *str) {
-	serialize_append_slice(str, strlen(str));
-}
-
-static void serialize_append_number(number_expr_t number_expr) {
-	char buf[MAX_NUMBER_LEN];
-	snprintf(buf, sizeof(buf), "%ld", number_expr.value);
-	serialize_append(buf);
-}
-
-static void serialize_append_indents(size_t depth) {
-	for (size_t i = 0; i < depth * SPACES_PER_INDENT; i++) {
-		serialize_append(" ");
-	}
-}
-
-static void serialize_expr(expr_t expr);
-
-static void serialize_parenthesized_expr(parenthesized_expr_t parenthesized_expr) {
-	serialize_append("(");
-	serialize_expr(exprs[parenthesized_expr.expr_index]);
-	serialize_append(")");
-}
-
-static bool is_helper_function(char *name, size_t len) {
-	for (size_t i = 0; i < helper_fns_size; i++) {
-		helper_fn_t fn = helper_fns[i];
-		if (fn.fn_name_len == len && memcmp(fn.fn_name, name, len) == 0) {
-			return true;
-		}
-	}
-	return false;
-}
-
-static void serialize_call_expr(call_expr_t call_expr) {
-	serialize_append_slice(call_expr.fn_name, call_expr.fn_name_len);
-
-	serialize_append("(");
-	if (is_helper_function(call_expr.fn_name, call_expr.fn_name_len)) {
-		serialize_append("globals_void");
-		if (call_expr.argument_count > 0) {
-			serialize_append(", ");
-		}
-	}
-	for (size_t argument_index = 0; argument_index < call_expr.argument_count; argument_index++) {
-		if (argument_index > 0) {
-			serialize_append(", ");
-		}
-
-		serialize_expr(exprs[call_expr.arguments_exprs_offset + argument_index]);
-	}
-	serialize_append(")");
-}
-
-static void serialize_operator(enum token_type operator);
-
-static void serialize_binary_expr(binary_expr_t binary_expr) {
-	serialize_expr(exprs[binary_expr.left_expr_index]);
-
-	if (binary_expr.operator != PERIOD_TOKEN) {
-		serialize_append(" ");
-	}
-
-	serialize_operator(binary_expr.operator);
-
-	if (binary_expr.operator != PERIOD_TOKEN) {
-		serialize_append(" ");
-	}
-
-	serialize_expr(exprs[binary_expr.right_expr_index]);
-}
-
-static void serialize_operator(enum token_type operator) {
-	switch (operator) {
-		case PLUS_TOKEN:
-			serialize_append("+");
-			return;
-		case MINUS_TOKEN:
-			serialize_append("-");
-			return;
-		case MULTIPLICATION_TOKEN:
-			serialize_append("*");
-			return;
-		case DIVISION_TOKEN:
-			serialize_append("/");
-			return;
-		case REMAINDER_TOKEN:
-			serialize_append("%");
-			return;
-		case PERIOD_TOKEN:
-			serialize_append(".");
-			return;
-		case EQUALS_TOKEN:
-			serialize_append("==");
-			return;
-		case NOT_EQUALS_TOKEN:
-			serialize_append("!=");
-			return;
-		case GREATER_OR_EQUAL_TOKEN:
-			serialize_append(">=");
-			return;
-		case GREATER_TOKEN:
-			serialize_append(">");
-			return;
-		case LESS_OR_EQUAL_TOKEN:
-			serialize_append("<=");
-			return;
-		case LESS_TOKEN:
-			serialize_append("<");
-			return;
-		case NOT_TOKEN:
-			serialize_append("not");
-			return;
-		default:
-			GRUG_ERROR(UNREACHABLE_STR);
-	}
-}
-
-static bool is_identifier_global(char *name, size_t len) {
-	for (size_t i = 0; i < global_variables_size; i++) {
-		global_variable_t global = global_variables[i];
-		if (global.name_len == len && memcmp(global.name, name, len) == 0) {
-			return true;
-		}
-	}
-	return false;
-}
-
-static void serialize_expr(expr_t expr) {
-	switch (expr.type) {
-		case TRUE_EXPR:
-			serialize_append("true");
-			break;
-		case FALSE_EXPR:
-			serialize_append("false");
-			break;
-		case STRING_EXPR:
-			serialize_append_slice(expr.literal_expr.str, expr.literal_expr.len);
-			break;
-		case IDENTIFIER_EXPR:
-			if (is_identifier_global(expr.literal_expr.str, expr.literal_expr.len)) {
-				serialize_append("globals->");
-			}
-			serialize_append_slice(expr.literal_expr.str, expr.literal_expr.len);
-			break;
-		case NUMBER_EXPR:
-			serialize_append_number(expr.number_expr);
-			break;
-		case UNARY_EXPR:
-			serialize_operator(expr.unary_expr.operator);
-			serialize_expr(exprs[expr.unary_expr.expr_index]);
-			break;
-		case BINARY_EXPR:
-			serialize_binary_expr(expr.binary_expr);
-			break;
-		case CALL_EXPR:
-			serialize_call_expr(expr.call_expr);
-			break;
-		case PARENTHESIZED_EXPR:
-			serialize_parenthesized_expr(expr.parenthesized_expr);
-			break;
-	}
-}
-
-static void serialize_statements(size_t statements_offset, size_t statement_count, size_t depth) {
-	for (size_t statement_index = 0; statement_index < statement_count; statement_index++) {
-		statement_t statement = statements[statements_offset + statement_index];
-
-		serialize_append_indents(depth);
-
-		switch (statement.type) {
-			case VARIABLE_STATEMENT:
-				if (statement.variable_statement.has_type) {
-					serialize_append_slice(statement.variable_statement.type, statement.variable_statement.type_len);
-					serialize_append(" ");
-				}
-
-				if (is_identifier_global(statement.variable_statement.name, statement.variable_statement.name_len)) {
-					serialize_append("globals->");
-				}
-				serialize_append_slice(statement.variable_statement.name, statement.variable_statement.name_len);
-
-				if (statement.variable_statement.has_assignment) {
-					serialize_append(" = ");
-					serialize_expr(exprs[statement.variable_statement.assignment_expr_index]);
-				}
-
-				serialize_append(";");
-
-				break;
-			case CALL_STATEMENT:
-				serialize_call_expr(exprs[statement.call_statement.expr_index].call_expr);
-				serialize_append(";");
-				break;
-			case IF_STATEMENT:
-				serialize_append("if (");
-				serialize_expr(statement.if_statement.condition);
-				serialize_append(") {\n");
-				serialize_statements(statement.if_statement.if_body_statements_offset, statement.if_statement.if_body_statement_count, depth + 1);
-				
-				if (statement.if_statement.else_body_statement_count > 0) {
-					serialize_append_indents(depth);
-					serialize_append("} else {\n");
-					serialize_statements(statement.if_statement.else_body_statements_offset, statement.if_statement.else_body_statement_count, depth + 1);
-				}
-
-				serialize_append_indents(depth);
-				serialize_append("}");
-
-				break;
-			case RETURN_STATEMENT:
-				serialize_append("return");
-				if (statement.return_statement.has_value) {
-					serialize_append(" ");
-					expr_t return_expr = exprs[statement.return_statement.value_expr_index];
-					serialize_expr(return_expr);
-				}
-				serialize_append(";");
-				break;
-			case LOOP_STATEMENT:
-				serialize_append("while (true) {\n");
-				serialize_statements(statement.loop_statement.body_statements_offset, statement.loop_statement.body_statement_count, depth + 1);
-				serialize_append_indents(depth);
-				serialize_append("}");
-				break;
-			case BREAK_STATEMENT:
-				serialize_append("break;");
-				break;
-			case CONTINUE_STATEMENT:
-				serialize_append("continue;");
-				break;
-		}
-
-		serialize_append("\n");
-	}
-}
-
-static void serialize_arguments(size_t arguments_offset, size_t argument_count) {
-	if (argument_count == 0) {
-		return;
-	}
-
-	argument_t arg = arguments[arguments_offset];
-
-	serialize_append_slice(arg.type, arg.type_len);
-	serialize_append(" ");
-	serialize_append_slice(arg.name, arg.name_len);
-
-	for (size_t argument_index = 1; argument_index < argument_count; argument_index++) {
-		arg = arguments[arguments_offset + argument_index];
-
-		serialize_append(", ");
-		serialize_append_slice(arg.type, arg.type_len);
-		serialize_append(" ");
-		serialize_append_slice(arg.name, arg.name_len);
-	}
-}
-
-static void serialize_helper_fns(void) {
-	for (size_t fn_index = 0; fn_index < helper_fns_size; fn_index++) {
-		helper_fn_t fn = helper_fns[fn_index];
-
-		serialize_append("\n");
-
-		if (fn.return_type_len > 0) {
-			serialize_append_slice(fn.return_type, fn.return_type_len);
-		} else {
-			serialize_append("void");
-		}
-		
-		serialize_append(" ");
-		serialize_append_slice(fn.fn_name, fn.fn_name_len);
-
-		serialize_append("(");
-		serialize_append("void *globals_void");
-		if (fn.argument_count > 0) {
-			serialize_append(", ");
-		}
-		serialize_arguments(fn.arguments_offset, fn.argument_count);
-		serialize_append(") {\n");
-
-		serialize_append_indents(1);
-		serialize_append("struct globals *globals = globals_void;\n");
-
-		serialize_append("\n");
-		serialize_statements(fn.body_statements_offset, fn.body_statement_count, 1);
-
-		serialize_append("}\n");
-	}
-}
-
-static void serialize_exported_on_fns(void) {
-	serialize_append("struct ");
-	serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
-	serialize_append("_on_fns on_fns = {\n");
-
-	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
-		on_fn_t fn = on_fns[fn_index];
-
-		serialize_append_indents(1);
-		serialize_append(".");
-
-		// Skip the "on_"
-		serialize_append_slice(fn.fn_name + 3, fn.fn_name_len - 3);
-
-		serialize_append(" = ");
-		serialize_append_slice(fn.fn_name, fn.fn_name_len);
-		serialize_append(",\n");
-	}
-
-	serialize_append("};\n");
-}
-
-static void serialize_on_fns(void) {
-	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
-		on_fn_t fn = on_fns[fn_index];
-
-		serialize_append("\n");
-
-		serialize_append("static void ");
-		serialize_append_slice(fn.fn_name, fn.fn_name_len);
-
-		serialize_append("(");
-		serialize_append("void *globals_void");
-		if (fn.argument_count > 0) {
-			serialize_append(", ");
-		}
-		serialize_arguments(fn.arguments_offset, fn.argument_count);
-		serialize_append(") {\n");
-
-		serialize_append_indents(1);
-		serialize_append("struct globals *globals = globals_void;\n");
-
-		serialize_append("\n");
-		serialize_statements(fn.body_statements_offset, fn.body_statement_count, 1);
-
-		serialize_append("}\n");
-	}
-}
-
-static void serialize_forward_declare_helper_fns(void) {
-	for (size_t fn_index = 0; fn_index < helper_fns_size; fn_index++) {
-		helper_fn_t fn = helper_fns[fn_index];
-
-		if (fn.return_type_len > 0) {
-			serialize_append_slice(fn.return_type, fn.return_type_len);
-		} else {
-			serialize_append("void");
-		}
-
-		serialize_append(" ");
-		serialize_append_slice(fn.fn_name, fn.fn_name_len);
-
-		serialize_append("(");
-		serialize_append("void *globals_void");
-		if (fn.argument_count > 0) {
-			serialize_append(", ");
-		}
-		serialize_arguments(fn.arguments_offset, fn.argument_count);
-		serialize_append(");\n");
-	}
-}
-
-static void serialize_init_globals(void) {
-	serialize_append("void init_globals(void *globals) {\n");
-
-	serialize_append_indents(1);
-	serialize_append("memcpy(globals, &(struct globals){\n");
-
-	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
-		global_variable_t global_variable = global_variables[global_variable_index];
-
-		serialize_append_indents(2);
-
-		serialize_append(".");
-		serialize_append_slice(global_variable.name, global_variable.name_len);
-
-		serialize_append(" = ");
-
-		serialize_expr(global_variable.assignment_expr);
-
-		serialize_append(",\n");
-	}
-
-	serialize_append_indents(1);
-	serialize_append("}, sizeof(struct globals));\n");
-
-	serialize_append("}\n");
-}
-
-static void serialize_get_globals_size(void) {
-	serialize_append("size_t get_globals_size(void) {\n");
-	serialize_append_indents(1);
-	serialize_append("return sizeof(struct globals);\n");
-	serialize_append("}\n");
-}
-
-static void serialize_global_variables(void) {
-	serialize_append("struct globals {\n");
-
-	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
-		global_variable_t global_variable = global_variables[global_variable_index];
-
-		serialize_append_indents(1);
-
-		serialize_append_slice(global_variable.type, global_variable.type_len);
-		serialize_append(" ");
-		serialize_append_slice(global_variable.name, global_variable.name_len);
-
-		serialize_append(";\n");
-	}
-
-	serialize_append("};\n");
-}
-
-static void serialize_define_type(void) {
-	serialize_append("char *define_type = \"");
-	serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
-	serialize_append("\";\n");
-}
-
-static void serialize_define_struct(void) {
-	serialize_append("struct ");
-	serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
-	serialize_append(" define = {\n");
-
-	compound_literal_t compound_literal = define_fn.returned_compound_literal;
-
-	for (size_t field_index = 0; field_index < compound_literal.field_count; field_index++) {
-		field_t field = fields[compound_literal.fields_offset + field_index];
-
-		serialize_append_indents(1);
-		serialize_append(".");
-		serialize_append_slice(field.key, field.key_len);
-		serialize_append(" = ");
-		serialize_expr(field.expr_value);
-		serialize_append(",\n");
-	}
-
-	serialize_append("};\n");
-}
-
-static void serialize_to_c(void) {
-	serialize_append("#include <stdint.h>\n");
-	serialize_append("#include <string.h>\n");
-
-	// TODO: Since grug doesn't know what structs the game has anymore,
-	// remove this code
-	serialize_append("\n");
-	serialize_append("struct entity {\n");
-	serialize_append("\tuint64_t a;\n");
-	serialize_append("};\n");
-	
-	serialize_append("\n");
-	serialize_define_type();
-
-	serialize_append("\n");
-	serialize_define_struct();
-
-	serialize_append("\n");
-	serialize_global_variables();
-
-	serialize_append("\n");
-	serialize_get_globals_size();
-
-	serialize_append("\n");
-	serialize_init_globals();
-
-	if (helper_fns_size > 0) {
-		serialize_append("\n");
-		serialize_forward_declare_helper_fns();
-	}
-
-	if (on_fns_size > 0) {
-		serialize_on_fns();
-		serialize_append("\n");
-		serialize_exported_on_fns();
-	}
-
-	if (helper_fns_size > 0) {
-		serialize_helper_fns();
-	}
-
-	serialized[serialized_size] = '\0';
-}
-
 //// COMPILING
 
-// TODO: Write
+// static char serialized[MAX_SERIALIZED_TO_C_CHARS + 1];
+// static size_t serialized_size;
+
+// static void serialize_append_slice(char *str, size_t len) {
+// 	if (serialized_size + len > MAX_SERIALIZED_TO_C_CHARS) {
+// 		GRUG_ERROR("There are more than %d characters in the output C file, exceeding MAX_SERIALIZED_TO_C_CHARS", MAX_SERIALIZED_TO_C_CHARS);
+// 	}
+// 	memcpy(serialized + serialized_size, str, len);
+// 	serialized_size += len;
+// }
+
+// static void serialize_append(char *str) {
+// 	serialize_append_slice(str, strlen(str));
+// }
+
+// static void serialize_append_number(number_expr_t number_expr) {
+// 	char buf[MAX_NUMBER_LEN];
+// 	snprintf(buf, sizeof(buf), "%ld", number_expr.value);
+// 	serialize_append(buf);
+// }
+
+// static void serialize_append_indents(size_t depth) {
+// 	for (size_t i = 0; i < depth * SPACES_PER_INDENT; i++) {
+// 		serialize_append(" ");
+// 	}
+// }
+
+// static void serialize_expr(expr_t expr);
+
+// static void serialize_parenthesized_expr(parenthesized_expr_t parenthesized_expr) {
+// 	serialize_append("(");
+// 	serialize_expr(exprs[parenthesized_expr.expr_index]);
+// 	serialize_append(")");
+// }
+
+// static bool is_helper_function(char *name, size_t len) {
+// 	for (size_t i = 0; i < helper_fns_size; i++) {
+// 		helper_fn_t fn = helper_fns[i];
+// 		if (fn.fn_name_len == len && memcmp(fn.fn_name, name, len) == 0) {
+// 			return true;
+// 		}
+// 	}
+// 	return false;
+// }
+
+// static void serialize_call_expr(call_expr_t call_expr) {
+// 	serialize_append_slice(call_expr.fn_name, call_expr.fn_name_len);
+
+// 	serialize_append("(");
+// 	if (is_helper_function(call_expr.fn_name, call_expr.fn_name_len)) {
+// 		serialize_append("globals_void");
+// 		if (call_expr.argument_count > 0) {
+// 			serialize_append(", ");
+// 		}
+// 	}
+// 	for (size_t argument_index = 0; argument_index < call_expr.argument_count; argument_index++) {
+// 		if (argument_index > 0) {
+// 			serialize_append(", ");
+// 		}
+
+// 		serialize_expr(exprs[call_expr.arguments_exprs_offset + argument_index]);
+// 	}
+// 	serialize_append(")");
+// }
+
+// static void serialize_operator(enum token_type operator);
+
+// static void serialize_binary_expr(binary_expr_t binary_expr) {
+// 	serialize_expr(exprs[binary_expr.left_expr_index]);
+
+// 	if (binary_expr.operator != PERIOD_TOKEN) {
+// 		serialize_append(" ");
+// 	}
+
+// 	serialize_operator(binary_expr.operator);
+
+// 	if (binary_expr.operator != PERIOD_TOKEN) {
+// 		serialize_append(" ");
+// 	}
+
+// 	serialize_expr(exprs[binary_expr.right_expr_index]);
+// }
+
+// static void serialize_operator(enum token_type operator) {
+// 	switch (operator) {
+// 		case PLUS_TOKEN:
+// 			serialize_append("+");
+// 			return;
+// 		case MINUS_TOKEN:
+// 			serialize_append("-");
+// 			return;
+// 		case MULTIPLICATION_TOKEN:
+// 			serialize_append("*");
+// 			return;
+// 		case DIVISION_TOKEN:
+// 			serialize_append("/");
+// 			return;
+// 		case REMAINDER_TOKEN:
+// 			serialize_append("%");
+// 			return;
+// 		case PERIOD_TOKEN:
+// 			serialize_append(".");
+// 			return;
+// 		case EQUALS_TOKEN:
+// 			serialize_append("==");
+// 			return;
+// 		case NOT_EQUALS_TOKEN:
+// 			serialize_append("!=");
+// 			return;
+// 		case GREATER_OR_EQUAL_TOKEN:
+// 			serialize_append(">=");
+// 			return;
+// 		case GREATER_TOKEN:
+// 			serialize_append(">");
+// 			return;
+// 		case LESS_OR_EQUAL_TOKEN:
+// 			serialize_append("<=");
+// 			return;
+// 		case LESS_TOKEN:
+// 			serialize_append("<");
+// 			return;
+// 		case NOT_TOKEN:
+// 			serialize_append("not");
+// 			return;
+// 		default:
+// 			GRUG_ERROR(UNREACHABLE_STR);
+// 	}
+// }
+
+// static bool is_identifier_global(char *name, size_t len) {
+// 	for (size_t i = 0; i < global_variables_size; i++) {
+// 		global_variable_t global = global_variables[i];
+// 		if (global.name_len == len && memcmp(global.name, name, len) == 0) {
+// 			return true;
+// 		}
+// 	}
+// 	return false;
+// }
+
+// static void serialize_expr(expr_t expr) {
+// 	switch (expr.type) {
+// 		case TRUE_EXPR:
+// 			serialize_append("true");
+// 			break;
+// 		case FALSE_EXPR:
+// 			serialize_append("false");
+// 			break;
+// 		case STRING_EXPR:
+// 			serialize_append_slice(expr.literal_expr.str, expr.literal_expr.len);
+// 			break;
+// 		case IDENTIFIER_EXPR:
+// 			if (is_identifier_global(expr.literal_expr.str, expr.literal_expr.len)) {
+// 				serialize_append("globals->");
+// 			}
+// 			serialize_append_slice(expr.literal_expr.str, expr.literal_expr.len);
+// 			break;
+// 		case NUMBER_EXPR:
+// 			serialize_append_number(expr.number_expr);
+// 			break;
+// 		case UNARY_EXPR:
+// 			serialize_operator(expr.unary_expr.operator);
+// 			serialize_expr(exprs[expr.unary_expr.expr_index]);
+// 			break;
+// 		case BINARY_EXPR:
+// 			serialize_binary_expr(expr.binary_expr);
+// 			break;
+// 		case CALL_EXPR:
+// 			serialize_call_expr(expr.call_expr);
+// 			break;
+// 		case PARENTHESIZED_EXPR:
+// 			serialize_parenthesized_expr(expr.parenthesized_expr);
+// 			break;
+// 	}
+// }
+
+// static void serialize_statements(size_t statements_offset, size_t statement_count, size_t depth) {
+// 	for (size_t statement_index = 0; statement_index < statement_count; statement_index++) {
+// 		statement_t statement = statements[statements_offset + statement_index];
+
+// 		serialize_append_indents(depth);
+
+// 		switch (statement.type) {
+// 			case VARIABLE_STATEMENT:
+// 				if (statement.variable_statement.has_type) {
+// 					serialize_append_slice(statement.variable_statement.type, statement.variable_statement.type_len);
+// 					serialize_append(" ");
+// 				}
+
+// 				if (is_identifier_global(statement.variable_statement.name, statement.variable_statement.name_len)) {
+// 					serialize_append("globals->");
+// 				}
+// 				serialize_append_slice(statement.variable_statement.name, statement.variable_statement.name_len);
+
+// 				if (statement.variable_statement.has_assignment) {
+// 					serialize_append(" = ");
+// 					serialize_expr(exprs[statement.variable_statement.assignment_expr_index]);
+// 				}
+
+// 				serialize_append(";");
+
+// 				break;
+// 			case CALL_STATEMENT:
+// 				serialize_call_expr(exprs[statement.call_statement.expr_index].call_expr);
+// 				serialize_append(";");
+// 				break;
+// 			case IF_STATEMENT:
+// 				serialize_append("if (");
+// 				serialize_expr(statement.if_statement.condition);
+// 				serialize_append(") {\n");
+// 				serialize_statements(statement.if_statement.if_body_statements_offset, statement.if_statement.if_body_statement_count, depth + 1);
+				
+// 				if (statement.if_statement.else_body_statement_count > 0) {
+// 					serialize_append_indents(depth);
+// 					serialize_append("} else {\n");
+// 					serialize_statements(statement.if_statement.else_body_statements_offset, statement.if_statement.else_body_statement_count, depth + 1);
+// 				}
+
+// 				serialize_append_indents(depth);
+// 				serialize_append("}");
+
+// 				break;
+// 			case RETURN_STATEMENT:
+// 				serialize_append("return");
+// 				if (statement.return_statement.has_value) {
+// 					serialize_append(" ");
+// 					expr_t return_expr = exprs[statement.return_statement.value_expr_index];
+// 					serialize_expr(return_expr);
+// 				}
+// 				serialize_append(";");
+// 				break;
+// 			case LOOP_STATEMENT:
+// 				serialize_append("while (true) {\n");
+// 				serialize_statements(statement.loop_statement.body_statements_offset, statement.loop_statement.body_statement_count, depth + 1);
+// 				serialize_append_indents(depth);
+// 				serialize_append("}");
+// 				break;
+// 			case BREAK_STATEMENT:
+// 				serialize_append("break;");
+// 				break;
+// 			case CONTINUE_STATEMENT:
+// 				serialize_append("continue;");
+// 				break;
+// 		}
+
+// 		serialize_append("\n");
+// 	}
+// }
+
+// static void serialize_arguments(size_t arguments_offset, size_t argument_count) {
+// 	if (argument_count == 0) {
+// 		return;
+// 	}
+
+// 	argument_t arg = arguments[arguments_offset];
+
+// 	serialize_append_slice(arg.type, arg.type_len);
+// 	serialize_append(" ");
+// 	serialize_append_slice(arg.name, arg.name_len);
+
+// 	for (size_t argument_index = 1; argument_index < argument_count; argument_index++) {
+// 		arg = arguments[arguments_offset + argument_index];
+
+// 		serialize_append(", ");
+// 		serialize_append_slice(arg.type, arg.type_len);
+// 		serialize_append(" ");
+// 		serialize_append_slice(arg.name, arg.name_len);
+// 	}
+// }
+
+// static void serialize_helper_fns(void) {
+// 	for (size_t fn_index = 0; fn_index < helper_fns_size; fn_index++) {
+// 		helper_fn_t fn = helper_fns[fn_index];
+
+// 		serialize_append("\n");
+
+// 		if (fn.return_type_len > 0) {
+// 			serialize_append_slice(fn.return_type, fn.return_type_len);
+// 		} else {
+// 			serialize_append("void");
+// 		}
+		
+// 		serialize_append(" ");
+// 		serialize_append_slice(fn.fn_name, fn.fn_name_len);
+
+// 		serialize_append("(");
+// 		serialize_append("void *globals_void");
+// 		if (fn.argument_count > 0) {
+// 			serialize_append(", ");
+// 		}
+// 		serialize_arguments(fn.arguments_offset, fn.argument_count);
+// 		serialize_append(") {\n");
+
+// 		serialize_append_indents(1);
+// 		serialize_append("struct globals *globals = globals_void;\n");
+
+// 		serialize_append("\n");
+// 		serialize_statements(fn.body_statements_offset, fn.body_statement_count, 1);
+
+// 		serialize_append("}\n");
+// 	}
+// }
+
+// static void serialize_exported_on_fns(void) {
+// 	serialize_append("struct ");
+// 	serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
+// 	serialize_append("_on_fns on_fns = {\n");
+
+// 	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
+// 		on_fn_t fn = on_fns[fn_index];
+
+// 		serialize_append_indents(1);
+// 		serialize_append(".");
+
+// 		// Skip the "on_"
+// 		serialize_append_slice(fn.fn_name + 3, fn.fn_name_len - 3);
+
+// 		serialize_append(" = ");
+// 		serialize_append_slice(fn.fn_name, fn.fn_name_len);
+// 		serialize_append(",\n");
+// 	}
+
+// 	serialize_append("};\n");
+// }
+
+// static void serialize_on_fns(void) {
+// 	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
+// 		on_fn_t fn = on_fns[fn_index];
+
+// 		serialize_append("\n");
+
+// 		serialize_append("static void ");
+// 		serialize_append_slice(fn.fn_name, fn.fn_name_len);
+
+// 		serialize_append("(");
+// 		serialize_append("void *globals_void");
+// 		if (fn.argument_count > 0) {
+// 			serialize_append(", ");
+// 		}
+// 		serialize_arguments(fn.arguments_offset, fn.argument_count);
+// 		serialize_append(") {\n");
+
+// 		serialize_append_indents(1);
+// 		serialize_append("struct globals *globals = globals_void;\n");
+
+// 		serialize_append("\n");
+// 		serialize_statements(fn.body_statements_offset, fn.body_statement_count, 1);
+
+// 		serialize_append("}\n");
+// 	}
+// }
+
+// static void serialize_forward_declare_helper_fns(void) {
+// 	for (size_t fn_index = 0; fn_index < helper_fns_size; fn_index++) {
+// 		helper_fn_t fn = helper_fns[fn_index];
+
+// 		if (fn.return_type_len > 0) {
+// 			serialize_append_slice(fn.return_type, fn.return_type_len);
+// 		} else {
+// 			serialize_append("void");
+// 		}
+
+// 		serialize_append(" ");
+// 		serialize_append_slice(fn.fn_name, fn.fn_name_len);
+
+// 		serialize_append("(");
+// 		serialize_append("void *globals_void");
+// 		if (fn.argument_count > 0) {
+// 			serialize_append(", ");
+// 		}
+// 		serialize_arguments(fn.arguments_offset, fn.argument_count);
+// 		serialize_append(");\n");
+// 	}
+// }
+
+// static void serialize_init_globals(void) {
+// 	serialize_append("void init_globals(void *globals) {\n");
+
+// 	serialize_append_indents(1);
+// 	serialize_append("memcpy(globals, &(struct globals){\n");
+
+// 	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
+// 		global_variable_t global_variable = global_variables[global_variable_index];
+
+// 		serialize_append_indents(2);
+
+// 		serialize_append(".");
+// 		serialize_append_slice(global_variable.name, global_variable.name_len);
+
+// 		serialize_append(" = ");
+
+// 		serialize_expr(global_variable.assignment_expr);
+
+// 		serialize_append(",\n");
+// 	}
+
+// 	serialize_append_indents(1);
+// 	serialize_append("}, sizeof(struct globals));\n");
+
+// 	serialize_append("}\n");
+// }
+
+// static void serialize_get_globals_size(void) {
+// 	serialize_append("size_t get_globals_size(void) {\n");
+// 	serialize_append_indents(1);
+// 	serialize_append("return sizeof(struct globals);\n");
+// 	serialize_append("}\n");
+// }
+
+// static void serialize_global_variables(void) {
+// 	serialize_append("struct globals {\n");
+
+// 	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
+// 		global_variable_t global_variable = global_variables[global_variable_index];
+
+// 		serialize_append_indents(1);
+
+// 		serialize_append_slice(global_variable.type, global_variable.type_len);
+// 		serialize_append(" ");
+// 		serialize_append_slice(global_variable.name, global_variable.name_len);
+
+// 		serialize_append(";\n");
+// 	}
+
+// 	serialize_append("};\n");
+// }
+
+// static void serialize_define_type(void) {
+// 	serialize_append("char *define_type = \"");
+// 	serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
+// 	serialize_append("\";\n");
+// }
+
+// static void serialize_define_struct(void) {
+// 	serialize_append("struct ");
+// 	serialize_append_slice(define_fn.return_type, define_fn.return_type_len);
+// 	serialize_append(" define = {\n");
+
+// 	compound_literal_t compound_literal = define_fn.returned_compound_literal;
+
+// 	for (size_t field_index = 0; field_index < compound_literal.field_count; field_index++) {
+// 		field_t field = fields[compound_literal.fields_offset + field_index];
+
+// 		serialize_append_indents(1);
+// 		serialize_append(".");
+// 		serialize_append_slice(field.key, field.key_len);
+// 		serialize_append(" = ");
+// 		serialize_expr(field.expr_value);
+// 		serialize_append(",\n");
+// 	}
+
+// 	serialize_append("};\n");
+// }
+
+// static void serialize_to_c(void) {
+// 	serialize_append("#include <stdint.h>\n");
+// 	serialize_append("#include <string.h>\n");
+
+// 	// TODO: Since grug doesn't know what structs the game has anymore,
+// 	// remove this code
+// 	serialize_append("\n");
+// 	serialize_append("struct entity {\n");
+// 	serialize_append("\tuint64_t a;\n");
+// 	serialize_append("};\n");
+	
+// 	serialize_append("\n");
+// 	serialize_define_type();
+
+// 	serialize_append("\n");
+// 	serialize_define_struct();
+
+// 	serialize_append("\n");
+// 	serialize_global_variables();
+
+// 	serialize_append("\n");
+// 	serialize_get_globals_size();
+
+// 	serialize_append("\n");
+// 	serialize_init_globals();
+
+// 	if (helper_fns_size > 0) {
+// 		serialize_append("\n");
+// 		serialize_forward_declare_helper_fns();
+// 	}
+
+// 	if (on_fns_size > 0) {
+// 		serialize_on_fns();
+// 		serialize_append("\n");
+// 		serialize_exported_on_fns();
+// 	}
+
+// 	if (helper_fns_size > 0) {
+// 		serialize_helper_fns();
+// 	}
+
+// 	serialized[serialized_size] = '\0';
+// }
 
 //// MACHINING
 
@@ -4040,22 +4036,6 @@ static size_t reloads_capacity;
 
 typedef size_t (*get_globals_size_fn)(void);
 
-static void write_c(char *c_path) {
-	FILE *f = fopen(c_path, "w");
-	if (!f) {
-		GRUG_ERROR("fopen: %s", strerror(errno));
-	}
-
-	size_t bytes_written = fwrite(serialized, sizeof(char), strlen(serialized), f);
-	if (bytes_written != strlen(serialized)) {
-		GRUG_ERROR("fwrite: %s", strerror(errno));
-	}
-
-	if (fclose(f)) {
-		GRUG_ERROR("fclose: %s", strerror(errno));
-	}
-}
-
 static void reset_regenerate_dll(void) {
 	tokens_size = 0;
 	fields_size = 0;
@@ -4065,10 +4045,9 @@ static void reset_regenerate_dll(void) {
 	helper_fns_size = 0;
 	on_fns_size = 0;
 	global_variables_size = 0;
-	serialized_size = 0;
 }
 
-static void regenerate_dll(char *grug_path, char *dll_path, char *c_path) {
+static void regenerate_dll(char *grug_path, char *dll_path) {
 	grug_log("Regenerating %s\n", dll_path);
 
 	reset_regenerate_dll();
@@ -4088,23 +4067,18 @@ static void regenerate_dll(char *grug_path, char *dll_path, char *c_path) {
 	grug_log("\nfns:\n");
 	print_fns();
 
-	serialize_to_c();
-	grug_log("\nserialized:\n%s\n", serialized);
-
-	write_c(c_path);
-
 	generate_simple_so(grug_path, dll_path);
 }
 
 // Returns whether an error occurred
-bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *c_path) {
+bool grug_test_regenerate_dll(char *grug_path, char *dll_path) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
 	if (!initialized) {
 		init();
 	}
-	regenerate_dll(grug_path, dll_path, c_path);
+	regenerate_dll(grug_path, dll_path);
 	return false;
 }
 
@@ -4134,15 +4108,6 @@ static char *get_file_extension(char *filename) {
 		return ext;
 	}
 	return "";
-}
-
-static void fill_as_path_with_c_extension(char *c_path, char *grug_path) {
-	c_path[0] = '\0';
-	strncat(c_path, grug_path, STUPID_MAX_PATH - 1);
-	char *ext = get_file_extension(c_path);
-	assert(*ext);
-	ext[1] = '\0';
-	strncat(ext + 1, "c", STUPID_MAX_PATH - 1 - strlen(c_path));
 }
 
 static void fill_as_path_with_dll_extension(char *dll_path, char *grug_path) {
@@ -4352,10 +4317,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 				}
 
 				if (needs_regeneration) {
-					char c_path[STUPID_MAX_PATH];
-					fill_as_path_with_c_extension(c_path, dll_entry_path);
-
-					regenerate_dll(entry_path, dll_path, c_path);
+					regenerate_dll(entry_path, dll_path);
 				}
 
 				grug_file_t file = {0};
