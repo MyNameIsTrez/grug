@@ -4,18 +4,17 @@ See [my blog post](https://mynameistrez.github.io/2024/02/29/creating-the-perfec
 
 ## Sections
 
-`grug.c` is composed of several sections, which you can find by searching for `////`:
+`grug.c` is composed of sections, which you can find by searching for `////`:
 
 1. JSON
 2. INIT
 3. READING
 4. TOKENIZATION
 5. PARSING
-6. SERIALIZING TO C
-7. COMPILING
-8. MACHINING
-9. LINKING
-10. MISC
+6. COMPILING
+7. MACHINING
+8. LINKING
+9. MISC
 
 ## Small example programs
 
