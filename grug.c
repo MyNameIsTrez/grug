@@ -2959,7 +2959,9 @@ static void verify_and_trim_spaces(void) {
 // TODO: Write
 
 enum {
-	MOV = 0xb8,
+	MOV_TO_EAX = 0xb8,
+	MOV_TO_EDI = 0xbf,
+	CALL = 0xe8,
 	RET = 0xc3,
 };
 
@@ -3248,8 +3250,15 @@ static void push_dynamic() {
 }
 
 static void push_text(void) {
+	// define()
+	push_byte(MOV_TO_EDI);
+	push_number(0x2a, 4); // Value to mov to eax
+	push_byte(CALL);
+	push_number(0xffffffe6, 4);
+	push_byte(RET);
+
 	// get_globals_size()
-	push_byte(MOV);
+	push_byte(MOV_TO_EAX);
 	push_number(0, 4); // Value to mov to eax
 	push_byte(RET);
 
