@@ -2987,6 +2987,14 @@ enum {
 #define DATA_SECTION_HEADER_INDEX 10
 #define STRTAB_SECTION_HEADER_INDEX 12
 
+enum opcodes {
+	PUSH_BYTE = 0x68,
+	JMP_ABS = 0xe9,
+	JMP_REL = 0x25ff,
+	PUSH_REL = 0x35ff,
+	NOP = 0x401f0f,
+};
+
 static char *symbols[MAX_SYMBOLS];
 static size_t symbols_size;
 
@@ -3251,7 +3259,24 @@ static void push_text(void) {
 	push_alignment(8);
 }
 
+// Use `objdump -D` on the expected .so to see these instruction names
 static void push_plt(void) {
+	push_number(PUSH_REL, 2);
+	push_number(0x2002, 4);
+
+	push_number(JMP_REL, 2);
+	push_number(0x2004, 4);
+
+	push_number(NOP, 4);
+
+	push_number(JMP_REL, 2);
+	push_number(0x2002, 4);
+
+	push_byte(PUSH_BYTE);
+	push_zeros(4);
+
+	push_byte(JMP_ABS);
+	push_number(0xffffffe0, 4);
 }
 
 // Source:
