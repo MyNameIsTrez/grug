@@ -582,6 +582,9 @@ typedef struct grug_argument grug_argument_t;
 enum type {
 	i32,
 };
+static char *type_names[] = {
+	[i32] = "i32",
+};
 
 struct grug_function {
 	char *name;
@@ -617,12 +620,16 @@ static void push_grug_argument(struct grug_argument argument) {
 	grug_arguments[grug_arguments_size++] = argument;
 }
 
-static enum type parse_type(char *type) {
-	if (strcmp(type, "i32") == 0) {
+static enum type parse_type_slice(char *type, size_t len) {
+	if (strncmp(type, "i32", len) == 0) {
 		return i32;
 	}
 	// TODO: Make sure to add any new types to this error message
-	GRUG_ERROR("mod_api.json its types must be one of i32/...");
+	GRUG_ERROR("Types must be one of i32/...");
+}
+
+static enum type parse_type(char *type) {
+	return parse_type_slice(type, strlen(type));
 }
 
 static void init(void) {
@@ -1282,8 +1289,7 @@ static size_t helper_fns_size;
 struct global_variable {
 	char *name;
 	size_t name_len;
-	char *type;
-	size_t type_len;
+	enum type type;
 	expr_t assignment_expr;
 };
 static global_variable_t global_variables[MAX_GLOBAL_VARIABLES_IN_FILE];
@@ -1492,7 +1498,7 @@ static void print_global_variables(void) {
 
 		grug_log("\"variable_name\": \"%.*s\",\n", (int)global_variable.name_len, global_variable.name);
 
-		grug_log("\"variable_type\": \"%.*s\",\n", (int)global_variable.type_len, global_variable.type);
+		grug_log("\"variable_type\": \"%s\",\n", type_names[global_variable.type]);
 
 		grug_log("\"assignment\": {\n");
 		print_expr(global_variable.assignment_expr);
@@ -1928,8 +1934,7 @@ static void parse_global_variable(size_t *i) {
 
 	assert_token_type(*i, WORD_TOKEN);
 	token_t type_token = consume_token(i);
-	global_variable.type = type_token.str;
-	global_variable.type_len = type_token.len;
+	global_variable.type = parse_type_slice(type_token.str, type_token.len);
 
 	assert_token_type(*i, ASSIGNMENT_TOKEN);
 	consume_token(i);
@@ -3290,7 +3295,8 @@ static void push_text(void) {
 
 	// get_globals_size()
 	push_byte(MOV_TO_EAX);
-	push_number(0, 4);
+	size_t globals_bytes = 8;
+	push_number(globals_bytes, 4);
 	push_byte(RET);
 
 	// init_globals()
