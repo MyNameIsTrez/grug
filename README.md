@@ -12,9 +12,8 @@ See [my blog post](https://mynameistrez.github.io/2024/02/29/creating-the-perfec
 4. TOKENIZATION
 5. PARSING
 6. COMPILING
-7. MACHINING
-8. LINKING
-9. MISC
+7. LINKING
+8. MISC
 
 ## Small example programs
 
