@@ -2465,6 +2465,94 @@ static void verify_and_trim_spaces(void) {
 
 //// COMPILING
 
+#define MAX_SYMBOLS 420420
+#define MAX_CODES 420420
+
+enum {
+	MOV_TO_EAX = 0xb8,
+	CALL = 0xe8,
+	RET = 0xc3,
+	MOV_ZERO_TO_RDI_PTR = 0x7c7,
+	MOV_TO_RDI_PTR = 0x47c7,
+	MOVABS = 0xbf48,
+};
+
+static size_t text_offsets[MAX_SYMBOLS];
+
+static u8 codes[MAX_CODES];
+static size_t codes_size;
+
+static void compile_push_byte(u8 byte) {
+	if (codes_size >= MAX_CODES) {
+		GRUG_ERROR("There are more than %d code bytes, exceeding MAX_CODES", MAX_CODES);
+	}
+
+	codes[codes_size++] = byte;
+}
+
+static void compile_push_zeros(size_t count) {
+	for (size_t i = 0; i < count; i++) {
+		compile_push_byte(0);
+	}
+}
+
+static void compile_push_number(u64 n, size_t byte_count) {
+	while (n > 0) {
+		// Little-endian requires the least significant byte first
+		compile_push_byte(n & 0xff);
+		byte_count--;
+
+		n >>= 8; // Shift right by one byte
+	}
+
+	// Optional padding
+	compile_push_zeros(byte_count);
+}
+
+static void compile() {
+	size_t i = 0;
+	size_t text_offset = 0;
+	size_t start_codes_size;
+
+	// define()
+	start_codes_size = codes_size;
+	compile_push_number(MOVABS, 2);
+	compile_push_number(0x2a, 8);
+	compile_push_byte(CALL);
+	compile_push_number(0xffffffe1, 4);
+	compile_push_byte(RET);
+	text_offsets[i++] = text_offset;
+	text_offset += codes_size - start_codes_size;
+
+	// get_globals_size()
+	start_codes_size = codes_size;
+	compile_push_byte(MOV_TO_EAX);
+	size_t globals_bytes = 0;
+	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
+		global_variable_t global_variable = global_variables[global_variable_index];
+		globals_bytes += type_sizes[global_variable.type];
+	}
+	compile_push_number(globals_bytes, 4);
+	compile_push_byte(RET);
+	text_offsets[i++] = text_offset;
+	text_offset += codes_size - start_codes_size;
+
+	// init_globals()
+	start_codes_size = codes_size;
+	size_t ptr_offset = 0;
+	compile_push_number(MOV_ZERO_TO_RDI_PTR, 2);
+	compile_push_number(420, 4);
+	ptr_offset += 4;
+	compile_push_number(MOV_TO_RDI_PTR, 2);
+	assert(ptr_offset < 256); // TODO: Add a test for this, cause I want it to be able to handle this
+	compile_push_byte(ptr_offset);
+	compile_push_number(1337, 4);
+	ptr_offset += 4;
+	compile_push_byte(RET);
+	text_offsets[i++] = text_offset;
+	text_offset += codes_size - start_codes_size;
+}
+
 // static char serialized[MAX_SERIALIZED_TO_C_CHARS + 1];
 // static size_t serialized_size;
 
@@ -2962,23 +3050,9 @@ static void verify_and_trim_spaces(void) {
 // 	serialized[serialized_size] = '\0';
 // }
 
-//// MACHINING
-
-// TODO: Write
-
-enum {
-	MOV_TO_EAX = 0xb8,
-	MOV_TO_EDI = 0xbf,
-	CALL = 0xe8,
-	RET = 0xc3,
-	MOV_ZERO_TO_RDI_PTR = 0x7c7,
-	MOV_TO_RDI_PTR = 0x47c7,
-};
-
 //// LINKING
 
 #define MAX_BYTES 420420
-#define MAX_SYMBOLS 420420
 
 #define MAX_HASH_BUCKETS 32771 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/elflink.c;h=6db6a9c0b4702c66d73edba87294e2a59ffafcf5;hb=refs/heads/master#l6560
 
@@ -3031,7 +3105,6 @@ static size_t shuffled_symbols_size;
 static size_t shuffled_symbol_index_to_symbol_index[MAX_SYMBOLS];
 
 static size_t data_offsets[MAX_SYMBOLS];
-static size_t text_offsets[MAX_SYMBOLS];
 
 static u8 bytes[MAX_BYTES];
 static size_t bytes_size;
@@ -3289,41 +3362,13 @@ static void push_dynamic() {
 }
 
 static void push_text(void) {
-	size_t text_offset = bytes_size;
-
-	// define()
-	push_byte(MOV_TO_EDI);
-	push_number(0x2a, 4);
-	push_byte(CALL);
-	push_number(0xffffffe6, 4);
-	push_byte(RET);
-
-	// get_globals_size()
-	push_byte(MOV_TO_EAX);
-	size_t globals_bytes = 0;
-	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
-		global_variable_t global_variable = global_variables[global_variable_index];
-		globals_bytes += type_sizes[global_variable.type];
+	if (bytes_size + codes_size >= MAX_BYTES) {
+		GRUG_ERROR("There are more than %d bytes, exceeding MAX_BYTES", MAX_BYTES);
 	}
-	push_number(globals_bytes, 4);
-	push_byte(RET);
 
-	// init_globals()
-	size_t offset = 0;
-
-	push_number(MOV_ZERO_TO_RDI_PTR, 2);
-	push_number(420, 4);
-	offset += 4;
-
-	push_number(MOV_TO_RDI_PTR, 2);
-	assert(offset < 256); // TODO: Add a test for this, cause I want it to be able to handle this
-	push_byte(offset);
-	push_number(1337, 4);
-	offset += 4;
-
-	push_byte(RET);
-
-	text_size = bytes_size - text_offset;
+	for (size_t i = 0; i < codes_size; i++) {
+		bytes[bytes_size++] = codes[i];
+	}
 
 	push_alignment(8);
 }
@@ -3763,23 +3808,6 @@ static void push_bytes(char *grug_path) {
 	push_section_headers();
 }
 
-static void init_text_offsets(void) {
-	size_t i = 0;
-	size_t offset = 0;
-
-	// define()
-	text_offsets[i++] = offset;
-	offset += 11;
-
-	// get_globals_size()
-	text_offsets[i++] = offset;
-	offset += 6;
-
-	// init_globals()
-	text_offsets[i++] = offset;
-	offset += 14;
-}
-
 static void init_data_offsets(void) {
 	size_t i = 0;
 	size_t offset = 0;
@@ -4062,6 +4090,8 @@ static void reset_generate_simple_so(void) {
 }
 
 static void generate_simple_so(char *grug_path, char *dll_path) {
+	text_size = codes_size;
+
 	reset_generate_simple_so();
 
 	compute_data_size();
@@ -4083,7 +4113,6 @@ static void generate_simple_so(char *grug_path, char *dll_path) {
 	init_symbol_name_strtab_offsets();
 
 	init_data_offsets();
-	init_text_offsets();
 
 	push_bytes(grug_path);
 
@@ -4137,6 +4166,8 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 	parse();
 	grug_log("\nfns:\n");
 	print_fns();
+
+	compile();
 
 	generate_simple_so(grug_path, dll_path);
 }
