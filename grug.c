@@ -585,6 +585,9 @@ enum type {
 static char *type_names[] = {
 	[i32] = "i32",
 };
+static size_t type_sizes[] = {
+	[i32] = sizeof(uint32_t),
+};
 
 struct grug_function {
 	char *name;
@@ -3295,7 +3298,11 @@ static void push_text(void) {
 
 	// get_globals_size()
 	push_byte(MOV_TO_EAX);
-	size_t globals_bytes = 8;
+	size_t globals_bytes = 0;
+	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
+		global_variable_t global_variable = global_variables[global_variable_index];
+		globals_bytes += type_sizes[global_variable.type];
+	}
 	push_number(globals_bytes, 4);
 	push_byte(RET);
 
