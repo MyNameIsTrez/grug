@@ -2971,6 +2971,8 @@ enum {
 	MOV_TO_EDI = 0xbf,
 	CALL = 0xe8,
 	RET = 0xc3,
+	MOV_ZERO_TO_RDI_PTR = 0x7c7,
+	MOV_TO_RDI_PTR = 0x47c7,
 };
 
 //// LINKING
@@ -3307,6 +3309,18 @@ static void push_text(void) {
 	push_byte(RET);
 
 	// init_globals()
+	size_t offset = 0;
+
+	push_number(MOV_ZERO_TO_RDI_PTR, 2);
+	push_number(420, 4);
+	offset += 4;
+
+	push_number(MOV_TO_RDI_PTR, 2);
+	assert(offset < 256); // TODO: Add a test for this, cause I want it to be able to handle this
+	push_byte(offset);
+	push_number(1337, 4);
+	offset += 4;
+
 	push_byte(RET);
 
 	text_size = bytes_size - text_offset;
@@ -3314,7 +3328,6 @@ static void push_text(void) {
 	push_alignment(8);
 }
 
-// Use `objdump -D` on the expected .so to see these instruction names
 static void push_plt(void) {
 	plt_offset = bytes_size;
 
@@ -3764,7 +3777,7 @@ static void init_text_offsets(void) {
 
 	// init_globals()
 	text_offsets[i++] = offset;
-	offset += 1;
+	offset += 14;
 }
 
 static void init_data_offsets(void) {
