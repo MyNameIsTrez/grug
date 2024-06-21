@@ -2976,7 +2976,8 @@ enum {
 #define TEXT_OFFSET 0x1020
 #define EH_FRAME_OFFSET 0x2000
 #define DYNAMIC_OFFSET 0x2f10
-#define DATA_OFFSET 0x3000
+#define GOT_PLT_OFFSET 0x3000
+#define DATA_OFFSET 0x3020
 
 #define SYMTAB_ENTRY_SIZE 24
 
@@ -3107,9 +3108,11 @@ static void push_shstrtab(void) {
 	push_string(".hash");
 	push_string(".dynsym");
 	push_string(".dynstr");
+	push_string(".rela.plt");
 	push_string(".text");
 	push_string(".eh_frame");
 	push_string(".dynamic");
+	push_string(".got.plt");
 	push_string(".data");
 
 	shstrtab_size = bytes_size - shstrtab_offset;
@@ -3127,6 +3130,7 @@ static void push_strtab(char *grug_path) {
 	// TODO: Add loop
 
 	push_string("_DYNAMIC");
+	push_string("_GLOBAL_OFFSET_TABLE_");
 
 	// Global symbols
 	// TODO: Don't loop through local symbols
@@ -3186,9 +3190,12 @@ static void push_symtab(char *grug_path) {
 	size_t name_offset = 1 + strlen(grug_path) + 1;
 
 	// "_DYNAMIC" entry
-	push_symbol_entry(name_offset, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT), 6, DYNAMIC_OFFSET);
-
+	push_symbol_entry(name_offset, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT), 8, DYNAMIC_OFFSET);
 	name_offset += sizeof("_DYNAMIC");
+
+	// "_GLOBAL_OFFSET_TABLE_" entry
+	push_symbol_entry(name_offset, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT), 9, GOT_PLT_OFFSET);
+	name_offset += sizeof("_GLOBAL_OFFSET_TABLE_");
 
 	// The symbols are pushed in shuffled_symbols order
 	for (size_t i = 0; i < symbols_size; i++) {
@@ -3198,7 +3205,7 @@ static void push_symtab(char *grug_path) {
 		bool is_extern = symbol_index < data_symbols_size + extern_symbols_size;
 
 		u16 shndx = is_data ? DATA_SECTION_HEADER_INDEX : is_extern ? SHN_UNDEF : TEXT_SECTION_HEADER_INDEX;
-		u32 offset = is_data ? DATA_OFFSET + data_offsets[symbol_index] : is_extern ? 0 : TEXT_OFFSET + text_offsets[symbol_index - data_symbols_size];
+		u32 offset = is_data ? DATA_OFFSET + data_offsets[symbol_index] : is_extern ? 0 : TEXT_OFFSET + text_offsets[symbol_index - data_symbols_size - extern_symbols_size];
 
 		push_symbol_entry(name_offset + symbol_name_strtab_offsets[symbol_index], ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), shndx, offset);
 	}
@@ -3227,6 +3234,14 @@ static void push_data(void) {
 	// push_returned_compound_literal();
 
 	push_alignment(8);
+}
+
+static void push_got_plt(void) {
+	push_number(DYNAMIC_OFFSET, 8);
+	push_zeros(8);
+	push_zeros(8);
+	size_t push_zero_address = 0x1016;
+	push_number(push_zero_address, 8);
 }
 
 // See https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-42444.html
@@ -3505,7 +3520,7 @@ static void push_dynsym(void) {
 		bool is_extern = symbol_index < data_symbols_size + extern_symbols_size;
 
 		u16 shndx = is_data ? DATA_SECTION_HEADER_INDEX : is_extern ? SHN_UNDEF : TEXT_SECTION_HEADER_INDEX;
-		u32 offset = is_data ? DATA_OFFSET + data_offsets[symbol_index] : is_extern ? 0 : TEXT_OFFSET + text_offsets[symbol_index - data_symbols_size];
+		u32 offset = is_data ? DATA_OFFSET + data_offsets[symbol_index] : is_extern ? 0 : TEXT_OFFSET + text_offsets[symbol_index - data_symbols_size - extern_symbols_size];
 
 		push_symbol_entry(symbol_name_dynstr_offsets[symbol_index], ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), shndx, offset);
 	}
@@ -3666,6 +3681,9 @@ static void push_bytes(char *grug_path) {
 	push_zeros(DYNAMIC_OFFSET - bytes_size);
 	push_dynamic();
 
+	push_zeros(GOT_PLT_OFFSET - bytes_size);
+	push_got_plt();
+
 	push_data();
 
 	push_symtab(grug_path);
@@ -3678,12 +3696,20 @@ static void push_bytes(char *grug_path) {
 }
 
 static void init_text_offsets(void) {
-	text_offsets[0] = 0;
-	text_offsets[1] = 6; // get_globals_size takes 6 bytes of instructions
+	size_t i = 0;
+	size_t offset = 0;
 
-	// for (size_t i = 0; i < 2; i++) {
-	//     text_offsets[i] = i * 6; // fn1_c takes 6 bytes of instructions
-	// }
+	// define()
+	text_offsets[i++] = offset;
+	offset += 11;
+
+	// get_globals_size()
+	text_offsets[i++] = offset;
+	offset += 6;
+
+	// init_globals()
+	text_offsets[i++] = offset;
+	offset += 1;
 }
 
 static void init_data_offsets(void) {
