@@ -3241,10 +3241,10 @@ static void push_dynamic() {
 	push_dynamic_entry(DT_SYMTAB, dynsym_offset);
 	push_dynamic_entry(DT_STRSZ, dynstr_size);
 	push_dynamic_entry(DT_SYMENT, SYMTAB_ENTRY_SIZE);
-	push_dynamic_entry(DT_NULL, 0);
-	push_dynamic_entry(DT_NULL, 0);
-	push_dynamic_entry(DT_NULL, 0);
-	push_dynamic_entry(DT_NULL, 0);
+	push_dynamic_entry(DT_PLTGOT, 0x3000);
+	push_dynamic_entry(DT_PLTRELSZ, 24);
+	push_dynamic_entry(DT_PLTREL, DT_RELA);
+	push_dynamic_entry(DT_JMPREL, 0x290);
 	push_dynamic_entry(DT_NULL, 0);
 	push_dynamic_entry(DT_NULL, 0);
 }
@@ -3252,14 +3252,14 @@ static void push_dynamic() {
 static void push_text(void) {
 	// define()
 	push_byte(MOV_TO_EDI);
-	push_number(0x2a, 4); // Value to mov to eax
+	push_number(0x2a, 4);
 	push_byte(CALL);
 	push_number(0xffffffe6, 4);
 	push_byte(RET);
 
 	// get_globals_size()
 	push_byte(MOV_TO_EAX);
-	push_number(0, 4); // Value to mov to eax
+	push_number(0, 4);
 	push_byte(RET);
 
 	// init_globals()
