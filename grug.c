@@ -3034,6 +3034,12 @@ static size_t dynsym_offset;
 static size_t dynsym_size;
 static size_t dynstr_offset;
 static size_t dynstr_size;
+static size_t rela_plt_offset;
+static size_t rela_plt_size;
+static size_t plt_offset;
+static size_t plt_size;
+static size_t got_plt_offset;
+static size_t got_plt_size;
 static size_t segment_0_size;
 static size_t symtab_offset;
 static size_t symtab_size;
@@ -3058,9 +3064,13 @@ static void fix_bytes() {
 
 	// Segment 0 its file_size
 	overwrite_address(segment_0_size, 0x60);
-
 	// Segment 0 its mem_size
 	overwrite_address(segment_0_size, 0x68);
+
+	// Segment 1 its file_size
+	overwrite_address(plt_size + text_size, 0x98);
+	// Segment 1 its mem_size
+	overwrite_address(plt_size + text_size, 0xa0);
 }
 
 static void push_byte(u8 byte) {
@@ -3237,11 +3247,15 @@ static void push_data(void) {
 }
 
 static void push_got_plt(void) {
+	got_plt_offset = bytes_size;
+
 	push_number(DYNAMIC_OFFSET, 8);
 	push_zeros(8);
 	push_zeros(8);
 	size_t push_zero_address = 0x1016;
 	push_number(push_zero_address, 8);
+
+	got_plt_size = bytes_size - got_plt_offset;
 }
 
 // See https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-42444.html
@@ -3265,6 +3279,8 @@ static void push_dynamic() {
 }
 
 static void push_text(void) {
+	size_t text_offset = bytes_size;
+
 	// define()
 	push_byte(MOV_TO_EDI);
 	push_number(0x2a, 4);
@@ -3280,11 +3296,15 @@ static void push_text(void) {
 	// init_globals()
 	push_byte(RET);
 
+	text_size = bytes_size - text_offset;
+
 	push_alignment(8);
 }
 
 // Use `objdump -D` on the expected .so to see these instruction names
 static void push_plt(void) {
+	plt_offset = bytes_size;
+
 	push_number(PUSH_REL, 2);
 	push_number(0x2002, 4);
 
@@ -3301,16 +3321,29 @@ static void push_plt(void) {
 
 	push_byte(JMP_ABS);
 	push_number(0xffffffe0, 4);
+
+	plt_size = bytes_size - plt_offset;
 }
 
 // Source:
 // https://docs.oracle.com/cd/E19683-01/816-1386/6m7qcoblk/index.html#chapter6-1235
 // https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-54839.html
 static void push_rela_plt(void) {
+	rela_plt_offset = bytes_size;
+
+	// r_offset
 	push_number(0x3018, 8);
 
+	// r_info
 	size_t define_entity_index = 1;
 	push_number(ELF64_R_INFO(define_entity_index, 7), 8);
+
+	// r_addend
+	push_zeros(8);
+
+	segment_0_size = bytes_size;
+
+	rela_plt_size = bytes_size - rela_plt_offset;
 }
 
 static void push_dynstr(void) {
@@ -3326,8 +3359,6 @@ static void push_dynstr(void) {
 			dynstr_size += strlen(symbols[i]) + 1;
 		}
 	}
-
-	segment_0_size = bytes_size;
 
 	push_alignment(8);
 }
@@ -3477,27 +3508,36 @@ static void push_section_headers(void) {
 	push_section_header(0x1b, SHT_HASH, SHF_ALLOC, hash_offset, hash_offset, hash_size, 2, 0, 8, 4);
 
 	// .dynsym: Dynamic linker symbol table section
-	push_section_header(0x21, SHT_DYNSYM, SHF_ALLOC, dynsym_offset, dynsym_offset, dynsym_size, 3, 1, 8, 0x18);
+	push_section_header(0x21, SHT_DYNSYM, SHF_ALLOC, dynsym_offset, dynsym_offset, dynsym_size, 3, 1, 8, 24);
 
 	// .dynstr: String table section
 	push_section_header(0x29, SHT_STRTAB, SHF_ALLOC, dynstr_offset, dynstr_offset, dynstr_size, 0, 0, 1, 0);
 
+	// .rela.plt: Relative procedure linkage table section
+	push_section_header(0x31, SHT_RELA, SHF_ALLOC | SHF_INFO_LINK, rela_plt_offset, rela_plt_offset, rela_plt_size, 2, 9, 8, 24);
+
+	// .plt: Procedure linkage table section
+	push_section_header(0x36, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, plt_offset, plt_offset, plt_size, 0, 0, 0x10, 16);
+
 	// .text: Code section
-	push_section_header(0x31, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, TEXT_OFFSET, TEXT_OFFSET, text_size, 0, 0, 16, 0);
+	push_section_header(0x3b, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, TEXT_OFFSET, TEXT_OFFSET, text_size, 0, 0, 16, 0);
 
 	// .eh_frame: Exception stack unwinding section
-	push_section_header(0x37, SHT_PROGBITS, SHF_ALLOC, EH_FRAME_OFFSET, EH_FRAME_OFFSET, 0, 0, 0, 8, 0);
+	push_section_header(0x41, SHT_PROGBITS, SHF_ALLOC, EH_FRAME_OFFSET, EH_FRAME_OFFSET, 0, 0, 0, 8, 0);
 
 	// .dynamic: Dynamic linking information section
-	push_section_header(0x41, SHT_DYNAMIC, SHF_WRITE | SHF_ALLOC, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0xb0, 3, 0, 8, 0x10);
+	push_section_header(0x4b, SHT_DYNAMIC, SHF_WRITE | SHF_ALLOC, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0xf0, 3, 0, 8, 16);
+
+	// .got.plt: Global offset table procedure linkage table section
+	push_section_header(0x54, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, got_plt_offset, got_plt_offset, got_plt_size, 0, 0, 8, 8);
 
 	// .data: Data section
-	push_section_header(0x4a, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, DATA_OFFSET, DATA_OFFSET, data_size, 0, 0, 4, 0);
+	push_section_header(0x5d, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, DATA_OFFSET, DATA_OFFSET, data_size, 0, 0, 4, 0);
 
 	// .symtab: Symbol table section
 	// The "link" is the section header index of the associated string table
 	// The "info" of 4 is the symbol table index of the first non-local symbol, which is the 5th entry in push_symtab(), the global "b" symbol
-	push_section_header(0x1, SHT_SYMTAB, 0, 0, symtab_offset, symtab_size, STRTAB_SECTION_HEADER_INDEX, 4, 8, SYMTAB_ENTRY_SIZE);
+	push_section_header(0x1, SHT_SYMTAB, 0, 0, symtab_offset, symtab_size, STRTAB_SECTION_HEADER_INDEX, 5, 8, SYMTAB_ENTRY_SIZE);
 
 	// .strtab: String table section
 	push_section_header(0x09, SHT_PROGBITS | SHT_SYMTAB, 0, 0, strtab_offset, strtab_size, 0, 0, 1, 0);
@@ -3541,13 +3581,14 @@ static void push_program_header(u32 type, u32 flags, u64 offset, u64 virtual_add
 
 static void push_program_headers(void) {
 	// .hash, .dynsym, .dynstr, .rela.plt segment
+	// NOTE: file_size and mem_size get overwritten later by fix_bytes()
 	// 0x40 to 0x78
-	// file_size and mem_size get overwritten later
 	push_program_header(PT_LOAD, PF_R, 0, 0, 0, 0, 0, 0x1000);
 
 	// .plt, .text segment
+	// NOTE: file_size and mem_size get overwritten later by fix_bytes()
 	// 0x78 to 0xb0
-	push_program_header(PT_LOAD, PF_R | PF_X, TEXT_OFFSET, TEXT_OFFSET, TEXT_OFFSET, text_size, text_size, 0x1000);
+	push_program_header(PT_LOAD, PF_R | PF_X, PLT_OFFSET, PLT_OFFSET, PLT_OFFSET, 0, 0, 0x1000);
 
 	// .eh_frame segment
 	// 0xb0 to 0xe8
@@ -3618,7 +3659,8 @@ static void push_elf_header(void) {
 	push_byte(0x40);
 	push_zeros(7);
 
-	// Section header table offset (this value gets overwritten later)
+	// Section header table offset
+	// NOTE: this value gets overwritten later by fix_bytes()
 	// 0x28 to 0x30
 	push_zeros(8);
 
@@ -3648,12 +3690,12 @@ static void push_elf_header(void) {
 
 	// Number of section header entries
 	// 0x3c to 0x3e
-	push_byte(11);
+	push_byte(14);
 	push_byte(0);
 
 	// Index of entry with section names
 	// 0x3e to 0x40
-	push_byte(10);
+	push_byte(13);
 	push_byte(0);
 }
 
@@ -4007,9 +4049,6 @@ static void generate_simple_so(char *grug_path, char *dll_path) {
 	push_symbol("define");
 	push_symbol("get_globals_size");
 	push_symbol("init_globals");
-
-	// TODO: Let this be gotten with push_text() calls
-	text_size = 7;
 
 	init_symbol_name_dynstr_offsets();
 
