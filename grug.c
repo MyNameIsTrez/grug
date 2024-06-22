@@ -2472,7 +2472,6 @@ enum {
 	MOV_TO_EAX = 0xb8,
 	CALL = 0xe8,
 	RET = 0xc3,
-	MOV_ZERO_TO_RDI_PTR = 0x7c7,
 	MOV_TO_RDI_PTR = 0x47c7,
 	MOVABS = 0xbf48,
 };
@@ -2547,19 +2546,13 @@ static void compile() {
 		// TODO: Add test that only literals can initialize global variables, so no equations
 		i64 value = global_variable.assignment_expr.number_expr.value;
 
-		if (global_variable_index == 0) {
-			// TODO: Figure out some way to get nasm to not generate special code for offset being 0
-			compile_push_number(MOV_ZERO_TO_RDI_PTR, 2);
-			compile_push_number(value, 4);
-		} else {
-			compile_push_number(MOV_TO_RDI_PTR, 2);
+		compile_push_number(MOV_TO_RDI_PTR, 2);
 
-			// TODO: Add a grug test for this, cause I want it to be able to handle this case
-			assert(ptr_offset < 256);
+		// TODO: Add a grug test for this, cause I want it to be able to handle this case
+		assert(ptr_offset < 256);
 
-			compile_push_byte(ptr_offset);
-			compile_push_number(value, 4);
-		}
+		compile_push_byte(ptr_offset);
+		compile_push_number(value, 4);
 
 		ptr_offset += 4;
 	}
