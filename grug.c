@@ -1086,7 +1086,7 @@ static void tokenize(char *grug_text) {
 
 //// PARSING
 
-typedef struct literal_expr literal_expr_t;
+typedef struct string_literal_expr string_literal_expr_t;
 typedef struct number_expr number_expr_t;
 typedef struct unary_expr unary_expr_t;
 typedef struct binary_expr binary_expr_t;
@@ -1107,7 +1107,7 @@ typedef struct on_fn on_fn_t;
 typedef struct helper_fn helper_fn_t;
 typedef struct global_variable global_variable_t;
 
-struct literal_expr {
+struct string_literal_expr {
 	char *str;
 	size_t len;
 };
@@ -1152,7 +1152,7 @@ struct expr {
 		PARENTHESIZED_EXPR,
 	} type;
 	union {
-		literal_expr_t literal_expr;
+		string_literal_expr_t string_literal_expr;
 		number_expr_t number_expr;
 		unary_expr_t unary_expr;
 		binary_expr_t binary_expr;
@@ -1338,7 +1338,7 @@ static void print_expr(expr_t expr) {
 			break;
 		case STRING_EXPR:
 		case IDENTIFIER_EXPR:
-			grug_log("\"str\": \"%.*s\",\n", (int)expr.literal_expr.len, expr.literal_expr.str);
+			grug_log("\"str\": \"%.*s\",\n", (int)expr.string_literal_expr.len, expr.string_literal_expr.str);
 			break;
 		case NUMBER_EXPR:
 			grug_log("\"value\": %ld,\n", expr.number_expr.value);
@@ -1671,14 +1671,14 @@ static expr_t parse_primary(size_t *i) {
 		case STRING_TOKEN:
 			(*i)++;
 			expr.type = STRING_EXPR;
-			expr.literal_expr.str = token.str;
-			expr.literal_expr.len = token.len;
+			expr.string_literal_expr.str = token.str;
+			expr.string_literal_expr.len = token.len;
 			return expr;
 		case WORD_TOKEN:
 			(*i)++;
 			expr.type = IDENTIFIER_EXPR;
-			expr.literal_expr.str = token.str;
-			expr.literal_expr.len = token.len;
+			expr.string_literal_expr.str = token.str;
+			expr.string_literal_expr.len = token.len;
 			return expr;
 		case NUMBER_TOKEN:
 			(*i)++;
@@ -1702,8 +1702,8 @@ static expr_t parse_call(size_t *i) {
 		}
 		expr.type = CALL_EXPR;
 
-		expr.call_expr.fn_name = expr.literal_expr.str;
-		expr.call_expr.fn_name_len = expr.literal_expr.len;
+		expr.call_expr.fn_name = expr.string_literal_expr.str;
+		expr.call_expr.fn_name_len = expr.string_literal_expr.len;
 
 		expr.call_expr.argument_count = 0;
 
@@ -2540,14 +2540,29 @@ static void compile() {
 	// init_globals()
 	start_codes_size = codes_size;
 	size_t ptr_offset = 0;
-	compile_push_number(MOV_ZERO_TO_RDI_PTR, 2);
-	compile_push_number(420, 4);
-	ptr_offset += 4;
-	compile_push_number(MOV_TO_RDI_PTR, 2);
-	assert(ptr_offset < 256); // TODO: Add a test for this, cause I want it to be able to handle this
-	compile_push_byte(ptr_offset);
-	compile_push_number(1337, 4);
-	ptr_offset += 4;
+	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
+		global_variable_t global_variable = global_variables[global_variable_index];
+
+		// TODO: Make it possible to retrieve .string_literal_expr here
+		// TODO: Add test that only literals can initialize global variables, so no equations
+		i64 value = global_variable.assignment_expr.number_expr.value;
+
+		if (global_variable_index == 0) {
+			// TODO: Figure out some way to get nasm to not generate special code for offset being 0
+			compile_push_number(MOV_ZERO_TO_RDI_PTR, 2);
+			compile_push_number(value, 4);
+		} else {
+			compile_push_number(MOV_TO_RDI_PTR, 2);
+
+			// TODO: Add a grug test for this, cause I want it to be able to handle this case
+			assert(ptr_offset < 256);
+
+			compile_push_byte(ptr_offset);
+			compile_push_number(value, 4);
+		}
+
+		ptr_offset += 4;
+	}
 	compile_push_byte(RET);
 	text_offsets[i++] = text_offset;
 	text_offset += codes_size - start_codes_size;
@@ -2701,13 +2716,13 @@ static void compile() {
 // 			serialize_append("false");
 // 			break;
 // 		case STRING_EXPR:
-// 			serialize_append_slice(expr.literal_expr.str, expr.literal_expr.len);
+// 			serialize_append_slice(expr.string_literal_expr.str, expr.string_literal_expr.len);
 // 			break;
 // 		case IDENTIFIER_EXPR:
-// 			if (is_identifier_global(expr.literal_expr.str, expr.literal_expr.len)) {
+// 			if (is_identifier_global(expr.string_literal_expr.str, expr.string_literal_expr.len)) {
 // 				serialize_append("globals->");
 // 			}
-// 			serialize_append_slice(expr.literal_expr.str, expr.literal_expr.len);
+// 			serialize_append_slice(expr.string_literal_expr.str, expr.string_literal_expr.len);
 // 			break;
 // 		case NUMBER_EXPR:
 // 			serialize_append_number(expr.number_expr);
