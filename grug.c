@@ -2468,12 +2468,13 @@ static void verify_and_trim_spaces(void) {
 #define MAX_SYMBOLS 420420
 #define MAX_CODES 420420
 
-enum {
+enum code {
 	MOV_TO_EAX = 0xb8,
 	CALL = 0xe8,
 	RET = 0xc3,
 	MOV_TO_RDI_PTR = 0x47c7,
-	MOVABS = 0xbf48,
+	MOVABS_TO_RDI = 0xbf48,
+	MOVABS_TO_RSI = 0xbe48,
 };
 
 static size_t text_offsets[MAX_SYMBOLS];
@@ -2513,12 +2514,24 @@ static void compile() {
 	size_t text_offset = 0;
 	size_t start_codes_size;
 
+	static enum code movabs[] = {
+		MOVABS_TO_RDI,
+		MOVABS_TO_RSI,
+	};
+
 	// define()
 	start_codes_size = codes_size;
-	compile_push_number(MOVABS, 2);
-	compile_push_number(0x2a, 8);
+	for (size_t i = 0; i < define_fn.returned_compound_literal.field_count; i++) {
+		assert(i < 2); // TODO: Support more arguments
+		compile_push_number(movabs[i], 2);
+
+		// TODO: Replace .fields_offset with a simple pointer to the first field
+		compile_push_number(fields[define_fn.returned_compound_literal.fields_offset + i].expr_value.number_expr.value, 8);
+	}
 	compile_push_byte(CALL);
-	compile_push_number(0xffffffe1, 4);
+	// TODO: Figure out where 0xffffffeb comes from,
+	//       so it can be replaced with a named variable/define/enum
+	compile_push_number(0xffffffeb - define_fn.returned_compound_literal.field_count * 10, 4);
 	compile_push_byte(RET);
 	text_offsets[i++] = text_offset;
 	text_offset += codes_size - start_codes_size;
@@ -2542,19 +2555,18 @@ static void compile() {
 	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
 		global_variable_t global_variable = global_variables[global_variable_index];
 
-		// TODO: Make it possible to retrieve .string_literal_expr here
-		// TODO: Add test that only literals can initialize global variables, so no equations
-		i64 value = global_variable.assignment_expr.number_expr.value;
-
 		compile_push_number(MOV_TO_RDI_PTR, 2);
 
 		// TODO: Add a grug test for this, cause I want it to be able to handle this case
 		assert(ptr_offset < 256);
-
 		compile_push_byte(ptr_offset);
-		compile_push_number(value, 4);
-
 		ptr_offset += 4;
+
+		// TODO: Make it possible to retrieve .string_literal_expr here
+		// TODO: Add test that only literals can initialize global variables, so no equations
+		i64 value = global_variable.assignment_expr.number_expr.value;
+
+		compile_push_number(value, 4);
 	}
 	compile_push_byte(RET);
 	text_offsets[i++] = text_offset;
