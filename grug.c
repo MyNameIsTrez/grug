@@ -586,7 +586,7 @@ static char *type_names[] = {
 	[i32] = "i32",
 };
 static size_t type_sizes[] = {
-	[i32] = sizeof(uint32_t),
+	[i32] = sizeof(int32_t),
 };
 
 struct grug_function {
