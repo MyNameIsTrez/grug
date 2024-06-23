@@ -580,6 +580,7 @@ typedef struct grug_function grug_function_t;
 typedef struct grug_argument grug_argument_t;
 
 enum type {
+	type_void,
 	i32,
 };
 static char *type_names[] = {
@@ -667,7 +668,11 @@ static void init(void) {
 
 		assert(strcmp(field->key, "return_type") == 0 && "mod_api.json its functions must have \"return_type\" as the third field");
 		assert(field->value->type == JSON_NODE_STRING && "mod_api.json its function return types must be strings");
-		grug_fn.return_type = parse_type(field->value->data.string);
+		if (strcmp(field->value->data.string, "void") == 0) {
+			grug_fn.return_type = type_void;
+		} else {
+			grug_fn.return_type = parse_type(field->value->data.string);
+		}
 		field++;
 
 		assert(strcmp(field->key, "arguments") == 0 && "mod_api.json its functions must have \"arguments\" as the fourth field");
