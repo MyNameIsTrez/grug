@@ -2514,14 +2514,14 @@ static void compile() {
 	size_t text_offset = 0;
 	size_t start_codes_size;
 
-	static enum code movabs[] = {
-		MOVABS_TO_RDI,
-		MOVABS_TO_RSI,
-	};
-
 	// define()
 	start_codes_size = codes_size;
 	for (size_t i = 0; i < define_fn.returned_compound_literal.field_count; i++) {
+		static enum code movabs[] = {
+			MOVABS_TO_RDI,
+			MOVABS_TO_RSI,
+		};
+
 		assert(i < 2); // TODO: Support more arguments
 		compile_push_number(movabs[i], 2);
 
