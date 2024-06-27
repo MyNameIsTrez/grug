@@ -18,6 +18,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#define MAX_STRINGS_CHARACTERS 420420
 #define MAX_CHARACTERS_IN_FILE 420420
 #define MAX_TOKENS_IN_FILE 420420
 #define MAX_FIELDS_IN_FILE 420420
@@ -58,14 +59,32 @@
 #define grug_log(...){ _Pragma("GCC diagnostic push") _Pragma("GCC diagnostic ignored \"-Wunused-value\"") __VA_ARGS__; _Pragma("GCC diagnostic pop") } while (0)
 #endif
 
-grug_error_t grug_error;
-static jmp_buf error_jmp_buffer;
-
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
 typedef int64_t i64;
+
+grug_error_t grug_error;
+static jmp_buf error_jmp_buffer;
+
+static char strings[MAX_STRINGS_CHARACTERS];
+static size_t strings_size;
+
+static char *push_string(char *slice_start, size_t length) {
+	if (strings_size + length >= MAX_STRINGS_CHARACTERS) {
+		GRUG_ERROR("There are more than %d characters in the strings array, exceeding MAX_STRINGS_CHARACTERS", MAX_STRINGS_CHARACTERS);
+	}
+
+	char *new_str = strings + strings_size;
+
+	for (size_t i = 0; i < length; i++) {
+		strings[strings_size++] = slice_start[i];
+	}
+	strings[strings_size++] = '\0';
+
+	return new_str;
+}
 
 //// JSON
 
@@ -77,7 +96,6 @@ typedef int64_t i64;
 
 #define MAX_CHARACTERS_IN_JSON_FILE 420420
 #define MAX_TOKENS 420420
-#define MAX_STRINGS_CHARACTERS 420420
 #define MAX_NODES 420420
 #define MAX_FIELDS 420420
 #define MAX_CHILD_NODES 420
@@ -127,7 +145,6 @@ enum json_error {
 	JSON_ERROR_TOO_MANY_TOKENS,
 	JSON_ERROR_TOO_MANY_NODES,
 	JSON_ERROR_TOO_MANY_FIELDS,
-	JSON_ERROR_TOO_MANY_STRINGS_CHARACTERS,
 	JSON_ERROR_TOO_MANY_CHILD_NODES,
 	JSON_ERROR_MAX_RECURSION_DEPTH_EXCEEDED,
 	JSON_ERROR_EXPECTED_ARRAY_CLOSE,
@@ -156,7 +173,6 @@ char *json_error_messages[] = {
 	[JSON_ERROR_TOO_MANY_TOKENS] = "Too many tokens",
 	[JSON_ERROR_TOO_MANY_NODES] = "Too many nodes",
 	[JSON_ERROR_TOO_MANY_FIELDS] = "Too many fields",
-	[JSON_ERROR_TOO_MANY_STRINGS_CHARACTERS] = "Too many strings[] characters",
 	[JSON_ERROR_TOO_MANY_CHILD_NODES] = "Too many child nodes",
 	[JSON_ERROR_MAX_RECURSION_DEPTH_EXCEEDED] = "Max recursion depth exceeded",
 	[JSON_ERROR_EXPECTED_ARRAY_CLOSE] = "Expected ']'",
@@ -190,17 +206,13 @@ enum json_token_type {
 
 struct json_token {
 	enum json_token_type type;
-	size_t offset;
-	size_t length;
+	char *str;
 };
 static struct json_token json_tokens[MAX_TOKENS];
 static size_t json_tokens_size;
 
 struct json_node json_nodes[MAX_NODES];
 static size_t json_nodes_size;
-
-static char json_strings[MAX_STRINGS_CHARACTERS];
-static size_t json_strings_size;
 
 struct json_field json_fields[MAX_FIELDS];
 static size_t json_fields_size;
@@ -220,16 +232,6 @@ static void json_push_field(struct json_field field) {
 		JSON_ERROR(JSON_ERROR_TOO_MANY_FIELDS);
 	}
 	json_fields[json_fields_size++] = field;
-}
-
-static void json_push_string(size_t offset, size_t length) {
-	if (json_strings_size + length >= MAX_STRINGS_CHARACTERS) {
-		JSON_ERROR(JSON_ERROR_TOO_MANY_STRINGS_CHARACTERS);
-	}
-	for (size_t i = 0; i < length; i++) {
-		json_strings[json_strings_size++] = json_text[offset + i];
-	}
-	json_strings[json_strings_size++] = '\0';
 }
 
 static struct json_node json_parse_object(size_t *i) {
@@ -252,22 +254,19 @@ static struct json_node json_parse_object(size_t *i) {
 	bool seen_value = false;
 
 	struct json_field field;
-	struct json_token *token;
 
 	struct json_node string;
 	struct json_node array;
 	struct json_node object;
 
 	while (*i < json_tokens_size) {
-		struct json_token *t = json_tokens + *i;
+		struct json_token *token = json_tokens + *i;
 
-		switch (t->type) {
+		switch (token->type) {
 		case TOKEN_TYPE_STRING:
 			if (!seen_key) {
 				seen_key = true;
-				field.key = json_strings + json_strings_size;
-				token = json_tokens + *i;
-				json_push_string(token->offset, token->length);
+				field.key = token->str;
 				(*i)++;
 			} else if (seen_colon && !seen_value) {
 				seen_value = true;
@@ -364,9 +363,9 @@ static struct json_node json_parse_array(size_t *i) {
 	bool expecting_value = true;
 
 	while (*i < json_tokens_size) {
-		struct json_token *t = json_tokens + *i;
+		struct json_token *token = json_tokens + *i;
 
-		switch (t->type) {
+		switch (token->type) {
 		case TOKEN_TYPE_STRING:
 			if (!expecting_value) {
 				JSON_ERROR(JSON_ERROR_UNEXPECTED_STRING);
@@ -426,10 +425,8 @@ static struct json_node json_parse_string(size_t *i) {
 
 	node.type = JSON_NODE_STRING;
 
-	node.data.string = json_strings + json_strings_size;
-
-	struct json_token *t = json_tokens + *i;
-	json_push_string(t->offset, t->length);
+	struct json_token *token = json_tokens + *i;
+	node.data.string = token->str;
 
 	(*i)++;
 
@@ -473,8 +470,7 @@ static void json_push_token(enum json_token_type type, size_t offset, size_t len
 	}
 	json_tokens[json_tokens_size++] = (struct json_token){
 		.type = type,
-		.offset = offset,
-		.length = length,
+		.str = push_string(json_text + offset, length),
 	};
 }
 
@@ -556,7 +552,7 @@ static void json_reset(void) {
 	json_text_size = 0;
 	json_tokens_size = 0;
 	json_nodes_size = 0;
-	json_strings_size = 0;
+	strings_size = 0;
 	json_fields_size = 0;
 }
 
@@ -2686,9 +2682,7 @@ static struct grug_define_function *compile_get_define_function(char *return_typ
 	for (size_t i = 0; i < grug_define_functions_size; i++) {
 		struct grug_define_function define_fn = grug_define_functions[i];
 
-		const size_t prefix_length = sizeof("define_") - 1;
-
-		if (strncmp(return_type, define_fn.name + prefix_length, return_type_len) == 0) {
+		if (strncmp(return_type, define_fn.name + sizeof("define_") - 1, return_type_len) == 0) {
 			return grug_define_functions + i;
 		}
 	}
@@ -3400,7 +3394,7 @@ static void push_alignment(size_t alignment) {
 	}
 }
 
-static void push_string(char *str) {
+static void push_string_bytes(char *str) {
 	for (size_t i = 0; i < strlen(str); i++) {
 		push_byte(str[i]);
 	}
@@ -3418,18 +3412,18 @@ static void push_shstrtab(void) {
 	shstrtab_offset = bytes_size;
 
 	push_byte(0);
-	push_string(".symtab");
-	push_string(".strtab");
-	push_string(".shstrtab");
-	push_string(".hash");
-	push_string(".dynsym");
-	push_string(".dynstr");
-	push_string(".rela.plt");
-	push_string(".text");
-	push_string(".eh_frame");
-	push_string(".dynamic");
-	push_string(".got.plt");
-	push_string(".data");
+	push_string_bytes(".symtab");
+	push_string_bytes(".strtab");
+	push_string_bytes(".shstrtab");
+	push_string_bytes(".hash");
+	push_string_bytes(".dynsym");
+	push_string_bytes(".dynstr");
+	push_string_bytes(".rela.plt");
+	push_string_bytes(".text");
+	push_string_bytes(".eh_frame");
+	push_string_bytes(".dynamic");
+	push_string_bytes(".got.plt");
+	push_string_bytes(".data");
 
 	shstrtab_size = bytes_size - shstrtab_offset;
 
@@ -3440,13 +3434,13 @@ static void push_strtab(char *grug_path) {
 	strtab_offset = bytes_size;
 
 	push_byte(0);
-	push_string(grug_path);
+	push_string_bytes(grug_path);
 	
 	// Local symbols
 	// TODO: Add loop
 
-	push_string("_DYNAMIC");
-	push_string("_GLOBAL_OFFSET_TABLE_");
+	push_string_bytes("_DYNAMIC");
+	push_string_bytes("_GLOBAL_OFFSET_TABLE_");
 
 	// Global symbols
 	// TODO: Don't loop through local symbols
@@ -3454,7 +3448,7 @@ static void push_strtab(char *grug_path) {
 		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
 
 		if (!is_substrs[symbol_index]) {
-			push_string(shuffled_symbols[i]);
+			push_string_bytes(shuffled_symbols[i]);
 		}
 	}
 
@@ -3649,7 +3643,7 @@ static void push_dynstr(void) {
 	push_byte(0);
 	for (size_t i = 0; i < symbols_size; i++) {
 		if (!is_substrs[i]) {
-			push_string(symbols[i]);
+			push_string_bytes(symbols[i]);
 			dynstr_size += strlen(symbols[i]) + 1;
 		}
 	}
@@ -4329,6 +4323,11 @@ static void generate_simple_so(char *grug_path, char *dll_path) {
 	push_symbol("define");
 	push_symbol("get_globals_size");
 	push_symbol("init_globals");
+
+	// TODO: Add this
+	// for (size_t i = 0; i < on_fns_size; i++) {
+	// 	push_symbol(on_fns[i].);
+	// }
 
 	init_symbol_name_dynstr_offsets();
 
