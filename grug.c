@@ -706,6 +706,7 @@ static void init_game_fns(struct json_array fns) {
 		assert(field->value->type == JSON_NODE_ARRAY && "\"game_functions\" its function arguments must be an array");
 		struct json_node *value = field->value->data.array.values;
 
+		grug_fn.arguments = grug_arguments + grug_arguments_size;
 		grug_fn.argument_count = field->value->data.array.value_count;
 
 		for (size_t field_index = 0; field_index < grug_fn.argument_count; field_index++) {
@@ -760,6 +761,7 @@ static void init_on_fns(struct json_array fns) {
 		assert(field->value->type == JSON_NODE_ARRAY && "\"on_functions\" its function arguments must be an array");
 		struct json_node *value = field->value->data.array.values;
 
+		grug_fn.arguments = grug_arguments + grug_arguments_size;
 		grug_fn.argument_count = field->value->data.array.value_count;
 
 		for (size_t field_index = 0; field_index < grug_fn.argument_count; field_index++) {
@@ -814,6 +816,7 @@ static void init_define_fns(struct json_array fns) {
 		assert(field->value->type == JSON_NODE_ARRAY && "\"define_functions\" its function arguments must be an array");
 		struct json_node *value = field->value->data.array.values;
 
+		grug_fn.arguments = grug_arguments + grug_arguments_size;
 		grug_fn.argument_count = field->value->data.array.value_count;
 
 		for (size_t field_index = 0; field_index < grug_fn.argument_count; field_index++) {
@@ -2716,10 +2719,16 @@ static void compile() {
 		assert(i < 2); // TODO: Support more arguments
 		compile_push_number(movabs[i], 2);
 
-		// TODO: Verify that the argument is of the same type as the one in grug_define_fn
+		field_t field = fields[define_fn.returned_compound_literal.fields_offset + i];
+
+		if (strncmp(field.key, grug_define_fn->arguments[i].name, field.key_len) != 0) {
+			GRUG_ERROR("Field %zu named '%.*s' that you're returning from your define function must be renamed to '%s', since that is what mod_api.json specifies", i + 1, (int)field.key_len, field.key, grug_define_fn->arguments[i].name);
+		}
+
+		// TODO: Verify that the argument has the same type as the one in grug_define_fn
 
 		// TODO: Replace .fields_offset with a simple pointer to the first field
-		compile_push_number(fields[define_fn.returned_compound_literal.fields_offset + i].expr_value.number_expr.value, 8);
+		compile_push_number(field.expr_value.number_expr.value, 8);
 	}
 	compile_push_byte(CALL);
 	// TODO: Figure out where 0xffffffeb comes from,
