@@ -2514,12 +2514,26 @@ static void compile_push_number(u64 n, size_t byte_count) {
 	compile_push_zeros(byte_count);
 }
 
+static bool compile_is_mod_api_define_function(char *return_type, size_t return_type_len) {
+	(void)return_type;
+	(void)return_type_len;
+	// TODO: Put "define_" in front of the given return type
+	// for (size_t i = 0; i < define_grug_functions; i++) {
+	// strncmp(
+	// }
+	return false;
+}
+
 static void compile() {
 	size_t i = 0;
 	size_t text_offset = 0;
 	size_t start_codes_size;
 
 	// define()
+	if (!compile_is_mod_api_define_function(define_fn.return_type, define_fn.return_type_len)) {
+		GRUG_ERROR("'define_%.*s' was not declared to exist by mod_api.json", (int)define_fn.return_type_len, define_fn.return_type);
+	}
+	// TODO: Check that define_b() exists, and actually expects field_count arguments
 	start_codes_size = codes_size;
 	for (size_t i = 0; i < define_fn.returned_compound_literal.field_count; i++) {
 		static enum code movabs[] = {
@@ -2536,6 +2550,7 @@ static void compile() {
 	compile_push_byte(CALL);
 	// TODO: Figure out where 0xffffffeb comes from,
 	//       so it can be replaced with a named variable/define/enum
+	// TODO: Figure out why field_count is being multiplied by 10
 	compile_push_number(0xffffffeb - define_fn.returned_compound_literal.field_count * 10, 4);
 	compile_push_byte(RET);
 	text_offsets[i++] = text_offset;
