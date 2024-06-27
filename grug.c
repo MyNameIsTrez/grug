@@ -2650,6 +2650,8 @@ static size_t text_offsets[MAX_SYMBOLS];
 static u8 codes[MAX_CODES];
 static size_t codes_size;
 
+static char *grug_define_fn_name;
+
 static void compile_push_byte(u8 byte) {
 	if (codes_size >= MAX_CODES) {
 		GRUG_ERROR("There are more than %d code bytes, exceeding MAX_CODES", MAX_CODES);
@@ -2696,13 +2698,14 @@ static void compile() {
 	size_t start_codes_size;
 
 	// define()
-	struct grug_define_function *found_define_fn = compile_get_define_function(define_fn.return_type, define_fn.return_type_len);
-	if (!found_define_fn) {
+	struct grug_define_function *grug_define_fn = compile_get_define_function(define_fn.return_type, define_fn.return_type_len);
+	if (!grug_define_fn) {
 		GRUG_ERROR("The function 'define_%.*s' was not declared by mod_api.json", (int)define_fn.return_type_len, define_fn.return_type);
 	}
-	if (found_define_fn->argument_count != define_fn.returned_compound_literal.field_count) {
-		GRUG_ERROR("The function '%s' expects %zu arguments, but was called with only %zu", found_define_fn->name, found_define_fn->argument_count, define_fn.returned_compound_literal.field_count);
+	if (grug_define_fn->argument_count != define_fn.returned_compound_literal.field_count) {
+		GRUG_ERROR("The function '%s' expects %zu arguments, but was called with only %zu", grug_define_fn->name, grug_define_fn->argument_count, define_fn.returned_compound_literal.field_count);
 	}
+	grug_define_fn_name = grug_define_fn->name;
 	start_codes_size = codes_size;
 	for (size_t i = 0; i < define_fn.returned_compound_literal.field_count; i++) {
 		static enum code movabs[] = {
@@ -2713,7 +2716,7 @@ static void compile() {
 		assert(i < 2); // TODO: Support more arguments
 		compile_push_number(movabs[i], 2);
 
-		// TODO: Verify that the argument is of the same type as the one in found_define_fn
+		// TODO: Verify that the argument is of the same type as the one in grug_define_fn
 
 		// TODO: Replace .fields_offset with a simple pointer to the first field
 		compile_push_number(fields[define_fn.returned_compound_literal.fields_offset + i].expr_value.number_expr.value, 8);
@@ -4310,7 +4313,7 @@ static void generate_simple_so(char *grug_path, char *dll_path) {
 	push_symbol("define_type");
 	data_symbols_size = 1;
 
-	push_symbol("define_b");
+	push_symbol(grug_define_fn_name);
 	// TODO: Only push the grug_game_function symbols that are called
 	extern_symbols_size = 1;
 
