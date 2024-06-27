@@ -682,6 +682,8 @@ static void init_game_fns(struct json_array fns) {
 		assert(field->value->type == JSON_NODE_STRING && "\"game_functions\" its function names must be strings");
 		grug_fn.name = field->value->data.string;
 		assert(strcmp(grug_fn.name, "") != 0 && "\"game_functions\" its function names must not be an empty string");
+		assert(strncmp(grug_fn.name, "define_", sizeof("define_") - 1) != 0 && "\"game_functions\" its function names must not start with 'define_'");
+		assert(strncmp(grug_fn.name, "on_", sizeof("on_") - 1) != 0 && "\"game_functions\" its function names must not start with 'on_'");
 		field++;
 
 		assert(strcmp(field->key, "description") == 0 && "\"game_functions\" its functions must have \"description\" as the second field");
@@ -745,6 +747,7 @@ static void init_on_fns(struct json_array fns) {
 		assert(field->value->type == JSON_NODE_STRING && "\"on_functions\" its function names must be strings");
 		grug_fn.name = field->value->data.string;
 		assert(strcmp(grug_fn.name, "") != 0 && "\"on_functions\" its function names must not be an empty string");
+		assert(strncmp(grug_fn.name, "on_", sizeof("on_") - 1) == 0 && "\"on_functions\" its function names must start with 'on_'");
 		field++;
 
 		assert(strcmp(field->key, "description") == 0 && "\"on_functions\" its functions must have \"description\" as the second field");
@@ -798,6 +801,7 @@ static void init_define_fns(struct json_array fns) {
 		assert(field->value->type == JSON_NODE_STRING && "\"define_functions\" its function names must be strings");
 		grug_fn.name = field->value->data.string;
 		assert(strcmp(grug_fn.name, "") != 0 && "\"define_functions\" its function names must not be an empty string");
+		assert(strncmp(grug_fn.name, "define_", sizeof("define_") - 1) == 0 && "\"define_functions\" its function names must start with 'define_'");
 		field++;
 
 		assert(strcmp(field->key, "description") == 0 && "\"define_functions\" its functions must have \"description\" as the second field");
@@ -2677,7 +2681,9 @@ static struct grug_define_function *compile_get_define_function(char *return_typ
 	for (size_t i = 0; i < grug_define_functions_size; i++) {
 		struct grug_define_function define_fn = grug_define_functions[i];
 
-		if (strncmp(return_type, define_fn.name, return_type_len) == 0) {
+		const size_t prefix_length = sizeof("define_") - 1;
+
+		if (strncmp(return_type, define_fn.name + prefix_length, return_type_len) == 0) {
 			return grug_define_functions + i;
 		}
 	}
@@ -2692,10 +2698,10 @@ static void compile() {
 	// define()
 	struct grug_define_function *found_define_fn = compile_get_define_function(define_fn.return_type, define_fn.return_type_len);
 	if (!found_define_fn) {
-		GRUG_ERROR("The function 'define_%.*s' was not declared to exist by mod_api.json", (int)define_fn.return_type_len, define_fn.return_type);
+		GRUG_ERROR("The function 'define_%.*s' was not declared by mod_api.json", (int)define_fn.return_type_len, define_fn.return_type);
 	}
 	if (found_define_fn->argument_count != define_fn.returned_compound_literal.field_count) {
-		GRUG_ERROR("The function 'define_%s' expects %zu arguments, but was called with only %zu", found_define_fn->name, found_define_fn->argument_count, define_fn.returned_compound_literal.field_count);
+		GRUG_ERROR("The function '%s' expects %zu arguments, but was called with only %zu", found_define_fn->name, found_define_fn->argument_count, define_fn.returned_compound_literal.field_count);
 	}
 	start_codes_size = codes_size;
 	for (size_t i = 0; i < define_fn.returned_compound_literal.field_count; i++) {
@@ -2706,6 +2712,8 @@ static void compile() {
 
 		assert(i < 2); // TODO: Support more arguments
 		compile_push_number(movabs[i], 2);
+
+		// TODO: Verify that the argument is of the same type as the one in found_define_fn
 
 		// TODO: Replace .fields_offset with a simple pointer to the first field
 		compile_push_number(fields[define_fn.returned_compound_literal.fields_offset + i].expr_value.number_expr.value, 8);
@@ -3609,7 +3617,7 @@ static void push_rela_plt(void) {
 	push_number(0x3018, 8);
 
 	// r_info
-	size_t define_entity_index = 1;
+	size_t define_entity_index = 3;
 	push_number(ELF64_R_INFO(define_entity_index, 7), 8);
 
 	// r_addend
@@ -4302,7 +4310,8 @@ static void generate_simple_so(char *grug_path, char *dll_path) {
 	push_symbol("define_type");
 	data_symbols_size = 1;
 
-	push_symbol("define_entity");
+	push_symbol("define_b");
+	// TODO: Only push the grug_game_function symbols that are called
 	extern_symbols_size = 1;
 
 	push_symbol("define");
