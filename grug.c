@@ -2531,7 +2531,7 @@ static void compile() {
 
 	// define()
 	if (!compile_is_mod_api_define_function(define_fn.return_type, define_fn.return_type_len)) {
-		GRUG_ERROR("'define_%.*s' was not declared to exist by mod_api.json", (int)define_fn.return_type_len, define_fn.return_type);
+		GRUG_ERROR("The function 'define_%.*s' was not declared to exist by mod_api.json", (int)define_fn.return_type_len, define_fn.return_type);
 	}
 	// TODO: Check that define_b() exists, and actually expects field_count arguments
 	start_codes_size = codes_size;
