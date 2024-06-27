@@ -2673,14 +2673,15 @@ static void compile_push_number(u64 n, size_t byte_count) {
 	compile_push_zeros(byte_count);
 }
 
-static bool compile_is_mod_api_define_function(char *return_type, size_t return_type_len) {
-	(void)return_type;
-	(void)return_type_len;
-	// TODO: Put "define_" in front of the given return type
-	// for (size_t i = 0; i < define_grug_functions; i++) {
-	// strncmp(
-	// }
-	return false;
+static struct grug_define_function *compile_get_define_function(char *return_type, size_t return_type_len) {
+	for (size_t i = 0; i < grug_define_functions_size; i++) {
+		struct grug_define_function define_fn = grug_define_functions[i];
+
+		if (strncmp(return_type, define_fn.name, return_type_len) == 0) {
+			return grug_define_functions + i;
+		}
+	}
+	return NULL;
 }
 
 static void compile() {
@@ -2689,10 +2690,13 @@ static void compile() {
 	size_t start_codes_size;
 
 	// define()
-	if (!compile_is_mod_api_define_function(define_fn.return_type, define_fn.return_type_len)) {
+	struct grug_define_function *found_define_fn = compile_get_define_function(define_fn.return_type, define_fn.return_type_len);
+	if (!found_define_fn) {
 		GRUG_ERROR("The function 'define_%.*s' was not declared to exist by mod_api.json", (int)define_fn.return_type_len, define_fn.return_type);
 	}
-	// TODO: Check that define_b() exists, and actually expects field_count arguments
+	if (found_define_fn->argument_count != define_fn.returned_compound_literal.field_count) {
+		GRUG_ERROR("The function 'define_%s' expects %zu arguments, but was called with only %zu", found_define_fn->name, found_define_fn->argument_count, define_fn.returned_compound_literal.field_count);
+	}
 	start_codes_size = codes_size;
 	for (size_t i = 0; i < define_fn.returned_compound_literal.field_count; i++) {
 		static enum code movabs[] = {
