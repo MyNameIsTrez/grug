@@ -2615,7 +2615,7 @@ static size_t text_offsets[MAX_SYMBOLS];
 static u8 codes[MAX_CODES];
 static size_t codes_size;
 
-static char *grug_define_entity_name;
+static char *grug_define_fn_name;
 
 static void compile_push_byte(u8 byte) {
 	if (codes_size >= MAX_CODES) {
@@ -2644,6 +2644,21 @@ static void compile_push_number(u64 n, size_t byte_count) {
 	compile_push_zeros(byte_count);
 }
 
+static void compile_init_grug_define_fn_name(char *name) {
+	if (strings_size + sizeof("define_") - 1 + strlen(name) >= MAX_STRINGS_CHARACTERS) {
+		GRUG_ERROR("There are more than %d characters in the strings array, exceeding MAX_STRINGS_CHARACTERS", MAX_STRINGS_CHARACTERS);
+	}
+	grug_define_fn_name = strings + strings_size;
+
+	memcpy(strings + strings_size, "define_", sizeof("define_") - 1);
+	strings_size += sizeof("define_") - 1;
+
+	for (size_t i = 0; i < strlen(name); i++) {
+		strings[strings_size++] = name[i];
+	}
+	strings[strings_size++] = '\0';
+}
+
 static struct grug_entity *compile_get_entity(char *return_type) {
 	for (size_t i = 0; i < grug_define_functions_size; i++) {
 		struct grug_entity define_fn = grug_define_functions[i];
@@ -2668,7 +2683,7 @@ static void compile() {
 	if (grug_define_entity->argument_count != define_fn.returned_compound_literal.field_count) {
 		GRUG_ERROR("The entity '%s' expects %zu fields, but only got %zu", grug_define_entity->name, grug_define_entity->argument_count, define_fn.returned_compound_literal.field_count);
 	}
-	grug_define_entity_name = grug_define_entity->name;
+	compile_init_grug_define_fn_name(grug_define_entity->name);
 	start_codes_size = codes_size;
 	for (size_t i = 0; i < define_fn.returned_compound_literal.field_count; i++) {
 		static enum code movabs[] = {
@@ -4306,7 +4321,7 @@ static void generate_simple_so(char *grug_path, char *dll_path) {
 		data_symbols_size++;
 	}
 
-	push_symbol(grug_define_entity_name);
+	push_symbol(grug_define_fn_name);
 	// TODO: Only push the grug_game_function symbols that are called
 	extern_symbols_size = 1;
 
