@@ -2735,7 +2735,7 @@ static void compile() {
 
 		compile_push_number(MOV_TO_RDI_PTR, 2);
 
-		// TODO: Add a grug test for this, cause I want it to be able to handle this case
+		// TODO: Add a grug test for this, cause I want it to be able to handle when ptr_offset is >= 256
 		assert(ptr_offset < 256);
 		compile_push_byte(ptr_offset);
 		ptr_offset += 4;
@@ -3341,6 +3341,21 @@ static size_t shstrtab_offset;
 static size_t shstrtab_size;
 static size_t section_headers_offset;
 
+static size_t hash_shstrtab_offset;
+static size_t dynsym_shstrtab_offset;
+static size_t dynstr_shstrtab_offset;
+static size_t rela_dyn_shstrtab_offset;
+static size_t rela_plt_shstrtab_offset;
+static size_t plt_shstrtab_offset;
+static size_t text_shstrtab_offset;
+static size_t eh_frame_shstrtab_offset;
+static size_t dynamic_shstrtab_offset;
+static size_t got_plt_shstrtab_offset;
+static size_t data_shstrtab_offset;
+static size_t symtab_shstrtab_offset;
+static size_t strtab_shstrtab_offset;
+static size_t shstrtab_shstrtab_offset;
+
 static void overwrite_address(u64 n, size_t bytes_offset) {
 	for (size_t i = 0; i < 8; i++) {
 		// Little-endian requires the least significant byte first
@@ -3397,20 +3412,67 @@ static void push_string_bytes(char *str) {
 static void push_shstrtab(void) {
 	shstrtab_offset = bytes_size;
 
+	size_t offset = 0;
+
 	push_byte(0);
+	offset += 1;
+
+	symtab_shstrtab_offset = offset;
 	push_string_bytes(".symtab");
+	offset += sizeof(".symtab");
+
+	strtab_shstrtab_offset = offset;
 	push_string_bytes(".strtab");
+	offset += sizeof(".strtab");
+
+	shstrtab_shstrtab_offset = offset;
 	push_string_bytes(".shstrtab");
+	offset += sizeof(".shstrtab");
+
+	hash_shstrtab_offset = offset;
 	push_string_bytes(".hash");
+	offset += sizeof(".hash");
+
+	dynsym_shstrtab_offset = offset;
 	push_string_bytes(".dynsym");
+	offset += sizeof(".dynsym");
+
+	dynstr_shstrtab_offset = offset;
 	push_string_bytes(".dynstr");
-	push_string_bytes(".rela.dyn");
+	offset += sizeof(".dynstr");
+
+	if (on_fns_size > 0) {
+		rela_dyn_shstrtab_offset = offset;
+		push_string_bytes(".rela.dyn");
+		offset += sizeof(".rela.dyn");
+	}
+
+	rela_plt_shstrtab_offset = offset;
 	push_string_bytes(".rela.plt");
+	offset += sizeof(".rela") - 1;
+
+	plt_shstrtab_offset = offset;
+	offset += sizeof(".plt");
+
+	text_shstrtab_offset = offset;
 	push_string_bytes(".text");
+	offset += sizeof(".text");
+
+	eh_frame_shstrtab_offset = offset;
 	push_string_bytes(".eh_frame");
+	offset += sizeof(".eh_frame");
+
+	dynamic_shstrtab_offset = offset;
 	push_string_bytes(".dynamic");
+	offset += sizeof(".dynamic");
+
+	got_plt_shstrtab_offset = offset;
 	push_string_bytes(".got.plt");
+	offset += sizeof(".got.plt");
+
+	data_shstrtab_offset = offset;
 	push_string_bytes(".data");
+	offset += sizeof(".data");
 
 	shstrtab_size = bytes_size - shstrtab_offset;
 
@@ -3528,6 +3590,12 @@ static void push_data(void) {
 	// "define_type" symbol
 	push_string_bytes(define_fn.return_type);
 
+	// on_fns function 1 address
+	push_number(0x0, 8);
+
+	// on_fns function 2 address
+	push_number(0x0, 8);
+
 	// push_returned_compound_literal();
 
 	push_alignment(8);
@@ -3557,10 +3625,10 @@ static void push_dynamic() {
 	push_dynamic_entry(DT_SYMTAB, dynsym_offset);
 	push_dynamic_entry(DT_STRSZ, dynstr_size);
 	push_dynamic_entry(DT_SYMENT, SYMTAB_ENTRY_SIZE);
-	push_dynamic_entry(DT_PLTGOT, 0x3000);
+	push_dynamic_entry(DT_PLTGOT, GOT_PLT_OFFSET);
 	push_dynamic_entry(DT_PLTRELSZ, 24);
 	push_dynamic_entry(DT_PLTREL, DT_RELA);
-	push_dynamic_entry(DT_JMPREL, 0x290);
+	push_dynamic_entry(DT_JMPREL, rela_dyn_offset);
 	push_dynamic_entry(DT_NULL, 0);
 	push_dynamic_entry(DT_NULL, 0);
 }
@@ -3787,48 +3855,50 @@ static void push_section_headers(void) {
 	push_zeros(0x40);
 
 	// .hash: Hash section
-	push_section_header(0x1b, SHT_HASH, SHF_ALLOC, hash_offset, hash_offset, hash_size, 2, 0, 8, 4);
+	push_section_header(hash_shstrtab_offset, SHT_HASH, SHF_ALLOC, hash_offset, hash_offset, hash_size, 2, 0, 8, 4);
 
 	// .dynsym: Dynamic linker symbol table section
-	push_section_header(0x21, SHT_DYNSYM, SHF_ALLOC, dynsym_offset, dynsym_offset, dynsym_size, 3, 1, 8, 24);
+	push_section_header(dynsym_shstrtab_offset, SHT_DYNSYM, SHF_ALLOC, dynsym_offset, dynsym_offset, dynsym_size, 3, 1, 8, 24);
 
 	// .dynstr: String table section
-	push_section_header(0x29, SHT_STRTAB, SHF_ALLOC, dynstr_offset, dynstr_offset, dynstr_size, 0, 0, 1, 0);
+	push_section_header(dynstr_shstrtab_offset, SHT_STRTAB, SHF_ALLOC, dynstr_offset, dynstr_offset, dynstr_size, 0, 0, 1, 0);
 
-	// .rela.dyn: Relative variable table section
-	push_section_header(0x31, SHT_RELA, SHF_ALLOC, rela_dyn_offset, rela_dyn_offset, rela_dyn_size, 2, 0, 8, 24);
+	if (on_fns_size > 0) {
+		// .rela.dyn: Relative variable table section
+		push_section_header(rela_dyn_shstrtab_offset, SHT_RELA, SHF_ALLOC, rela_dyn_offset, rela_dyn_offset, rela_dyn_size, 2, 0, 8, 24);
+	}
 
 	// .rela.plt: Relative procedure (function) linkage table section
-	push_section_header(0x3b, SHT_RELA, SHF_ALLOC | SHF_INFO_LINK, rela_plt_offset, rela_plt_offset, rela_plt_size, 2, 9, 8, 24);
+	push_section_header(rela_plt_shstrtab_offset, SHT_RELA, SHF_ALLOC | SHF_INFO_LINK, rela_plt_offset, rela_plt_offset, rela_plt_size, 2, 9, 8, 24);
 
 	// .plt: Procedure linkage table section
-	push_section_header(0x40, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, plt_offset, plt_offset, plt_size, 0, 0, 16, 16);
+	push_section_header(plt_shstrtab_offset, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, plt_offset, plt_offset, plt_size, 0, 0, 16, 16);
 
 	// .text: Code section
-	push_section_header(0x45, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, TEXT_OFFSET, TEXT_OFFSET, text_size, 0, 0, 16, 0);
+	push_section_header(text_shstrtab_offset, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, TEXT_OFFSET, TEXT_OFFSET, text_size, 0, 0, 16, 0);
 
 	// .eh_frame: Exception stack unwinding section
-	push_section_header(0x4b, SHT_PROGBITS, SHF_ALLOC, EH_FRAME_OFFSET, EH_FRAME_OFFSET, 0, 0, 0, 8, 0);
+	push_section_header(eh_frame_shstrtab_offset, SHT_PROGBITS, SHF_ALLOC, EH_FRAME_OFFSET, EH_FRAME_OFFSET, 0, 0, 0, 8, 0);
 
 	// .dynamic: Dynamic linking information section
-	push_section_header(0x55, SHT_DYNAMIC, SHF_WRITE | SHF_ALLOC, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0xf0, 3, 0, 8, 16);
+	push_section_header(dynamic_shstrtab_offset, SHT_DYNAMIC, SHF_WRITE | SHF_ALLOC, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0xf0, 3, 0, 8, 16);
 
 	// .got.plt: Global offset table procedure linkage table section
-	push_section_header(0x5e, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, got_plt_offset, got_plt_offset, got_plt_size, 0, 0, 8, 8);
+	push_section_header(got_plt_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, got_plt_offset, got_plt_offset, got_plt_size, 0, 0, 8, 8);
 
 	// .data: Data section
-	push_section_header(0x67, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, DATA_OFFSET, DATA_OFFSET, data_size, 0, 0, 4, 0);
+	push_section_header(data_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, DATA_OFFSET, DATA_OFFSET, data_size, 0, 0, 4, 0);
 
 	// .symtab: Symbol table section
 	// The "link" is the section header index of the associated string table
 	// The "info" of 4 is the symbol table index of the first non-local symbol, which is the 5th entry in push_symtab(), the global "b" symbol
-	push_section_header(0x1, SHT_SYMTAB, 0, 0, symtab_offset, symtab_size, STRTAB_SECTION_HEADER_INDEX, 5, 8, SYMTAB_ENTRY_SIZE);
+	push_section_header(symtab_shstrtab_offset, SHT_SYMTAB, 0, 0, symtab_offset, symtab_size, STRTAB_SECTION_HEADER_INDEX, 5, 8, SYMTAB_ENTRY_SIZE);
 
 	// .strtab: String table section
-	push_section_header(0x09, SHT_PROGBITS | SHT_SYMTAB, 0, 0, strtab_offset, strtab_size, 0, 0, 1, 0);
+	push_section_header(strtab_shstrtab_offset, SHT_PROGBITS | SHT_SYMTAB, 0, 0, strtab_offset, strtab_size, 0, 0, 1, 0);
 
 	// .shstrtab: Section header string table section
-	push_section_header(0x11, SHT_PROGBITS | SHT_SYMTAB, 0, 0, shstrtab_offset, shstrtab_size, 0, 0, 1, 0);
+	push_section_header(shstrtab_shstrtab_offset, SHT_PROGBITS | SHT_SYMTAB, 0, 0, shstrtab_offset, shstrtab_size, 0, 0, 1, 0);
 }
 
 static void push_dynsym(void) {
@@ -3975,12 +4045,12 @@ static void push_elf_header(void) {
 
 	// Number of section header entries
 	// 0x3c to 0x3e
-	push_byte(15);
+	push_byte(14 + (on_fns_size > 0));
 	push_byte(0);
 
 	// Index of entry with section names
 	// 0x3e to 0x40
-	push_byte(14);
+	push_byte(13 + (on_fns_size > 0));
 	push_byte(0);
 }
 
@@ -4028,13 +4098,19 @@ static void init_data_offsets(void) {
 	size_t i = 0;
 	size_t offset = 0;
 
-	data_offsets[i++] = offset; // "define_type" symbol
+	// "define_type" symbol
+	data_offsets[i++] = offset;
 	offset += strlen(define_fn.return_type) + 1;
 
-	// for (size_t j = 0; j < 8; j++) {
-	//     data_offsets[i++] = offset;
-	//     offset += sizeof("a^");
-	// }
+	// on_fns function 1 address
+	data_offsets[i++] = offset;
+	offset += sizeof(size_t);
+
+	// on_fns function 2 address
+	data_offsets[i++] = offset;
+	offset += sizeof(size_t);
+
+	data_size = offset;
 }
 
 // haystack="a" , needle="a" => returns 0
@@ -4293,11 +4369,6 @@ static void push_symbol(char *symbol) {
 	symbols[symbols_size++] = symbol;
 }
 
-static void compute_data_size(void) {
-	data_size = 0;
-	data_size += strlen(define_fn.return_type) + 1;
-}
-
 static void reset_generate_simple_so(void) {
 	symbols_size = 0;
 	data_symbols_size = 0;
@@ -4311,15 +4382,11 @@ static void generate_simple_so(char *grug_path, char *dll_path) {
 
 	reset_generate_simple_so();
 
-	compute_data_size();
-
 	push_symbol("define_type");
 	data_symbols_size++;
 
-	if (on_fns_size > 0) {
-		push_symbol("on_fns");
-		data_symbols_size++;
-	}
+	push_symbol("on_fns");
+	data_symbols_size++;
 
 	push_symbol(grug_define_fn_name);
 	// TODO: Only push the grug_game_function symbols that are called
@@ -4695,8 +4762,10 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 				}
 				file.define_type = *define_type_ptr;
 
-				// on_fns is optional, so don't check for NULL
 				file.on_fns = grug_get(file.dll, "on_fns");
+				if (!file.on_fns) {
+					GRUG_ERROR("Retrieving the on_fns struct with grug_get() failed for %s", dll_path);
+				}
 
 				if (old_file) {
 					old_file->dll = file.dll;
