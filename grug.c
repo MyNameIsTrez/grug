@@ -600,6 +600,7 @@ struct grug_entity {
 	grug_argument_t *arguments;
 	size_t argument_count;
 	struct grug_on_function *on_functions;
+	size_t on_function_count;
 };
 
 struct grug_game_function {
@@ -836,6 +837,7 @@ static void init_entities(struct json_array entities) {
 		assert(strcmp(field->key, "on_functions") == 0 && "\"entities\" must have \"on_functions\" as the fourth field");
 		assert(field->value->type == JSON_NODE_ARRAY && "\"entities\" its \"on_functions\" field must have an array as its value");
 		entity.on_functions = grug_on_functions;
+		entity.on_function_count = field->value->data.array.value_count;
 		init_on_fns(field->value->data.array);
 
 		push_grug_entity(entity);
@@ -2615,7 +2617,8 @@ static size_t text_offsets[MAX_SYMBOLS];
 static u8 codes[MAX_CODES];
 static size_t codes_size;
 
-static char *grug_define_fn_name;
+static char *define_fn_name;
+static size_t define_on_function_count;
 
 static void compile_push_byte(u8 byte) {
 	if (codes_size >= MAX_CODES) {
@@ -2644,11 +2647,12 @@ static void compile_push_number(u64 n, size_t byte_count) {
 	compile_push_zeros(byte_count);
 }
 
-static void compile_init_grug_define_fn_name(char *name) {
+static void compile_init_define_fn_name(char *name) {
 	if (strings_size + sizeof("define_") - 1 + strlen(name) >= MAX_STRINGS_CHARACTERS) {
 		GRUG_ERROR("There are more than %d characters in the strings array, exceeding MAX_STRINGS_CHARACTERS", MAX_STRINGS_CHARACTERS);
 	}
-	grug_define_fn_name = strings + strings_size;
+
+	define_fn_name = strings + strings_size;
 
 	memcpy(strings + strings_size, "define_", sizeof("define_") - 1);
 	strings_size += sizeof("define_") - 1;
@@ -2675,7 +2679,7 @@ static void compile() {
 	size_t text_offset = 0;
 	size_t start_codes_size;
 
-	// define()
+	// Getting the used define fn's grug_entity
 	struct grug_entity *grug_define_entity = compile_get_entity(define_fn.return_type);
 	if (!grug_define_entity) {
 		GRUG_ERROR("The entity '%s' was not declared by mod_api.json", define_fn.return_type);
@@ -2683,7 +2687,10 @@ static void compile() {
 	if (grug_define_entity->argument_count != define_fn.returned_compound_literal.field_count) {
 		GRUG_ERROR("The entity '%s' expects %zu fields, but only got %zu", grug_define_entity->name, grug_define_entity->argument_count, define_fn.returned_compound_literal.field_count);
 	}
-	compile_init_grug_define_fn_name(grug_define_entity->name);
+	compile_init_define_fn_name(grug_define_entity->name);
+	define_on_function_count = grug_define_entity->on_function_count;
+
+	// define()
 	start_codes_size = codes_size;
 	for (size_t i = 0; i < define_fn.returned_compound_literal.field_count; i++) {
 		static enum code movabs[] = {
@@ -3572,31 +3579,14 @@ static void push_symtab(char *grug_path) {
 	symtab_size = bytes_size - symtab_offset;
 }
 
-// TODO: Use or remove
-// static void push_returned_compound_literal(void) {
-// 	// define_fn.returned_compound_literal
-
-// 	compound_literal_t compound_literal = define_fn.returned_compound_literal;
-
-// 	for (size_t field_index = 0; field_index < compound_literal.field_count; field_index++) {
-// 		field_t field = fields[compound_literal.fields_offset + field_index];
-
-// 		// TODO: Use the number_expr its type and byte count
-// 		push_number(field.expr_value.number_expr.value, sizeof(i64));
-// 	}
-// }
-
 static void push_data(void) {
 	// "define_type" symbol
 	push_string_bytes(define_fn.return_type);
 
-	// on_fns function 1 address
-	push_number(0x0, 8);
-
-	// on_fns function 2 address
-	push_number(0x0, 8);
-
-	// push_returned_compound_literal();
+	// on_fns function addresses
+	for (size_t i = 0; i < define_on_function_count; i++) {
+		push_number(0x0, 8);
+	}
 
 	push_alignment(8);
 }
@@ -4102,13 +4092,11 @@ static void init_data_offsets(void) {
 	data_offsets[i++] = offset;
 	offset += strlen(define_fn.return_type) + 1;
 
-	// on_fns function 1 address
-	data_offsets[i++] = offset;
-	offset += sizeof(size_t);
-
-	// on_fns function 2 address
-	data_offsets[i++] = offset;
-	offset += sizeof(size_t);
+	// on_fns function addresses
+	for (size_t on_fn_index = 0; on_fn_index < define_on_function_count; on_fn_index++) {
+		data_offsets[i++] = offset;
+		offset += sizeof(size_t);
+	}
 
 	data_size = offset;
 }
@@ -4388,7 +4376,7 @@ static void generate_simple_so(char *grug_path, char *dll_path) {
 	push_symbol("on_fns");
 	data_symbols_size++;
 
-	push_symbol(grug_define_fn_name);
+	push_symbol(define_fn_name);
 	// TODO: Only push the grug_game_function symbols that are called
 	extern_symbols_size = 1;
 
