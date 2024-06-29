@@ -67,6 +67,8 @@ typedef int64_t i64;
 grug_error_t grug_error;
 static jmp_buf error_jmp_buffer;
 
+//// UTILS
+
 static char strings[MAX_STRINGS_CHARACTERS];
 static size_t strings_size;
 
@@ -85,8 +87,24 @@ static char *push_string(char *slice_start, size_t length) {
 	return new_str;
 }
 
+static bool streq(char *a, char *b) {
+	return strcmp(a, b) == 0;
+}
+
 static bool starts_with(char *a, char *b) {
 	return strncmp(a, b, strlen(b)) == 0;
+}
+
+// From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/elf.c#l193
+static u32 elf_hash(const char *namearg) {
+	u32 h = 0;
+
+	for (const unsigned char *name = (const unsigned char *) namearg; *name; name++) {
+		h = (h << 4) + *name;
+		h ^= (h >> 24) & 0xf0;
+	}
+
+	return h & 0x0fffffff;
 }
 
 //// JSON
@@ -629,6 +647,9 @@ static size_t grug_game_functions_size;
 struct grug_argument grug_arguments[MAX_GRUG_ARGUMENTS];
 static size_t grug_arguments_size;
 
+static u32 buckets_define_entity_on_fns[MAX_ON_FNS_IN_FILE];
+static uint32_t chains_define_entity_on_fns[MAX_ON_FNS_IN_FILE];
+
 static void push_grug_on_function(struct grug_on_function fn) {
 	if (grug_on_functions_size >= MAX_GRUG_FUNCTIONS) {
 		GRUG_ERROR("There are more than %d on_ functions in mod_api.json, exceeding MAX_GRUG_FUNCTIONS", MAX_GRUG_FUNCTIONS);
@@ -658,7 +679,7 @@ static void push_grug_argument(struct grug_argument argument) {
 }
 
 static enum type parse_type(char *type) {
-	if (strcmp(type, "i32") == 0) {
+	if (streq(type, "i32")) {
 		return i32;
 	}
 	// TODO: Make sure to add any new types to this error message
@@ -675,30 +696,30 @@ static void init_game_fns(struct json_array fns) {
 
 		struct json_field *field = fn.fields;
 
-		assert(strcmp(field->key, "name") == 0 && "\"game_functions\" its functions must have \"name\" as the first field");
+		assert(streq(field->key, "name") && "\"game_functions\" its functions must have \"name\" as the first field");
 		assert(field->value->type == JSON_NODE_STRING && "\"game_functions\" its function names must be strings");
 		grug_fn.name = field->value->data.string;
-		assert(strcmp(grug_fn.name, "") != 0 && "\"game_functions\" its function names must not be an empty string");
+		assert(!streq(grug_fn.name, "") && "\"game_functions\" its function names must not be an empty string");
 		assert(!starts_with(grug_fn.name, "on_") && "\"game_functions\" its function names must not start with 'on_'");
 		field++;
 
-		assert(strcmp(field->key, "description") == 0 && "\"game_functions\" its functions must have \"description\" as the second field");
+		assert(streq(field->key, "description") && "\"game_functions\" its functions must have \"description\" as the second field");
 		assert(field->value->type == JSON_NODE_STRING && "\"game_functions\" its function descriptions must be strings");
 		char *description = field->value->data.string;
-		assert(strcmp(description, "") != 0 && "\"game_functions\" its function descriptions must not be an empty string");
+		assert(!streq(description, "") && "\"game_functions\" its function descriptions must not be an empty string");
 		field++;
 
-		if (strcmp(field->key, "return_type") == 0) {
+		if (streq(field->key, "return_type")) {
 			assert(field->value->type == JSON_NODE_STRING && "\"game_functions\" its function return types must be strings");
 			grug_fn.return_type = parse_type(field->value->data.string);
 			field++;
-		} else if (strcmp(field->key, "arguments") == 0) {
+		} else if (streq(field->key, "arguments")) {
 			grug_fn.return_type = type_void;
 		} else {
 			assert(false && "\"game_functions\" its functions must either have \"return_type\" or \"arguments\" as the third field");
 		}
 
-		assert(strcmp(field->key, "arguments") == 0 && "\"game_functions\" its functions must have \"arguments\" as the third or fourth field");
+		assert(streq(field->key, "arguments") && "\"game_functions\" its functions must have \"arguments\" as the third or fourth field");
 		assert(field->value->type == JSON_NODE_ARRAY && "\"game_functions\" its function arguments must be an array");
 		struct json_node *value = field->value->data.array.values;
 
@@ -712,12 +733,12 @@ static void init_game_fns(struct json_array fns) {
 			assert(value->data.object.field_count == 2 && "\"game_functions\" its function arguments must only contain a name and type field");
 			struct json_field *field = value->data.object.fields;
 
-			assert(strcmp(field->key, "name") == 0 && "\"game_functions\" its function arguments must always have \"name\" be their first field");
+			assert(streq(field->key, "name") && "\"game_functions\" its function arguments must always have \"name\" be their first field");
 			assert(field->value->type == JSON_NODE_STRING && "\"game_functions\" its function arguments must always have string values");
 			grug_arg.name = field->value->data.string;
 			field++;
 
-			assert(strcmp(field->key, "type") == 0 && "\"game_functions\" its function arguments must always have \"type\" be their second field");
+			assert(streq(field->key, "type") && "\"game_functions\" its function arguments must always have \"type\" be their second field");
 			assert(field->value->type == JSON_NODE_STRING && "\"game_functions\" its function arguments must always have string values");
 			grug_arg.type = parse_type(field->value->data.string);
 			field++;
@@ -727,6 +748,48 @@ static void init_game_fns(struct json_array fns) {
 		}
 
 		push_grug_game_function(grug_fn);
+	}
+}
+
+static bool has_define_entity_on_fn(struct grug_entity define_entity, char *name) {
+	u32 i = buckets_define_entity_on_fns[elf_hash(name) % define_entity.on_function_count];
+
+	while (1) {
+		if (i == UINT32_MAX) {
+			return false;
+		}
+
+		if (streq(name, define_entity.on_functions[i].name)) {
+			break;
+		}
+
+		i = chains_define_entity_on_fns[i];
+	}
+
+	return true;
+}
+
+static void hash_define_entity_on_fns(struct grug_entity define_entity) {
+	// memset(buckets_define_entity_on_fns, UINT32_MAX, define_entity.on_function_count * sizeof(u32));
+
+	// TODO: Remove these!
+	memset(buckets_define_entity_on_fns, UINT32_MAX, MAX_ON_FNS_IN_FILE * sizeof(u32));
+	memset(chains_define_entity_on_fns, UINT32_MAX, MAX_ON_FNS_IN_FILE * sizeof(u32));
+
+	size_t chains_size = 0;
+
+	for (size_t i = 0; i < define_entity.on_function_count; i++) {
+		char *name = define_entity.on_functions[i].name;
+
+		if (has_define_entity_on_fn(define_entity, name)) {
+			GRUG_ERROR("The function '%s' was defined several times by the entity '%s' in mod_api.json", name, define_entity.name);
+		}
+
+		u32 bucket_index = elf_hash(name) % define_entity.on_function_count;
+
+		chains_define_entity_on_fns[chains_size++] = buckets_define_entity_on_fns[bucket_index];
+
+		buckets_define_entity_on_fns[bucket_index] = i;
 	}
 }
 
@@ -740,20 +803,20 @@ static void init_on_fns(struct json_array fns) {
 
 		struct json_field *field = fn.fields;
 
-		assert(strcmp(field->key, "name") == 0 && "\"on_functions\" its functions must have \"name\" as the first field");
+		assert(streq(field->key, "name") && "\"on_functions\" its functions must have \"name\" as the first field");
 		assert(field->value->type == JSON_NODE_STRING && "\"on_functions\" its function names must be strings");
 		grug_fn.name = field->value->data.string;
-		assert(strcmp(grug_fn.name, "") != 0 && "\"on_functions\" its function names must not be an empty string");
+		assert(!streq(grug_fn.name, "") && "\"on_functions\" its function names must not be an empty string");
 		assert(starts_with(grug_fn.name, "on_") && "\"on_functions\" its function names must start with 'on_'");
 		field++;
 
-		assert(strcmp(field->key, "description") == 0 && "\"on_functions\" its functions must have \"description\" as the second field");
+		assert(streq(field->key, "description") && "\"on_functions\" its functions must have \"description\" as the second field");
 		assert(field->value->type == JSON_NODE_STRING && "\"on_functions\" its function descriptions must be strings");
 		char *description = field->value->data.string;
-		assert(strcmp(description, "") != 0 && "\"on_functions\" its function descriptions must not be an empty string");
+		assert(!streq(description, "") && "\"on_functions\" its function descriptions must not be an empty string");
 		field++;
 
-		assert(strcmp(field->key, "arguments") == 0 && "\"on_functions\" its functions must have \"arguments\" as the third field");
+		assert(streq(field->key, "arguments") && "\"on_functions\" its functions must have \"arguments\" as the third field");
 		assert(field->value->type == JSON_NODE_ARRAY && "\"on_functions\" its function arguments must be an array");
 		struct json_node *value = field->value->data.array.values;
 
@@ -767,12 +830,12 @@ static void init_on_fns(struct json_array fns) {
 			assert(value->data.object.field_count == 2 && "\"on_functions\" its function arguments must only contain a name and type field");
 			struct json_field *field = value->data.object.fields;
 
-			assert(strcmp(field->key, "name") == 0 && "\"on_functions\" its function arguments must always have \"name\" be their first field");
+			assert(streq(field->key, "name") && "\"on_functions\" its function arguments must always have \"name\" be their first field");
 			assert(field->value->type == JSON_NODE_STRING && "\"on_functions\" its function arguments must always have string values");
 			grug_arg.name = field->value->data.string;
 			field++;
 
-			assert(strcmp(field->key, "type") == 0 && "\"on_functions\" its function arguments must always have \"type\" be their second field");
+			assert(streq(field->key, "type") && "\"on_functions\" its function arguments must always have \"type\" be their second field");
 			assert(field->value->type == JSON_NODE_STRING && "\"on_functions\" its function arguments must always have string values");
 			grug_arg.type = parse_type(field->value->data.string);
 			field++;
@@ -795,19 +858,19 @@ static void init_entities(struct json_array entities) {
 
 		struct json_field *field = fn.fields;
 
-		assert(strcmp(field->key, "name") == 0 && "\"entities\" must have \"name\" as the first field");
+		assert(streq(field->key, "name") && "\"entities\" must have \"name\" as the first field");
 		assert(field->value->type == JSON_NODE_STRING && "\"entities\" its names must be strings");
 		entity.name = field->value->data.string;
-		assert(strcmp(entity.name, "") != 0 && "\"entities\" its names must not be an empty string");
+		assert(!streq(entity.name, "") && "\"entities\" its names must not be an empty string");
 		field++;
 
-		assert(strcmp(field->key, "description") == 0 && "\"entities\" must have \"description\" as the second field");
+		assert(streq(field->key, "description") && "\"entities\" must have \"description\" as the second field");
 		assert(field->value->type == JSON_NODE_STRING && "\"entities\" its descriptions must be strings");
 		char *description = field->value->data.string;
-		assert(strcmp(description, "") != 0 && "\"entities\" its descriptions must not be an empty string");
+		assert(!streq(description, "") && "\"entities\" its descriptions must not be an empty string");
 		field++;
 
-		assert(strcmp(field->key, "fields") == 0 && "\"entities\" must have \"fields\" as the third field");
+		assert(streq(field->key, "fields") && "\"entities\" must have \"fields\" as the third field");
 		assert(field->value->type == JSON_NODE_ARRAY && "\"entities\" its fields must be an array");
 		struct json_node *value = field->value->data.array.values;
 		entity.arguments = grug_arguments + grug_arguments_size;
@@ -821,12 +884,12 @@ static void init_entities(struct json_array entities) {
 			assert(value->data.object.field_count == 2 && "\"entities\" its arguments must only contain a name and type field");
 			struct json_field *arg_field = value->data.object.fields;
 
-			assert(strcmp(arg_field->key, "name") == 0 && "\"entities\" its arguments must always have \"name\" be their first field");
+			assert(streq(arg_field->key, "name") && "\"entities\" its arguments must always have \"name\" be their first field");
 			assert(arg_field->value->type == JSON_NODE_STRING && "\"entities\" its arguments must always have string values");
 			grug_arg.name = arg_field->value->data.string;
 			arg_field++;
 
-			assert(strcmp(arg_field->key, "type") == 0 && "\"entities\" its arguments must always have \"type\" be their second field");
+			assert(streq(arg_field->key, "type") && "\"entities\" its arguments must always have \"type\" be their second field");
 			assert(arg_field->value->type == JSON_NODE_STRING && "\"entities\" its arguments must always have string values");
 			grug_arg.type = parse_type(arg_field->value->data.string);
 
@@ -834,11 +897,14 @@ static void init_entities(struct json_array entities) {
 			value++;
 		}
 
-		assert(strcmp(field->key, "on_functions") == 0 && "\"entities\" must have \"on_functions\" as the fourth field");
+		assert(streq(field->key, "on_functions") && "\"entities\" must have \"on_functions\" as the fourth field");
 		assert(field->value->type == JSON_NODE_ARRAY && "\"entities\" its \"on_functions\" field must have an array as its value");
-		entity.on_functions = grug_on_functions;
+		entity.on_functions = grug_on_functions + grug_on_functions_size;
 		entity.on_function_count = field->value->data.array.value_count;
 		init_on_fns(field->value->data.array);
+
+		// Check that there are no duplicate on_fn names
+		hash_define_entity_on_fns(entity);
 
 		push_grug_entity(entity);
 	}
@@ -857,12 +923,12 @@ static void init(void) {
 
 	struct json_field *field = root_object.fields;
 
-	assert(strcmp(field->key, "entities") == 0 && "mod_api.json its root object must have \"entities\" as its first field");
+	assert(streq(field->key, "entities") && "mod_api.json its root object must have \"entities\" as its first field");
 	assert(field->value->type == JSON_NODE_ARRAY && "mod_api.json its \"entities\" field must have an array as its value");
 	init_entities(field->value->data.array);
 	field++;
 
-	assert(strcmp(field->key, "game_functions") == 0 && "mod_api.json its root object must have \"game_functions\" as its third field");
+	assert(streq(field->key, "game_functions") && "mod_api.json its root object must have \"game_functions\" as its third field");
 	assert(field->value->type == JSON_NODE_ARRAY && "mod_api.json its \"game_functions\" field must have an array as its value");
 	init_game_fns(field->value->data.array);
 
@@ -1250,6 +1316,217 @@ static void tokenize(char *grug_text) {
 			GRUG_ERROR("Unrecognized character '%.*s' at character %zu of the grug text file", is_escaped_char(grug_text[i]) ? 2 : 1, get_escaped_char(&grug_text[i]), i + 1);
 		}
 	}
+}
+
+//// VERIFY AND TRIM SPACES
+
+static void assert_token_type(size_t token_index, unsigned int expected_type) {
+	token_t token = peek_token(token_index);
+	if (token.type != expected_type) {
+		GRUG_ERROR("Expected token type %s, but got %s at token index %zu", get_token_type_str[expected_type], get_token_type_str[token.type], token_index);
+	}
+}
+
+static void assert_spaces(size_t token_index, size_t expected_spaces) {
+	assert_token_type(token_index, SPACES_TOKEN);
+
+	token_t token = peek_token(token_index);
+	if (strlen(token.str) != expected_spaces) {
+		GRUG_ERROR("Expected %zu space%s, but got %zu at token index %zu", expected_spaces, expected_spaces > 1 ? "s" : "", strlen(token.str), token_index);
+	}
+}
+
+// Trims whitespace tokens after verifying that the formatting is correct.
+// 1. The whitespace indentation follows the block scope nesting, like in Python.
+// 2. There aren't any leading/trailing/missing/extra spaces.
+static void verify_and_trim_spaces(void) {
+	size_t i = 0;
+	size_t new_index = 0;
+	int depth = 0;
+
+	while (i < tokens_size) {
+		token_t token = peek_token(i);
+
+		switch (token.type) {
+			case OPEN_PARENTHESIS_TOKEN:
+			case CLOSE_PARENTHESIS_TOKEN:
+			case OPEN_BRACE_TOKEN:
+				break;
+			case CLOSE_BRACE_TOKEN: {
+				depth--;
+				if (depth < 0) {
+					GRUG_ERROR("Expected a '{' to match the '}' at token index %zu", i + 1);
+				}
+				if (depth > 0) {
+					assert_spaces(i - 1, depth * SPACES_PER_INDENT);
+				}
+				break;
+			}
+			case PLUS_TOKEN:
+			case MINUS_TOKEN:
+			case MULTIPLICATION_TOKEN:
+			case DIVISION_TOKEN:
+			case REMAINDER_TOKEN:
+				break;
+			case COMMA_TOKEN: {
+				if (i + 1 >= tokens_size) {
+					GRUG_ERROR("Expected something after the comma at token index %zu", i);
+				}
+
+				token_t next_token = peek_token(i + 1);
+				if (next_token.type != NEWLINES_TOKEN && next_token.type != SPACES_TOKEN) {
+					GRUG_ERROR("Expected a single newline or space after the comma, but got token type %s at token index %zu", get_token_type_str[next_token.type], i + 1);
+				}
+				if (strlen(next_token.str) != 1) {
+					GRUG_ERROR("Expected one newline or space, but got several after the comma at token index %zu", i + 1);
+				}
+
+				if (next_token.type == SPACES_TOKEN) {
+					if (i + 2 >= tokens_size) {
+						GRUG_ERROR("Expected text after the comma and space at token index %zu", i);
+					}
+
+					next_token = peek_token(i + 2);
+					switch (next_token.type) {
+						case OPEN_PARENTHESIS_TOKEN:
+						case MINUS_TOKEN:
+						case STRING_TOKEN:
+						case WORD_TOKEN:
+						case NUMBER_TOKEN:
+							break;
+						default:
+							GRUG_ERROR("Unexpected token type %s after the comma and space, at token index %zu", get_token_type_str[next_token.type], i + 2);
+					}
+				}
+				break;
+			}
+			case COLON_TOKEN:
+			case EQUALS_TOKEN:
+			case NOT_EQUALS_TOKEN:
+			case ASSIGNMENT_TOKEN:
+			case GREATER_OR_EQUAL_TOKEN:
+			case GREATER_TOKEN:
+			case LESS_OR_EQUAL_TOKEN:
+			case LESS_TOKEN:
+			case NOT_TOKEN:
+			case TRUE_TOKEN:
+			case FALSE_TOKEN:
+			case IF_TOKEN:
+			case ELSE_TOKEN:
+			case LOOP_TOKEN:
+			case BREAK_TOKEN:
+			case RETURN_TOKEN:
+			case CONTINUE_TOKEN:
+				break;
+			case SPACES_TOKEN: {
+				if (i + 1 >= tokens_size) {
+					GRUG_ERROR("Expected another token after the space at token index %zu", i);
+				}
+
+				token_t next_token = peek_token(i + 1);
+				switch (next_token.type) {
+					case OPEN_PARENTHESIS_TOKEN:
+					case CLOSE_PARENTHESIS_TOKEN:
+						break;
+					case OPEN_BRACE_TOKEN:
+						depth++;
+						assert_spaces(i, 1);
+						break;
+					case CLOSE_BRACE_TOKEN:
+						break;
+					case PLUS_TOKEN:
+						assert_spaces(i, 1);
+						break;
+					case MINUS_TOKEN:
+						break;
+					case MULTIPLICATION_TOKEN:
+					case DIVISION_TOKEN:
+					case REMAINDER_TOKEN:
+					case COMMA_TOKEN:
+						assert_spaces(i, 1);
+						break;
+					case COLON_TOKEN:
+					case EQUALS_TOKEN:
+					case NOT_EQUALS_TOKEN:
+					case ASSIGNMENT_TOKEN:
+					case GREATER_OR_EQUAL_TOKEN:
+					case GREATER_TOKEN:
+					case LESS_OR_EQUAL_TOKEN:
+					case LESS_TOKEN:
+					case NOT_TOKEN:
+					case TRUE_TOKEN:
+					case FALSE_TOKEN:
+						break;
+					case IF_TOKEN:
+						assert_spaces(i, depth * SPACES_PER_INDENT);
+						break;
+					case ELSE_TOKEN:
+						assert_spaces(i, 1);
+						break;
+					case LOOP_TOKEN:
+					case BREAK_TOKEN:
+					case RETURN_TOKEN:
+					case CONTINUE_TOKEN:
+						assert_spaces(i, depth * SPACES_PER_INDENT);
+						break;
+					case SPACES_TOKEN:
+						GRUG_ERROR(UNREACHABLE_STR);
+					case NEWLINES_TOKEN:
+						GRUG_ERROR("Unexpected trailing whitespace '%s' at token index %zu", token.str, i);
+					case STRING_TOKEN:
+						break;
+					case PERIOD_TOKEN:
+						assert_spaces(i, depth * SPACES_PER_INDENT);
+						break;
+					case WORD_TOKEN:
+						break;
+					case NUMBER_TOKEN:
+						break;
+					case COMMENT_TOKEN:
+						// TODO: Ideally we'd assert there only ever being 1 space,
+						// but the problem is that a standalone comment is allowed to have indentation
+						// assert_spaces(i, 1);
+
+						if (strlen(next_token.str) < 2 || next_token.str[1] != ' ') {
+							GRUG_ERROR("Expected the comment token '%s' to start with a space character at token index %zu", next_token.str, i + 1);
+						}
+
+						if (strlen(next_token.str) < 3 || isspace(next_token.str[2])) {
+							GRUG_ERROR("Expected the comment token '%s' to have a text character directly after the space at token index %zu", next_token.str, i + 1);
+						}
+
+						if (isspace(next_token.str[strlen(next_token.str) - 1])) {
+							GRUG_ERROR("Unexpected trailing whitespace in the comment token '%s' at token index %zu", next_token.str, i + 1);
+						}
+
+						break;
+				}
+				break;
+			}
+			case NEWLINES_TOKEN:
+			case STRING_TOKEN:
+			case PERIOD_TOKEN:
+			case WORD_TOKEN:
+			case NUMBER_TOKEN:
+			case COMMENT_TOKEN:
+				break;
+		}
+
+		// We're trimming all spaces in a single pass by copying every
+		// non-space token to the start
+		if (token.type != SPACES_TOKEN) {
+			tokens[new_index] = token;
+			new_index++;
+		}
+
+		i++;
+	}
+
+	if (depth > 0) {
+		GRUG_ERROR("There were more '{' than '}'");
+	}
+
+	tokens_size = new_index;
 }
 
 //// PARSING
@@ -1746,13 +2023,6 @@ static void potentially_skip_comment(size_t *i) {
 	token_t token = peek_token(*i);
 	if (token.type == COMMENT_TOKEN) {
 		(*i)++;
-	}
-}
-
-static void assert_token_type(size_t token_index, unsigned int expected_type) {
-	token_t token = peek_token(token_index);
-	if (token.type != expected_type) {
-		GRUG_ERROR("Expected token type %s, but got %s at token index %zu", get_token_type_str[expected_type], get_token_type_str[token.type], token_index);
 	}
 }
 
@@ -2370,7 +2640,7 @@ static void parse(void) {
 		token_t token = peek_token(i);
 		int type = token.type;
 
-		if (       type == WORD_TOKEN && strcmp(token.str, "define") == 0 && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
+		if (       type == WORD_TOKEN && streq(token.str, "define") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			if (seen_define_fn) {
 				GRUG_ERROR("There can't be more than one define_ function in a grug file");
 			}
@@ -2396,208 +2666,6 @@ static void parse(void) {
 	}
 }
 
-static void assert_spaces(size_t token_index, size_t expected_spaces) {
-	assert_token_type(token_index, SPACES_TOKEN);
-
-	token_t token = peek_token(token_index);
-	if (strlen(token.str) != expected_spaces) {
-		GRUG_ERROR("Expected %zu space%s, but got %zu at token index %zu", expected_spaces, expected_spaces > 1 ? "s" : "", strlen(token.str), token_index);
-	}
-}
-
-// Trims whitespace tokens after verifying that the formatting is correct.
-// 1. The whitespace indentation follows the block scope nesting, like in Python.
-// 2. There aren't any leading/trailing/missing/extra spaces.
-static void verify_and_trim_spaces(void) {
-	size_t i = 0;
-	size_t new_index = 0;
-	int depth = 0;
-
-	while (i < tokens_size) {
-		token_t token = peek_token(i);
-
-		switch (token.type) {
-			case OPEN_PARENTHESIS_TOKEN:
-			case CLOSE_PARENTHESIS_TOKEN:
-			case OPEN_BRACE_TOKEN:
-				break;
-			case CLOSE_BRACE_TOKEN: {
-				depth--;
-				if (depth < 0) {
-					GRUG_ERROR("Expected a '{' to match the '}' at token index %zu", i + 1);
-				}
-				if (depth > 0) {
-					assert_spaces(i - 1, depth * SPACES_PER_INDENT);
-				}
-				break;
-			}
-			case PLUS_TOKEN:
-			case MINUS_TOKEN:
-			case MULTIPLICATION_TOKEN:
-			case DIVISION_TOKEN:
-			case REMAINDER_TOKEN:
-				break;
-			case COMMA_TOKEN: {
-				if (i + 1 >= tokens_size) {
-					GRUG_ERROR("Expected something after the comma at token index %zu", i);
-				}
-
-				token_t next_token = peek_token(i + 1);
-				if (next_token.type != NEWLINES_TOKEN && next_token.type != SPACES_TOKEN) {
-					GRUG_ERROR("Expected a single newline or space after the comma, but got token type %s at token index %zu", get_token_type_str[next_token.type], i + 1);
-				}
-				if (strlen(next_token.str) != 1) {
-					GRUG_ERROR("Expected one newline or space, but got several after the comma at token index %zu", i + 1);
-				}
-
-				if (next_token.type == SPACES_TOKEN) {
-					if (i + 2 >= tokens_size) {
-						GRUG_ERROR("Expected text after the comma and space at token index %zu", i);
-					}
-
-					next_token = peek_token(i + 2);
-					switch (next_token.type) {
-						case OPEN_PARENTHESIS_TOKEN:
-						case MINUS_TOKEN:
-						case STRING_TOKEN:
-						case WORD_TOKEN:
-						case NUMBER_TOKEN:
-							break;
-						default:
-							GRUG_ERROR("Unexpected token type %s after the comma and space, at token index %zu", get_token_type_str[next_token.type], i + 2);
-					}
-				}
-				break;
-			}
-			case COLON_TOKEN:
-			case EQUALS_TOKEN:
-			case NOT_EQUALS_TOKEN:
-			case ASSIGNMENT_TOKEN:
-			case GREATER_OR_EQUAL_TOKEN:
-			case GREATER_TOKEN:
-			case LESS_OR_EQUAL_TOKEN:
-			case LESS_TOKEN:
-			case NOT_TOKEN:
-			case TRUE_TOKEN:
-			case FALSE_TOKEN:
-			case IF_TOKEN:
-			case ELSE_TOKEN:
-			case LOOP_TOKEN:
-			case BREAK_TOKEN:
-			case RETURN_TOKEN:
-			case CONTINUE_TOKEN:
-				break;
-			case SPACES_TOKEN: {
-				if (i + 1 >= tokens_size) {
-					GRUG_ERROR("Expected another token after the space at token index %zu", i);
-				}
-
-				token_t next_token = peek_token(i + 1);
-				switch (next_token.type) {
-					case OPEN_PARENTHESIS_TOKEN:
-					case CLOSE_PARENTHESIS_TOKEN:
-						break;
-					case OPEN_BRACE_TOKEN:
-						depth++;
-						assert_spaces(i, 1);
-						break;
-					case CLOSE_BRACE_TOKEN:
-						break;
-					case PLUS_TOKEN:
-						assert_spaces(i, 1);
-						break;
-					case MINUS_TOKEN:
-						break;
-					case MULTIPLICATION_TOKEN:
-					case DIVISION_TOKEN:
-					case REMAINDER_TOKEN:
-					case COMMA_TOKEN:
-						assert_spaces(i, 1);
-						break;
-					case COLON_TOKEN:
-					case EQUALS_TOKEN:
-					case NOT_EQUALS_TOKEN:
-					case ASSIGNMENT_TOKEN:
-					case GREATER_OR_EQUAL_TOKEN:
-					case GREATER_TOKEN:
-					case LESS_OR_EQUAL_TOKEN:
-					case LESS_TOKEN:
-					case NOT_TOKEN:
-					case TRUE_TOKEN:
-					case FALSE_TOKEN:
-						break;
-					case IF_TOKEN:
-						assert_spaces(i, depth * SPACES_PER_INDENT);
-						break;
-					case ELSE_TOKEN:
-						assert_spaces(i, 1);
-						break;
-					case LOOP_TOKEN:
-					case BREAK_TOKEN:
-					case RETURN_TOKEN:
-					case CONTINUE_TOKEN:
-						assert_spaces(i, depth * SPACES_PER_INDENT);
-						break;
-					case SPACES_TOKEN:
-						GRUG_ERROR(UNREACHABLE_STR);
-					case NEWLINES_TOKEN:
-						GRUG_ERROR("Unexpected trailing whitespace '%s' at token index %zu", token.str, i);
-					case STRING_TOKEN:
-						break;
-					case PERIOD_TOKEN:
-						assert_spaces(i, depth * SPACES_PER_INDENT);
-						break;
-					case WORD_TOKEN:
-						break;
-					case NUMBER_TOKEN:
-						break;
-					case COMMENT_TOKEN:
-						// TODO: Ideally we'd assert there only ever being 1 space,
-						// but the problem is that a standalone comment is allowed to have indentation
-						// assert_spaces(i, 1);
-
-						if (strlen(next_token.str) < 2 || next_token.str[1] != ' ') {
-							GRUG_ERROR("Expected the comment token '%s' to start with a space character at token index %zu", next_token.str, i + 1);
-						}
-
-						if (strlen(next_token.str) < 3 || isspace(next_token.str[2])) {
-							GRUG_ERROR("Expected the comment token '%s' to have a text character directly after the space at token index %zu", next_token.str, i + 1);
-						}
-
-						if (isspace(next_token.str[strlen(next_token.str) - 1])) {
-							GRUG_ERROR("Unexpected trailing whitespace in the comment token '%s' at token index %zu", next_token.str, i + 1);
-						}
-
-						break;
-				}
-				break;
-			}
-			case NEWLINES_TOKEN:
-			case STRING_TOKEN:
-			case PERIOD_TOKEN:
-			case WORD_TOKEN:
-			case NUMBER_TOKEN:
-			case COMMENT_TOKEN:
-				break;
-		}
-
-		// We're trimming all spaces in a single pass by copying every
-		// non-space token to the start
-		if (token.type != SPACES_TOKEN) {
-			tokens[new_index] = token;
-			new_index++;
-		}
-
-		i++;
-	}
-
-	if (depth > 0) {
-		GRUG_ERROR("There were more '{' than '}'");
-	}
-
-	tokens_size = new_index;
-}
-
 //// COMPILING
 
 #define MAX_SYMBOLS 420420
@@ -2618,7 +2686,10 @@ static u8 codes[MAX_CODES];
 static size_t codes_size;
 
 static char *define_fn_name;
-static size_t define_on_function_count;
+static struct grug_entity *grug_define_entity;
+
+static u32 buckets_define_on_fns[MAX_ON_FNS_IN_FILE];
+static uint32_t chains_define_on_fns[MAX_ON_FNS_IN_FILE];
 
 static void compile_push_byte(u8 byte) {
 	if (codes_size >= MAX_CODES) {
@@ -2647,6 +2718,40 @@ static void compile_push_number(u64 n, size_t byte_count) {
 	compile_push_zeros(byte_count);
 }
 
+static struct grug_on_function *get_define_on_fn(char *name) {
+	u32 i = buckets_define_on_fns[elf_hash(name) % grug_define_entity->on_function_count];
+
+	while (1) {
+		if (i == UINT32_MAX) {
+			return NULL;
+		}
+
+		if (streq(name, grug_define_entity->on_functions[i].name)) {
+			break;
+		}
+
+		i = chains_define_on_fns[i];
+	}
+
+	return grug_define_entity->on_functions + i;
+}
+
+static void hash_define_on_fns(void) {
+	memset(buckets_define_on_fns, UINT32_MAX, grug_define_entity->on_function_count * sizeof(u32));
+
+	size_t chains_size = 0;
+
+	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
+		char *name = grug_define_entity->on_functions[i].name;
+
+		u32 bucket_index = elf_hash(name) % grug_define_entity->on_function_count;
+
+		chains_define_on_fns[chains_size++] = buckets_define_on_fns[bucket_index];
+
+		buckets_define_on_fns[bucket_index] = i;
+	}
+}
+
 static void compile_init_define_fn_name(char *name) {
 	if (strings_size + sizeof("define_") - 1 + strlen(name) >= MAX_STRINGS_CHARACTERS) {
 		GRUG_ERROR("There are more than %d characters in the strings array, exceeding MAX_STRINGS_CHARACTERS", MAX_STRINGS_CHARACTERS);
@@ -2665,9 +2770,7 @@ static void compile_init_define_fn_name(char *name) {
 
 static struct grug_entity *compile_get_entity(char *return_type) {
 	for (size_t i = 0; i < grug_define_functions_size; i++) {
-		struct grug_entity define_fn = grug_define_functions[i];
-
-		if (strcmp(return_type, define_fn.name) == 0) {
+		if (streq(return_type, grug_define_functions[i].name)) {
 			return grug_define_functions + i;
 		}
 	}
@@ -2680,7 +2783,7 @@ static void compile() {
 	size_t start_codes_size;
 
 	// Getting the used define fn's grug_entity
-	struct grug_entity *grug_define_entity = compile_get_entity(define_fn.return_type);
+	grug_define_entity = compile_get_entity(define_fn.return_type);
 	if (!grug_define_entity) {
 		GRUG_ERROR("The entity '%s' was not declared by mod_api.json", define_fn.return_type);
 	}
@@ -2688,7 +2791,12 @@ static void compile() {
 		GRUG_ERROR("The entity '%s' expects %zu fields, but only got %zu", grug_define_entity->name, grug_define_entity->argument_count, define_fn.returned_compound_literal.field_count);
 	}
 	compile_init_define_fn_name(grug_define_entity->name);
-	define_on_function_count = grug_define_entity->on_function_count;
+	hash_define_on_fns();
+	for (size_t i = 0; i < on_fns_size; i++) {
+		if (!get_define_on_fn(on_fns[i].fn_name)) {
+			GRUG_ERROR("The function '%s' was not was not declared by entity '%s' in mod_api.json", on_fns[i].fn_name, define_fn.return_type);
+		}
+	}
 
 	// define()
 	start_codes_size = codes_size;
@@ -2703,7 +2811,7 @@ static void compile() {
 
 		field_t field = fields[define_fn.returned_compound_literal.fields_offset + i];
 
-		if (strcmp(field.key, grug_define_entity->arguments[i].name) != 0) {
+		if (!streq(field.key, grug_define_entity->arguments[i].name)) {
 			GRUG_ERROR("Field %zu named '%s' that you're returning from your define function must be renamed to '%s', since that is what mod_api.json specifies", i + 1, field.key, grug_define_entity->arguments[i].name);
 		}
 
@@ -3313,6 +3421,9 @@ static u32 buckets[MAX_HASH_BUCKETS];
 static u32 chains[MAX_CHAINS];
 static size_t chains_size;
 
+static u32 buckets_on_fns[MAX_ON_FNS_IN_FILE];
+static uint32_t chains_on_fns[MAX_ON_FNS_IN_FILE];
+
 static char *shuffled_symbols[MAX_SYMBOLS];
 static size_t shuffled_symbols_size;
 
@@ -3579,13 +3690,58 @@ static void push_symtab(char *grug_path) {
 	symtab_size = bytes_size - symtab_offset;
 }
 
+static on_fn_t *get_on_fn(char *name) {
+	u32 i = buckets_on_fns[elf_hash(name) % on_fns_size];
+
+	while (1) {
+		if (i == UINT32_MAX) {
+			return NULL;
+		}
+
+		if (streq(name, on_fns[i].fn_name)) {
+			break;
+		}
+
+		i = chains_on_fns[i];
+	}
+
+	return on_fns + i;
+}
+
+static void hash_on_fns(void) {
+	memset(buckets_on_fns, UINT32_MAX, on_fns_size * sizeof(u32));
+
+	size_t chains_size = 0;
+
+	for (size_t i = 0; i < on_fns_size; i++) {
+		char *name = on_fns[i].fn_name;
+
+		if (get_on_fn(name)) {
+			GRUG_ERROR("The function '%s' was defined several times in the same file", name);
+		}
+
+		u32 bucket_index = elf_hash(name) % on_fns_size;
+
+		chains_on_fns[chains_size++] = buckets_on_fns[bucket_index];
+
+		buckets_on_fns[bucket_index] = i;
+	}
+}
+
 static void push_data(void) {
 	// "define_type" symbol
 	push_string_bytes(define_fn.return_type);
 
-	// on_fns function addresses
-	for (size_t i = 0; i < define_on_function_count; i++) {
-		push_number(0x0, 8);
+	hash_on_fns();
+
+	// "on_fns" function addresses
+	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
+		if (get_on_fn(grug_define_entity->on_functions[i].name)) {
+			// TODO: What address needs to be pushed here??
+			push_number(0x42, 8);
+		} else {
+			push_number(0x0, 8);
+		}
 	}
 
 	push_alignment(8);
@@ -3665,7 +3821,7 @@ static void push_rela_plt(void) {
 	rela_plt_offset = bytes_size;
 
 	// r_offset
-	push_number(0x3018, 8);
+	push_number(GOT_PLT_OFFSET + 0x18, 8);
 
 	// r_info
 	size_t define_entity_index = 3;
@@ -3726,18 +3882,6 @@ static u32 get_nbucket(void) {
 	}
 
 	return nbucket;
-}
-
-// From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/elf.c#l193
-static u32 elf_hash(const char *namearg) {
-	u32 h = 0;
-
-	for (const unsigned char *name = (const unsigned char *) namearg; *name; name++) {
-		h = (h << 4) + *name;
-		h ^= (h >> 24) & 0xf0;
-	}
-
-	return h & 0x0fffffff;
 }
 
 static void push_chain(u32 chain) {
@@ -3804,8 +3948,7 @@ static void push_hash(void) {
 	push_chain(0); // The first entry in the chain is always STN_UNDEF
 
 	for (size_t i = 0; i < symbols_size; i++) {
-		u32 hash = elf_hash(shuffled_symbols[i]);
-		u32 bucket_index = hash % nbucket;
+		u32 bucket_index = elf_hash(shuffled_symbols[i]) % nbucket;
 
 		push_chain(buckets[bucket_index]);
 
@@ -4092,8 +4235,8 @@ static void init_data_offsets(void) {
 	data_offsets[i++] = offset;
 	offset += strlen(define_fn.return_type) + 1;
 
-	// on_fns function addresses
-	for (size_t on_fn_index = 0; on_fn_index < define_on_function_count; on_fn_index++) {
+	// "on_fns" function address symbols
+	for (size_t on_fn_index = 0; on_fn_index < grug_define_entity->on_function_count; on_fn_index++) {
 		data_offsets[i++] = offset;
 		offset += sizeof(size_t);
 	}
@@ -4578,7 +4721,7 @@ static void push_subdir(grug_mod_dir_t *dir, grug_mod_dir_t subdir) {
 // Profiling may indicate that rewriting this to use an O(1) technique like a hashmap is worth it
 static grug_file_t *get_file(grug_mod_dir_t *dir, char *name) {
 	for (size_t i = 0; i < dir->files_size; i++) {
-		if (strcmp(dir->files[i].name, name) == 0) {
+		if (streq(dir->files[i].name, name)) {
 			return dir->files + i;
 		}
 	}
@@ -4588,7 +4731,7 @@ static grug_file_t *get_file(grug_mod_dir_t *dir, char *name) {
 // Profiling may indicate that rewriting this to use an O(1) technique like a hashmap is worth it
 static grug_mod_dir_t *get_subdir(grug_mod_dir_t *dir, char *name) {
 	for (size_t i = 0; i < dir->dirs_size; i++) {
-		if (strcmp(dir->dirs[i].name, name) == 0) {
+		if (streq(dir->dirs[i].name, name)) {
 			return dir->dirs + i;
 		}
 	}
@@ -4598,7 +4741,7 @@ static grug_mod_dir_t *get_subdir(grug_mod_dir_t *dir, char *name) {
 // Profiling may indicate that rewriting this to use an O(1) technique like a hashmap is worth it
 static bool has_been_seen(char *name, char **seen_names, size_t seen_names_size) {
 	for (size_t i = 0; i < seen_names_size; i++) {
-		if (strcmp(seen_names[i], name) == 0) {
+		if (streq(seen_names[i], name)) {
 			return true;
 		}
 	}
@@ -4622,7 +4765,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 	errno = 0;
 	struct dirent *dp;
 	while ((dp = readdir(dirp))) {
-		if (strcmp(dp->d_name, ".") == 0 || strcmp(dp->d_name, "..") == 0) {
+		if (streq(dp->d_name, ".") || streq(dp->d_name, "..")) {
 			continue;
 		}
 
@@ -4657,7 +4800,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 				subdir = dir->dirs + dir->dirs_size - 1;
 			}
 			reload_modified_mods(entry_path, dll_entry_path, subdir);
-		} else if (S_ISREG(entry_stat.st_mode) && strcmp(get_file_extension(dp->d_name), ".grug") == 0) {
+		} else if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(dp->d_name), ".grug")) {
 			if (seen_file_names_size >= seen_file_names_capacity) {
 				seen_file_names_capacity = seen_file_names_capacity == 0 ? 1 : seen_file_names_capacity * 2;
 				seen_file_names = realloc(seen_file_names, seen_file_names_capacity * sizeof(*seen_file_names));
