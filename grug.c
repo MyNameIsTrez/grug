@@ -3735,8 +3735,16 @@ static void push_data(void) {
 	hash_on_fns();
 
 	// "on_fns" function addresses
+	size_t previous_on_fn_index = 0;
 	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
-		if (get_on_fn(grug_define_entity->on_functions[i].name)) {
+		on_fn_t *on_fn = on_fns_size > 0 ? get_on_fn(grug_define_entity->on_functions[i].name) : NULL;
+		if (on_fn) {
+			size_t on_fn_index = on_fn - on_fns;
+			if (previous_on_fn_index < on_fn_index) {
+				GRUG_ERROR("The function '%s' was in the wrong order, according to the entity '%s' in mod_api.json", on_fn->fn_name, grug_define_entity->name);
+			}
+			previous_on_fn_index = on_fn_index;
+
 			// TODO: What address needs to be pushed here??
 			push_number(0x42, 8);
 		} else {
