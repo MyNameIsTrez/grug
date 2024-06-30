@@ -339,8 +339,8 @@ static struct json_node json_parse_object(size_t *i) {
 				JSON_ERROR(JSON_ERROR_EXPECTED_VALUE);
 			}
 			node.data.object.fields = json_fields + json_fields_size;
-			for (size_t i = 0; i < node.data.object.field_count; i++) {
-				json_push_field(child_fields[i]);
+			for (size_t field_index = 0; field_index < node.data.object.field_count; field_index++) {
+				json_push_field(child_fields[field_index]);
 			}
 			(*i)++;
 			return node;
@@ -409,8 +409,8 @@ static struct json_node json_parse_array(size_t *i) {
 			break;
 		case TOKEN_TYPE_ARRAY_CLOSE:
 			node.data.array.values = json_nodes + json_nodes_size;
-			for (size_t i = 0; i < node.data.array.value_count; i++) {
-				json_push_node(child_nodes[i]);
+			for (size_t value_index = 0; value_index < node.data.array.value_count; value_index++) {
+				json_push_node(child_nodes[value_index]);
 			}
 			(*i)++;
 			return node;
@@ -726,22 +726,22 @@ static void init_game_fns(struct json_array fns) {
 		grug_fn.arguments = grug_arguments + grug_arguments_size;
 		grug_fn.argument_count = field->value->data.array.value_count;
 
-		for (size_t field_index = 0; field_index < grug_fn.argument_count; field_index++) {
+		for (size_t argument_index = 0; argument_index < grug_fn.argument_count; argument_index++) {
 			struct grug_argument grug_arg;
 
 			assert(value->type == JSON_NODE_OBJECT && "\"game_functions\" its function arguments must only contain objects");
 			assert(value->data.object.field_count == 2 && "\"game_functions\" its function arguments must only contain a name and type field");
-			struct json_field *field = value->data.object.fields;
+			struct json_field *argument_field = value->data.object.fields;
 
-			assert(streq(field->key, "name") && "\"game_functions\" its function arguments must always have \"name\" be their first field");
-			assert(field->value->type == JSON_NODE_STRING && "\"game_functions\" its function arguments must always have string values");
-			grug_arg.name = field->value->data.string;
-			field++;
+			assert(streq(argument_field->key, "name") && "\"game_functions\" its function arguments must always have \"name\" be their first field");
+			assert(argument_field->value->type == JSON_NODE_STRING && "\"game_functions\" its function arguments must always have string values");
+			grug_arg.name = argument_field->value->data.string;
+			argument_field++;
 
-			assert(streq(field->key, "type") && "\"game_functions\" its function arguments must always have \"type\" be their second field");
-			assert(field->value->type == JSON_NODE_STRING && "\"game_functions\" its function arguments must always have string values");
-			grug_arg.type = parse_type(field->value->data.string);
-			field++;
+			assert(streq(argument_field->key, "type") && "\"game_functions\" its function arguments must always have \"type\" be their second field");
+			assert(argument_field->value->type == JSON_NODE_STRING && "\"game_functions\" its function arguments must always have string values");
+			grug_arg.type = parse_type(argument_field->value->data.string);
+			argument_field++;
 
 			push_grug_argument(grug_arg);
 			value++;
@@ -823,22 +823,22 @@ static void init_on_fns(struct json_array fns) {
 		grug_fn.arguments = grug_arguments + grug_arguments_size;
 		grug_fn.argument_count = field->value->data.array.value_count;
 
-		for (size_t field_index = 0; field_index < grug_fn.argument_count; field_index++) {
+		for (size_t argument_index = 0; argument_index < grug_fn.argument_count; argument_index++) {
 			struct grug_argument grug_arg;
 
 			assert(value->type == JSON_NODE_OBJECT && "\"on_functions\" its function arguments must only contain objects");
 			assert(value->data.object.field_count == 2 && "\"on_functions\" its function arguments must only contain a name and type field");
-			struct json_field *field = value->data.object.fields;
+			struct json_field *argument_field = value->data.object.fields;
 
-			assert(streq(field->key, "name") && "\"on_functions\" its function arguments must always have \"name\" be their first field");
-			assert(field->value->type == JSON_NODE_STRING && "\"on_functions\" its function arguments must always have string values");
-			grug_arg.name = field->value->data.string;
-			field++;
+			assert(streq(argument_field->key, "name") && "\"on_functions\" its function arguments must always have \"name\" be their first field");
+			assert(argument_field->value->type == JSON_NODE_STRING && "\"on_functions\" its function arguments must always have string values");
+			grug_arg.name = argument_field->value->data.string;
+			argument_field++;
 
-			assert(streq(field->key, "type") && "\"on_functions\" its function arguments must always have \"type\" be their second field");
-			assert(field->value->type == JSON_NODE_STRING && "\"on_functions\" its function arguments must always have string values");
-			grug_arg.type = parse_type(field->value->data.string);
-			field++;
+			assert(streq(argument_field->key, "type") && "\"on_functions\" its function arguments must always have \"type\" be their second field");
+			assert(argument_field->value->type == JSON_NODE_STRING && "\"on_functions\" its function arguments must always have string values");
+			grug_arg.type = parse_type(argument_field->value->data.string);
+			argument_field++;
 
 			push_grug_argument(grug_arg);
 			value++;
@@ -877,7 +877,7 @@ static void init_entities(struct json_array entities) {
 		entity.argument_count = field->value->data.array.value_count;
 		field++;
 
-		for (size_t field_index = 0; field_index < entity.argument_count; field_index++) {
+		for (size_t argument_index = 0; argument_index < entity.argument_count; argument_index++) {
 			struct grug_argument grug_arg;
 
 			assert(value->type == JSON_NODE_OBJECT && "\"entities\" its arguments must only contain objects");
@@ -1109,7 +1109,7 @@ static void print_tokens(void) {
 
 		if (token.type == NEWLINES_TOKEN) {
 			grug_log("| '");
-			for (size_t i = 0; i < strlen(token.str); i++) {
+			for (size_t j = 0; j < strlen(token.str); j++) {
 				grug_log("\\n");
 			}
 			grug_log("'\n");
@@ -2149,8 +2149,8 @@ static expr_t parse_call(size_t *i) {
 			}
 
 			expr.call_expr.arguments_exprs_offset = exprs_size;
-			for (size_t i = 0; i < expr.call_expr.argument_count; i++) {
-				push_expr(local_call_arguments[i]);
+			for (size_t argument_index = 0; argument_index < expr.call_expr.argument_count; argument_index++) {
+				push_expr(local_call_arguments[argument_index]);
 			}
 		}
 	}
@@ -2450,8 +2450,8 @@ static void parse_statements(size_t *i, size_t *body_statements_offset, size_t *
 	}
 
 	*body_statements_offset = statements_size;
-	for (size_t i = 0; i < *body_statement_count; i++) {
-		push_statement(local_statements[i]);
+	for (size_t statement_index = 0; statement_index < *body_statement_count; statement_index++) {
+		push_statement(local_statements[statement_index]);
 	}
 
 	consume_token_type(i, CLOSE_BRACE_TOKEN);
@@ -2492,7 +2492,7 @@ static void parse_arguments(size_t *i, size_t *arguments_offset, size_t *argumen
 
 		assert_token_type(*i, WORD_TOKEN);
 		token = consume_token(i);
-		argument_t argument = {.name = token.str};
+		argument.name = token.str;
 
 		consume_token_type(i, COLON_TOKEN);
 
@@ -2778,7 +2778,7 @@ static struct grug_entity *compile_get_entity(char *return_type) {
 }
 
 static void compile() {
-	size_t i = 0;
+	size_t text_offset_index = 0;
 	size_t text_offset = 0;
 	size_t start_codes_size;
 
@@ -2792,27 +2792,27 @@ static void compile() {
 	}
 	compile_init_define_fn_name(grug_define_entity->name);
 	hash_define_on_fns();
-	for (size_t i = 0; i < on_fns_size; i++) {
-		if (!get_define_on_fn(on_fns[i].fn_name)) {
-			GRUG_ERROR("The function '%s' was not was not declared by entity '%s' in mod_api.json", on_fns[i].fn_name, define_fn.return_type);
+	for (size_t on_fn_index = 0; on_fn_index < on_fns_size; on_fn_index++) {
+		if (!get_define_on_fn(on_fns[on_fn_index].fn_name)) {
+			GRUG_ERROR("The function '%s' was not was not declared by entity '%s' in mod_api.json", on_fns[on_fn_index].fn_name, define_fn.return_type);
 		}
 	}
 
 	// define()
 	start_codes_size = codes_size;
-	for (size_t i = 0; i < define_fn.returned_compound_literal.field_count; i++) {
+	for (size_t field_index = 0; field_index < define_fn.returned_compound_literal.field_count; field_index++) {
 		static enum code movabs[] = {
 			MOVABS_TO_RDI,
 			MOVABS_TO_RSI,
 		};
 
-		assert(i < 2); // TODO: Support more arguments
-		compile_push_number(movabs[i], 2);
+		assert(field_index < 2); // TODO: Support more arguments
+		compile_push_number(movabs[field_index], 2);
 
-		field_t field = fields[define_fn.returned_compound_literal.fields_offset + i];
+		field_t field = fields[define_fn.returned_compound_literal.fields_offset + field_index];
 
-		if (!streq(field.key, grug_define_entity->arguments[i].name)) {
-			GRUG_ERROR("Field %zu named '%s' that you're returning from your define function must be renamed to '%s', since that is what mod_api.json specifies", i + 1, field.key, grug_define_entity->arguments[i].name);
+		if (!streq(field.key, grug_define_entity->arguments[field_index].name)) {
+			GRUG_ERROR("Field %zu named '%s' that you're returning from your define function must be renamed to '%s', since that is what mod_api.json specifies", field_index + 1, field.key, grug_define_entity->arguments[field_index].name);
 		}
 
 		// TODO: Verify that the argument has the same type as the one in grug_define_entity
@@ -2826,7 +2826,7 @@ static void compile() {
 	// TODO: Figure out why field_count is being multiplied by 10
 	compile_push_number(0xffffffeb - define_fn.returned_compound_literal.field_count * 10, 4);
 	compile_push_byte(RET);
-	text_offsets[i++] = text_offset;
+	text_offsets[text_offset_index++] = text_offset;
 	text_offset += codes_size - start_codes_size;
 
 	// get_globals_size()
@@ -2839,7 +2839,7 @@ static void compile() {
 	}
 	compile_push_number(globals_bytes, 4);
 	compile_push_byte(RET);
-	text_offsets[i++] = text_offset;
+	text_offsets[text_offset_index++] = text_offset;
 	text_offset += codes_size - start_codes_size;
 
 	// init_globals()
@@ -2862,15 +2862,15 @@ static void compile() {
 		compile_push_number(value, 4);
 	}
 	compile_push_byte(RET);
-	text_offsets[i++] = text_offset;
+	text_offsets[text_offset_index++] = text_offset;
 	text_offset += codes_size - start_codes_size;
 
-	for (size_t i = 0; i < on_fns_size; i++) {
+	for (size_t on_fn_index = 0; on_fn_index < on_fns_size; on_fn_index++) {
 		start_codes_size = codes_size;
 
 		compile_push_byte(RET);
 
-		text_offsets[i++] = text_offset;
+		text_offsets[text_offset_index++] = text_offset;
 		text_offset += codes_size - start_codes_size;
 	}
 }
@@ -3426,12 +3426,6 @@ static bool is_substrs[MAX_SYMBOLS];
 static size_t symbol_name_dynstr_offsets[MAX_SYMBOLS];
 static size_t symbol_name_strtab_offsets[MAX_SYMBOLS];
 
-static u32 buckets[MAX_HASH_BUCKETS];
-
-#define MAX_CHAINS (MAX_SYMBOLS + 1) // +1, because [0] is STN_UNDEF
-static u32 chains[MAX_CHAINS];
-static size_t chains_size;
-
 static u32 buckets_on_fns[MAX_ON_FNS_IN_FILE];
 static uint32_t chains_on_fns[MAX_ON_FNS_IN_FILE];
 
@@ -3916,14 +3910,6 @@ static u32 get_nbucket(void) {
 	return nbucket;
 }
 
-static void push_chain(u32 chain) {
-	if (chains_size >= MAX_CHAINS) {
-		GRUG_ERROR("There are more than %d chains, exceeding MAX_CHAINS", MAX_CHAINS);
-	}
-
-	chains[chains_size++] = chain;
-}
-
 // See https://flapenguin.me/elf-dt-hash
 // See https://refspecs.linuxfoundation.org/elf/gabi4+/ch5.dynamic.html#hash
 //
@@ -3973,16 +3959,19 @@ static void push_hash(void) {
 	u32 nchain = 1 + symbols_size; // `1 + `, because index 0 is always STN_UNDEF (the value 0)
 	push_number(nchain, 4);
 
+	static u32 buckets[MAX_HASH_BUCKETS];
 	memset(buckets, 0, nbucket * sizeof(u32));
 
-	chains_size = 0;
+	static u32 chains[MAX_SYMBOLS + 1]; // +1, because [0] is STN_UNDEF
 
-	push_chain(0); // The first entry in the chain is always STN_UNDEF
+	size_t chains_size = 0;
+
+	chains[chains_size++] = 0; // The first entry in the chain is always STN_UNDEF
 
 	for (size_t i = 0; i < symbols_size; i++) {
 		u32 bucket_index = elf_hash(shuffled_symbols[i]) % nbucket;
 
-		push_chain(buckets[bucket_index]);
+		chains[chains_size++] = buckets[bucket_index];
 
 		buckets[bucket_index] = i + 1;
 	}
@@ -4433,15 +4422,17 @@ static void generate_shuffled_symbols(void) {
 
 	memset(buckets, 0, DEFAULT_SIZE * sizeof(u32));
 
-	chains_size = 0;
+	static u32 chains[MAX_SYMBOLS + 1]; // +1, because [0] is STN_UNDEF
 
-	push_chain(0); // The first entry in the chain is always STN_UNDEF
+	size_t chains_size = 0;
+
+	chains[chains_size++] = 0; // The first entry in the chain is always STN_UNDEF
 
 	for (size_t i = 0; i < symbols_size; i++) {
 		u32 hash = bfd_hash_hash(symbols[i]);
 		u32 bucket_index = hash % DEFAULT_SIZE;
 
-		push_chain(buckets[bucket_index]);
+		chains[chains_size++] = buckets[bucket_index];
 
 		buckets[bucket_index] = i + 1;
 	}
@@ -4555,7 +4546,6 @@ static void init_section_header_indices(void) {
 static void reset_generate_so(void) {
 	symbols_size = 0;
 	data_symbols_size = 0;
-	chains_size = 0;
 	shuffled_symbols_size = 0;
 	bytes_size = 0;
 }
@@ -4613,7 +4603,7 @@ grug_modified_t *grug_reloads;
 size_t grug_reloads_size;
 static size_t reloads_capacity;
 
-typedef size_t (*get_globals_size_fn)(void);
+typedef size_t (*get_globals_size_fn_t)(void);
 
 static void reset_regenerate_dll(void) {
 	tokens_size = 0;
@@ -4926,7 +4916,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, grug_m
 
 				#pragma GCC diagnostic push
 				#pragma GCC diagnostic ignored "-Wpedantic"
-				get_globals_size_fn get_globals_size_fn = grug_get(file.dll, "get_globals_size");
+				get_globals_size_fn_t get_globals_size_fn = grug_get(file.dll, "get_globals_size");
 				#pragma GCC diagnostic pop
 				if (!get_globals_size_fn) {
 					GRUG_ERROR("Retrieving the get_globals_size() function with grug_get() failed for %s", dll_path);
