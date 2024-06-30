@@ -2823,8 +2823,8 @@ static void compile() {
 	compile_push_byte(CALL);
 	// TODO: Figure out where 0xffffffeb comes from,
 	//       so it can be replaced with a named variable/define/enum
-	// TODO: Figure out why field_count is being multiplied by 10
-	compile_push_number(0xffffffeb - define_fn.returned_compound_literal.field_count * 10, 4);
+	size_t code_bytes_per_field = 10; // See the compile_push_number() calls with a byte_count of 2 and 8 in the loop above
+	compile_push_number(0xffffffeb - define_fn.returned_compound_literal.field_count * code_bytes_per_field, 4);
 	compile_push_byte(RET);
 	text_offsets[text_offset_index++] = text_offset;
 	text_offset += codes_size - start_codes_size;
@@ -3457,7 +3457,6 @@ static size_t rela_plt_size;
 static size_t plt_offset;
 static size_t plt_size;
 static size_t dynamic_size;
-static size_t got_plt_offset;
 static size_t got_plt_size;
 static size_t segment_0_size;
 static size_t symtab_offset;
@@ -3783,7 +3782,7 @@ static void push_data(void) {
 }
 
 static void push_got_plt(void) {
-	got_plt_offset = bytes_size;
+	size_t got_plt_offset = bytes_size;
 
 	push_number(DYNAMIC_OFFSET, 8);
 	push_zeros(8);
@@ -3886,7 +3885,10 @@ static void push_rela_dyn(void) {
 	rela_dyn_offset = bytes_size;
 
 	if (on_fns_size > 0) {
-		push_rela(GOT_PLT_OFFSET + 0x22, 8, 0x1037);
+		size_t symbol_index = 6;
+		size_t text_index = symbol_index - data_symbols_size - extern_symbols_size;
+		// TODO: Replace 0x22
+		push_rela(GOT_PLT_OFFSET + 0x22, 8, TEXT_OFFSET + text_offsets[text_index]);
 	}
 
 	rela_dyn_size = bytes_size - rela_dyn_offset;
@@ -4062,7 +4064,7 @@ static void push_section_headers(void) {
 	push_section_header(dynamic_shstrtab_offset, SHT_DYNAMIC, SHF_WRITE | SHF_ALLOC, DYNAMIC_OFFSET, DYNAMIC_OFFSET, dynamic_size, shindex_dynstr, 0, 8, 16);
 
 	// .got.plt: Global offset table procedure linkage table section
-	push_section_header(got_plt_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, got_plt_offset, got_plt_offset, got_plt_size, SHN_UNDEF, 0, 8, 8);
+	push_section_header(got_plt_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, GOT_PLT_OFFSET, GOT_PLT_OFFSET, got_plt_size, SHN_UNDEF, 0, 8, 8);
 
 	// .data: Data section
 	push_section_header(data_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, DATA_OFFSET, DATA_OFFSET, data_size, SHN_UNDEF, 0, 4, 0);
