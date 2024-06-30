@@ -3378,10 +3378,11 @@ static void compile() {
 
 #define MAX_HASH_BUCKETS 32771 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/elflink.c;h=6db6a9c0b4702c66d73edba87294e2a59ffafcf5;hb=refs/heads/master#l6560
 
+// TODO: Stop having these hardcoded!
 #define PLT_OFFSET 0x1000
 #define TEXT_OFFSET 0x1020
 #define EH_FRAME_OFFSET 0x2000
-#define DYNAMIC_OFFSET 0x2f10
+#define DYNAMIC_OFFSET (on_fns_size > 0 ? 0x2ee0 : 0x2f10) // TODO: Unhardcode!
 #define GOT_PLT_OFFSET 0x3000
 #define DATA_OFFSET 0x3020
 
@@ -3455,6 +3456,7 @@ static size_t rela_plt_offset;
 static size_t rela_plt_size;
 static size_t plt_offset;
 static size_t plt_size;
+static size_t dynamic_size;
 static size_t got_plt_offset;
 static size_t got_plt_size;
 static size_t segment_0_size;
@@ -3490,7 +3492,7 @@ static void overwrite_address(u64 n, size_t bytes_offset) {
 	}
 }
 
-static void fix_bytes() {
+static void patch_bytes() {
 	// ELF section header table offset
 	overwrite_address(section_headers_offset, 0x28);
 
@@ -3503,6 +3505,21 @@ static void fix_bytes() {
 	overwrite_address(plt_size + text_size, 0x98);
 	// Segment 1 its mem_size
 	overwrite_address(plt_size + text_size, 0xa0);
+
+	// Segment 3 its file_size
+	overwrite_address(dynamic_size + got_plt_size + data_size, 0x108);
+	// Segment 3 its mem_size
+	overwrite_address(dynamic_size + got_plt_size + data_size, 0x110);
+
+	// Segment 4 its file_size
+	overwrite_address(dynamic_size, 0x140);
+	// Segment 4 its mem_size
+	overwrite_address(dynamic_size, 0x148);
+
+	// Segment 5 its file_size
+	overwrite_address(dynamic_size, 0x178);
+	// Segment 5 its mem_size
+	overwrite_address(dynamic_size, 0x180);
 }
 
 static void push_byte(u8 byte) {
@@ -3754,8 +3771,9 @@ static void push_data(void) {
 			}
 			previous_on_fn_index = on_fn_index;
 
-			// TODO: What address needs to be pushed here??
-			push_number(0x42, 8);
+			size_t symbol_index = 6;
+			size_t text_index = symbol_index - data_symbols_size - extern_symbols_size;
+			push_number(TEXT_OFFSET + text_offsets[text_index], 8);
 		} else {
 			push_number(0x0, 8);
 		}
@@ -3783,6 +3801,8 @@ static void push_dynamic_entry(u64 tag, u64 value) {
 }
 
 static void push_dynamic() {
+	size_t dynamic_offset = bytes_size;
+
 	push_dynamic_entry(DT_HASH, hash_offset);
 	push_dynamic_entry(DT_STRTAB, dynstr_offset);
 	push_dynamic_entry(DT_SYMTAB, dynsym_offset);
@@ -3799,6 +3819,10 @@ static void push_dynamic() {
 		push_dynamic_entry(DT_RELACOUNT, 1);
 	}
 	push_dynamic_entry(DT_NULL, 0);
+
+	push_zeros(GOT_PLT_OFFSET - bytes_size);
+
+	dynamic_size = bytes_size - dynamic_offset;
 }
 
 static void push_text(void) {
@@ -4035,7 +4059,7 @@ static void push_section_headers(void) {
 	push_section_header(eh_frame_shstrtab_offset, SHT_PROGBITS, SHF_ALLOC, EH_FRAME_OFFSET, EH_FRAME_OFFSET, 0, SHN_UNDEF, 0, 8, 0);
 
 	// .dynamic: Dynamic linking information section
-	push_section_header(dynamic_shstrtab_offset, SHT_DYNAMIC, SHF_WRITE | SHF_ALLOC, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0xf0, shindex_dynstr, 0, 8, 16);
+	push_section_header(dynamic_shstrtab_offset, SHT_DYNAMIC, SHF_WRITE | SHF_ALLOC, DYNAMIC_OFFSET, DYNAMIC_OFFSET, dynamic_size, shindex_dynstr, 0, 8, 16);
 
 	// .got.plt: Global offset table procedure linkage table section
 	push_section_header(got_plt_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, got_plt_offset, got_plt_offset, got_plt_size, SHN_UNDEF, 0, 8, 8);
@@ -4089,12 +4113,12 @@ static void push_program_header(u32 type, u32 flags, u64 offset, u64 virtual_add
 
 static void push_program_headers(void) {
 	// .hash, .dynsym, .dynstr, .rela.dyn, .rela.plt segment
-	// NOTE: file_size and mem_size get overwritten later by fix_bytes()
+	// NOTE: file_size and mem_size get overwritten later by patch_bytes()
 	// 0x40 to 0x78
 	push_program_header(PT_LOAD, PF_R, 0, 0, 0, 0, 0, 0x1000);
 
 	// .plt, .text segment
-	// NOTE: file_size and mem_size get overwritten later by fix_bytes()
+	// NOTE: file_size and mem_size get overwritten later by patch_bytes()
 	// 0x78 to 0xb0
 	push_program_header(PT_LOAD, PF_R | PF_X, PLT_OFFSET, PLT_OFFSET, PLT_OFFSET, 0, 0, 0x1000);
 
@@ -4104,15 +4128,18 @@ static void push_program_headers(void) {
 
 	// .dynamic, .got.plt, .data
 	// 0xe8 to 0x120
-	push_program_header(PT_LOAD, PF_R | PF_W, DYNAMIC_OFFSET, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0x110 + data_size, 0x110 + data_size, 0x1000);
+	// NOTE: file_size and mem_size get overwritten later by patch_bytes()
+	push_program_header(PT_LOAD, PF_R | PF_W, DYNAMIC_OFFSET, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0, 0, 0x1000);
 
 	// .dynamic segment
 	// 0x120 to 0x158
-	push_program_header(PT_DYNAMIC, PF_R | PF_W, DYNAMIC_OFFSET, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0xf0, 0xf0, 8);
+	// NOTE: file_size and mem_size get overwritten later by patch_bytes()
+	push_program_header(PT_DYNAMIC, PF_R | PF_W, DYNAMIC_OFFSET, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0, 0, 8);
 
 	// .dynamic segment
 	// 0x158 to 0x190
-	push_program_header(PT_GNU_RELRO, PF_R, DYNAMIC_OFFSET, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0xf0, 0xf0, 1);
+	// NOTE: file_size and mem_size get overwritten later by patch_bytes()
+	push_program_header(PT_GNU_RELRO, PF_R, DYNAMIC_OFFSET, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0, 0, 1);
 }
 
 static void push_elf_header(void) {
@@ -4168,7 +4195,7 @@ static void push_elf_header(void) {
 	push_zeros(7);
 
 	// Section header table offset
-	// NOTE: this value gets overwritten later by fix_bytes()
+	// NOTE: this value gets overwritten later by patch_bytes()
 	// 0x28 to 0x30
 	push_zeros(8);
 
@@ -4233,7 +4260,6 @@ static void push_bytes(char *grug_path) {
 	push_zeros(DYNAMIC_OFFSET - bytes_size);
 	push_dynamic();
 
-	push_zeros(GOT_PLT_OFFSET - bytes_size);
 	push_got_plt();
 
 	push_data();
@@ -4585,7 +4611,7 @@ static void generate_so(char *grug_path, char *dll_path) {
 
 	push_bytes(grug_path);
 
-	fix_bytes();
+	patch_bytes();
 
 	FILE *f = fopen(dll_path, "w");
 	if (!f) {
