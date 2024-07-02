@@ -3777,7 +3777,7 @@ static void push_data(void) {
 		on_fn_t *on_fn = on_fns_size > 0 ? get_on_fn(grug_define_entity->on_functions[i].name) : NULL;
 		if (on_fn) {
 			size_t on_fn_index = on_fn - on_fns;
-			if (previous_on_fn_index < on_fn_index) {
+			if (previous_on_fn_index > on_fn_index) {
 				GRUG_ERROR("The function '%s' was in the wrong order, according to the entity '%s' in mod_api.json", on_fn->fn_name, grug_define_entity->name);
 			}
 			previous_on_fn_index = on_fn_index;
