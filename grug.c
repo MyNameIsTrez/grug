@@ -3399,6 +3399,7 @@ static void compile() {
 #define GOT_PLT_OFFSET 0x3000
 #define DATA_OFFSET 0x3020
 
+#define RELA_ENTRY_SIZE 24
 #define SYMTAB_ENTRY_SIZE 24
 
 // The array element specifies the location and size of a segment
@@ -3782,7 +3783,7 @@ static void push_data(void) {
 			}
 			previous_on_fn_index = on_fn_index;
 
-			size_t symbol_index = 6;
+			size_t symbol_index = 6 + on_fn_index;
 			size_t text_index = symbol_index - data_symbols_size - extern_symbols_size;
 			push_number(TEXT_OFFSET + text_offsets[text_index], 8);
 		} else {
@@ -3822,12 +3823,12 @@ static void push_dynamic() {
 	push_dynamic_entry(DT_PLTGOT, GOT_PLT_OFFSET);
 	push_dynamic_entry(DT_PLTRELSZ, 24);
 	push_dynamic_entry(DT_PLTREL, DT_RELA);
-	push_dynamic_entry(DT_JMPREL, rela_dyn_offset + ((on_fns_size > 0) ? 24 : 0));
+	push_dynamic_entry(DT_JMPREL, rela_dyn_offset + ((on_fns_size > 0) ? RELA_ENTRY_SIZE * on_fns_size : 0));
 	if (on_fns_size > 0) {
 		push_dynamic_entry(DT_RELA, rela_dyn_offset);
-		push_dynamic_entry(DT_RELASZ, 24);
-		push_dynamic_entry(DT_RELAENT, 24);
-		push_dynamic_entry(DT_RELACOUNT, 1);
+		push_dynamic_entry(DT_RELASZ, RELA_ENTRY_SIZE * on_fns_size);
+		push_dynamic_entry(DT_RELAENT, RELA_ENTRY_SIZE);
+		push_dynamic_entry(DT_RELACOUNT, on_fns_size);
 	}
 	push_dynamic_entry(DT_NULL, 0);
 
@@ -3904,7 +3905,8 @@ static void push_rela_dyn(void) {
 	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
 		on_fn_t *on_fn = on_fns_size > 0 ? get_on_fn(grug_define_entity->on_functions[i].name) : NULL;
 		if (on_fn) {
-			size_t symbol_index = 6;
+			size_t on_fn_index = on_fn - on_fns;
+			size_t symbol_index = 6 + on_fn_index;
 			size_t text_index = symbol_index - data_symbols_size - extern_symbols_size;
 
 			size_t future_got_plt_size = 0x20;
