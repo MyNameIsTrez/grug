@@ -2660,10 +2660,16 @@ static void parse(void) {
 			parse_define_fn(&i);
 			seen_define_fn = true;
 		} else if (type == WORD_TOKEN && starts_with(token.str, "on_") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
+			if (!seen_define_fn) {
+				GRUG_ERROR("Move the on_ function '%s' below the define_ function", token.str);
+			}
 			parse_on_fn(&i);
 		} else if (type == WORD_TOKEN && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			parse_helper_fn(&i);
 		} else if (type == WORD_TOKEN && peek_token(i + 1).type == COLON_TOKEN) {
+			if (!seen_define_fn) {
+				GRUG_ERROR("Move the global variable '%s' below the define_ function", token.str);
+			}
 			parse_global_variable(&i);
 		} else if (type == COMMENT_TOKEN) {
 			i++;
