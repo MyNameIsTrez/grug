@@ -3883,8 +3883,11 @@ static void push_rela(u64 offset, u64 info, u64 addend) {
 static void push_rela_plt(void) {
 	rela_plt_offset = bytes_size;
 
+	size_t define_entity_dynsym_index = 2; // TODO: Stop having this hardcoded!
 	size_t define_entity_symtab_index = 7; // TODO: Stop having this hardcoded!
-	size_t dynsym_index = symbol_index_to_shuffled_symbol_index[6]; // TODO: Remove hardcoded 6
+
+	size_t dynsym_index = 1 + symbol_index_to_shuffled_symbol_index[define_entity_dynsym_index]; // `1 +` skips UND
+
 	push_rela(GOT_PLT_OFFSET + 0x18, ELF64_R_INFO(dynsym_index, define_entity_symtab_index), 0);
 
 	segment_0_size = bytes_size;
