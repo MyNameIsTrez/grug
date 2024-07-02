@@ -3447,6 +3447,7 @@ static char *shuffled_symbols[MAX_SYMBOLS];
 static size_t shuffled_symbols_size;
 
 static size_t shuffled_symbol_index_to_symbol_index[MAX_SYMBOLS];
+static size_t symbol_index_to_shuffled_symbol_index[MAX_SYMBOLS];
 
 static size_t data_offsets[MAX_SYMBOLS];
 
@@ -3770,8 +3771,6 @@ static void push_data(void) {
 	// "define_type" symbol
 	push_string_bytes(define_fn.return_type);
 
-	hash_on_fns();
-
 	// "on_fns" function addresses
 	size_t previous_on_fn_index = 0;
 	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
@@ -3800,7 +3799,7 @@ static void push_got_plt(void) {
 	push_number(DYNAMIC_OFFSET, 8);
 	push_zeros(8);
 	push_zeros(8);
-	size_t push_zero_address = 0x1016;
+	size_t push_zero_address = PLT_OFFSET + 0x16;
 	push_number(push_zero_address, 8);
 
 	got_plt_size = bytes_size - got_plt_offset;
@@ -3885,8 +3884,8 @@ static void push_rela_plt(void) {
 	rela_plt_offset = bytes_size;
 
 	size_t define_entity_symtab_index = 7; // TODO: Stop having this hardcoded!
-	// TODO: Replace the 3 with a well-named variable
-	push_rela(GOT_PLT_OFFSET + 0x18, ELF64_R_INFO(3, define_entity_symtab_index), 0);
+	size_t dynsym_index = symbol_index_to_shuffled_symbol_index[6]; // TODO: Remove hardcoded 6
+	push_rela(GOT_PLT_OFFSET + 0x18, ELF64_R_INFO(dynsym_index, define_entity_symtab_index), 0);
 
 	segment_0_size = bytes_size;
 
@@ -3897,11 +3896,20 @@ static void push_rela_plt(void) {
 static void push_rela_dyn(void) {
 	rela_dyn_offset = bytes_size;
 
-	if (on_fns_size > 0) {
-		size_t symbol_index = 6;
-		size_t text_index = symbol_index - data_symbols_size - extern_symbols_size;
-		// TODO: Replace 0x22
-		push_rela(GOT_PLT_OFFSET + 0x22, 8, TEXT_OFFSET + text_offsets[text_index]);
+	size_t on_fn_data_offset = strlen(define_fn.return_type) + 1;
+
+	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
+		on_fn_t *on_fn = on_fns_size > 0 ? get_on_fn(grug_define_entity->on_functions[i].name) : NULL;
+		if (on_fn) {
+			size_t symbol_index = 6;
+			size_t text_index = symbol_index - data_symbols_size - extern_symbols_size;
+
+			size_t future_got_plt_size = 0x20;
+
+			push_rela(GOT_PLT_OFFSET + future_got_plt_size + on_fn_data_offset, 8, TEXT_OFFSET + text_offsets[text_index]);
+		}
+
+		on_fn_data_offset += sizeof(size_t);
 	}
 
 	rela_dyn_size = bytes_size - rela_dyn_offset;
@@ -4484,23 +4492,18 @@ static void generate_shuffled_symbols(void) {
 			continue;
 		}
 
-		char *symbol = symbols[chain_index - 1];
-
-		shuffled_symbol_index_to_symbol_index[shuffled_symbols_size] = chain_index - 1;
-
-		push_shuffled_symbol(symbol);
-
 		while (true) {
+			char *symbol = symbols[chain_index - 1];
+
+			shuffled_symbol_index_to_symbol_index[shuffled_symbols_size] = chain_index - 1;
+			symbol_index_to_shuffled_symbol_index[chain_index - 1] = shuffled_symbols_size;
+
+			push_shuffled_symbol(symbol);
+
 			chain_index = chains[chain_index];
 			if (chain_index == 0) {
 				break;
 			}
-
-			symbol = symbols[chain_index - 1];
-
-			shuffled_symbol_index_to_symbol_index[shuffled_symbols_size] = chain_index - 1;
-
-			push_shuffled_symbol(symbol);
 		}
 	}
 }
@@ -4623,6 +4626,8 @@ static void generate_so(char *grug_path, char *dll_path) {
 	init_symbol_name_strtab_offsets();
 
 	init_data_offsets();
+
+	hash_on_fns();
 
 	push_bytes(grug_path);
 
