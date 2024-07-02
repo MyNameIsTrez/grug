@@ -3402,6 +3402,8 @@ static void compile() {
 #define RELA_ENTRY_SIZE 24
 #define SYMTAB_ENTRY_SIZE 24
 
+#define ON_FNS_SYMBOL_OFFSET 6
+
 // The array element specifies the location and size of a segment
 // which may be made read-only after relocations have been processed
 // From https://refspecs.linuxfoundation.org/LSB_5.0.0/LSB-Core-generic/LSB-Core-generic/progheader.html
@@ -3783,7 +3785,7 @@ static void push_data(void) {
 			}
 			previous_on_fn_index = on_fn_index;
 
-			size_t symbol_index = 6 + on_fn_index;
+			size_t symbol_index = ON_FNS_SYMBOL_OFFSET + on_fn_index;
 			size_t text_index = symbol_index - data_symbols_size - extern_symbols_size;
 			push_number(TEXT_OFFSET + text_offsets[text_index], 8);
 		} else {
@@ -3906,7 +3908,7 @@ static void push_rela_dyn(void) {
 		on_fn_t *on_fn = on_fns_size > 0 ? get_on_fn(grug_define_entity->on_functions[i].name) : NULL;
 		if (on_fn) {
 			size_t on_fn_index = on_fn - on_fns;
-			size_t symbol_index = 6 + on_fn_index;
+			size_t symbol_index = ON_FNS_SYMBOL_OFFSET + on_fn_index;
 			size_t text_index = symbol_index - data_symbols_size - extern_symbols_size;
 
 			size_t future_got_plt_size = 0x20;
