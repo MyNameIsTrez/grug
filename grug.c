@@ -4300,14 +4300,15 @@ static void push_bytes(char *grug_path) {
 }
 
 static void init_data_offsets(void) {
-	size_t i = 0;
 	size_t offset = 0;
 
 	// "define_type" symbol
-	data_offsets[i++] = offset;
+	data_offsets[0] = 0;
 	offset += strlen(define_fn.return_type) + 1;
+	data_offsets[1] = offset;
 
 	// "on_fns" function address symbols
+	size_t i = 1;
 	for (size_t on_fn_index = 0; on_fn_index < grug_define_entity->on_function_count; on_fn_index++) {
 		data_offsets[i++] = offset;
 		offset += sizeof(size_t);
