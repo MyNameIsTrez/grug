@@ -1907,7 +1907,7 @@ static void print_helper_fns(void) {
 
 		print_arguments(fn.arguments_offset, fn.argument_count);
 
-		if (strlen(fn.return_type) > 0) {
+		if (fn.return_type) {
 			grug_log("\"return_type\": \"%s\",\n", fn.return_type);
 		}
 
