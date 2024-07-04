@@ -2662,6 +2662,7 @@ static void parse_global_resources_fn(size_t *i) {
 
 static void parse(void) {
 	bool seen_define_fn = false;
+	bool seen_global_resources_fn = false;
 
 	size_t i = 0;
 	while (i < tokens_size) {
@@ -2669,7 +2670,11 @@ static void parse(void) {
 		int type = token.type;
 
 		if (       type == WORD_TOKEN && streq(token.str, "global_resources") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
+			if (seen_global_resources_fn) {
+				GRUG_ERROR("There can't be more than one global_resources function in a grug file");
+			}
 			parse_global_resources_fn(&i);
+			seen_global_resources_fn = true;
 		} else if (type == WORD_TOKEN && streq(token.str, "define") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			if (seen_define_fn) {
 				GRUG_ERROR("There can't be more than one define_ function in a grug file");
