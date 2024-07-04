@@ -2673,6 +2673,9 @@ static void parse(void) {
 			if (seen_global_resources_fn) {
 				GRUG_ERROR("There can't be more than one global_resources function in a grug file");
 			}
+			if (seen_define_fn) {
+				GRUG_ERROR("Move the define_ function below the global_resources function");
+			}
 			parse_global_resources_fn(&i);
 			seen_global_resources_fn = true;
 		} else if (type == WORD_TOKEN && streq(token.str, "define") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
