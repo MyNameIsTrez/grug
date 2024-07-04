@@ -4704,6 +4704,10 @@ static void reset_regenerate_dll(void) {
 static void regenerate_dll(char *grug_path, char *dll_path) {
 	grug_log("Regenerating %s\n", dll_path);
 
+	if (!initialized) {
+		init();
+	}
+
 	reset_regenerate_dll();
 
 	char *grug_text = read_file(grug_path);
@@ -4730,9 +4734,6 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 bool grug_test_regenerate_dll(char *grug_path, char *dll_path) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
-	}
-	if (!initialized) {
-		init();
 	}
 	regenerate_dll(grug_path, dll_path);
 	return false;
@@ -5102,9 +5103,6 @@ bool grug_regenerate_modified_mods(void) {
 
 	if (setjmp(error_jmp_buffer)) {
 		return true;
-	}
-	if (!initialized) {
-		init();
 	}
 
 	grug_reloads_size = 0;
