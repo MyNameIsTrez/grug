@@ -2645,6 +2645,21 @@ static void parse_define_fn(size_t *i) {
 	potentially_skip_comment(i);
 }
 
+static void parse_global_resources_fn(size_t *i) {
+	consume_token(i); // The function name is always "global_resources"
+	consume_token_type(i, OPEN_PARENTHESIS_TOKEN);
+	consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
+	consume_token_type(i, WORD_TOKEN);
+	consume_token_type(i, OPEN_BRACE_TOKEN);
+	potentially_skip_comment(i);
+	consume_1_newline(i);
+	consume_token_type(i, RETURN_TOKEN);
+	assert_token_type(*i, OPEN_BRACE_TOKEN);
+	parse_compound_literal(i);
+	consume_token_type(i, CLOSE_BRACE_TOKEN);
+	potentially_skip_comment(i);
+}
+
 static void parse(void) {
 	bool seen_define_fn = false;
 
@@ -2653,7 +2668,9 @@ static void parse(void) {
 		token_t token = peek_token(i);
 		int type = token.type;
 
-		if (       type == WORD_TOKEN && streq(token.str, "define") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
+		if (       type == WORD_TOKEN && streq(token.str, "global_resources") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
+			parse_global_resources_fn(&i);
+		} else if (type == WORD_TOKEN && streq(token.str, "define") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			if (seen_define_fn) {
 				GRUG_ERROR("There can't be more than one define_ function in a grug file");
 			}
