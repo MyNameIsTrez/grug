@@ -3,15 +3,16 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-typedef void (*define_fn_t)(void);
-typedef void (*init_globals_fn_t)(void *globals);
+typedef void (*grug_define_fn_t)(void);
+typedef size_t (*grug_get_globals_size_fn_t)(void);
+typedef void (*grug_init_globals_fn_t)(void *globals);
 
 struct grug_file {
 	char *name;
 	void *dll;
-	define_fn_t define_fn;
+	grug_define_fn_t define_fn;
 	size_t globals_size;
-	init_globals_fn_t init_globals_fn;
+	grug_init_globals_fn_t init_globals_fn;
 	char *define_type;
 	void *on_fns;
 };
@@ -31,9 +32,9 @@ struct grug_mod_dir {
 struct grug_modified {
 	void *old_dll;
 	void *new_dll;
-	define_fn_t define_fn;
+	grug_define_fn_t define_fn;
 	size_t globals_size;
-	init_globals_fn_t init_globals_fn;
+	grug_init_globals_fn_t init_globals_fn;
 	char *define_type;
 	void *on_fns;
 };
