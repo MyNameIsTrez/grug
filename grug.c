@@ -927,7 +927,7 @@ static void init_entities(struct json_object entities) {
 	}
 }
 
-static void init(void) {
+static void parse_mod_api_json(void) {
 	assert(!initialized);
 
 	struct json_node node;
@@ -4705,7 +4705,7 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 	grug_log("Regenerating %s\n", dll_path);
 
 	if (!initialized) {
-		init();
+		parse_mod_api_json();
 	}
 
 	reset_regenerate_dll();
