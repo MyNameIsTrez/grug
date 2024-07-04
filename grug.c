@@ -679,8 +679,6 @@ struct grug_argument {
 	enum type type;
 };
 
-static bool initialized;
-
 struct grug_on_function grug_on_functions[MAX_GRUG_FUNCTIONS];
 static size_t grug_on_functions_size;
 
@@ -928,8 +926,6 @@ static void init_entities(struct json_object entities) {
 }
 
 static void parse_mod_api_json(void) {
-	assert(!initialized);
-
 	struct json_node node;
 	json(MOD_API_JSON_PATH, &node);
 
@@ -948,8 +944,6 @@ static void parse_mod_api_json(void) {
 	assert(streq(field->key, "game_functions") && "mod_api.json its root object must have \"game_functions\" as its third field");
 	assert(field->value->type == JSON_NODE_OBJECT && "mod_api.json its \"game_functions\" field must have an object as its value");
 	init_game_fns(field->value->data.object);
-
-	initialized = true;
 }
 
 //// READING
@@ -4704,8 +4698,10 @@ static void reset_regenerate_dll(void) {
 static void regenerate_dll(char *grug_path, char *dll_path) {
 	grug_log("Regenerating %s\n", dll_path);
 
-	if (!initialized) {
+	static bool parsed_mod_api_json = false;
+	if (!parsed_mod_api_json) {
 		parse_mod_api_json();
+		parsed_mod_api_json = true;
 	}
 
 	reset_regenerate_dll();
