@@ -7,15 +7,16 @@ See [my blog post](https://mynameistrez.github.io/2024/02/29/creating-the-perfec
 `grug.c` is composed of sections, which you can find by searching for `////`:
 
 1. UTILS
-2. JSON
-3. INIT
-4. READING
-5. TOKENIZATION
-6. VERIFY AND TRIM SPACES
-7. PARSING
-8. COMPILING
-9. LINKING
-10. MISC
+2. OPENING RESOURCES
+3. JSON
+4. PARSING MOD API JSON
+5. READING
+6. TOKENIZATION
+7. VERIFY AND TRIM SPACES
+8. PARSING
+9. COMPILING
+10. LINKING
+11. MISC
 
 ## Small example programs
 

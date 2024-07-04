@@ -107,6 +107,20 @@ static u32 elf_hash(const char *namearg) {
 	return h & 0x0fffffff;
 }
 
+//// OPENING RESOURCES
+
+static bool opened_resources = false;
+
+// TODO: Also call this from parse_global_resources_fn()
+// static void open_resource(char *path) {
+// }
+
+static void open_resources(void) {
+	assert(!opened_resources);
+
+	opened_resources = true;
+}
+
 //// JSON
 
 #include <ctype.h>
@@ -634,7 +648,7 @@ void json(char *json_file_path, struct json_node *returned) {
 	*returned = json_parse(&token_index);
 }
 
-//// INIT
+//// PARSING MOD API JSON
 
 #define MAX_GRUG_FUNCTIONS 420420
 #define MAX_GRUG_ARGUMENTS 420420
@@ -4731,6 +4745,9 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
+	if (!opened_resources) {
+		open_resources();
+	}
 	regenerate_dll(grug_path, dll_path);
 	return false;
 }
@@ -5099,6 +5116,10 @@ bool grug_regenerate_modified_mods(void) {
 
 	if (setjmp(error_jmp_buffer)) {
 		return true;
+	}
+
+	if (!opened_resources) {
+		open_resources();
 	}
 
 	grug_reloads_size = 0;
