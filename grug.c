@@ -107,18 +107,58 @@ static u32 elf_hash(const char *namearg) {
 	return h & 0x0fffffff;
 }
 
-//// OPENING RESOURCES
+static char *get_file_extension(char *filename) {
+	char *ext = strrchr(filename, '.');
+	if (ext) {
+		return ext;
+	}
+	return "";
+}
 
-static bool opened_resources = false;
+//// OPENING RESOURCES
 
 // TODO: Also call this from parse_global_resources_fn()
 // static void open_resource(char *path) {
 // }
 
-static void open_resources(void) {
-	assert(!opened_resources);
+static void open_resources_recursively(char *dir_path) {
+	DIR *dirp = opendir(dir_path);
+	if (!dirp) {
+		GRUG_ERROR("opendir: %s", strerror(errno));
+	}
 
-	opened_resources = true;
+	errno = 0;
+	struct dirent *dp;
+	while ((dp = readdir(dirp))) {
+		if (streq(dp->d_name, ".") || streq(dp->d_name, "..")) {
+			continue;
+		}
+
+		char entry_path[STUPID_MAX_PATH];
+		snprintf(entry_path, sizeof(entry_path), "%s/%s", dir_path, dp->d_name);
+
+		struct stat entry_stat;
+		if (stat(entry_path, &entry_stat) == -1) {
+			GRUG_ERROR("stat: %s", strerror(errno));
+		}
+
+		if (S_ISDIR(entry_stat.st_mode)) {
+			open_resources_recursively(entry_path);
+		} else if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(dp->d_name), ".grug")) {
+			printf("grug file: %s\n", entry_path);
+		}
+	}
+	if (errno != 0) {
+		GRUG_ERROR("readdir: %s", strerror(errno));
+	}
+
+	closedir(dirp);
+}
+
+static void open_resources(void) {
+	printf("resources:\n");
+
+	open_resources_recursively(MODS_DIR_PATH);
 }
 
 //// JSON
@@ -4719,9 +4759,6 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
-	if (!opened_resources) {
-		open_resources();
-	}
 	regenerate_dll(grug_path, dll_path);
 	return false;
 }
@@ -4744,14 +4781,6 @@ static void try_create_parent_dirs(char *file_path) {
 		file_path++;
 		i++;
 	}
-}
-
-static char *get_file_extension(char *filename) {
-	char *ext = strrchr(filename, '.');
-	if (ext) {
-		return ext;
-	}
-	return "";
 }
 
 static void fill_as_path_with_dll_extension(char *dll_path, char *grug_path) {
@@ -5092,8 +5121,10 @@ bool grug_regenerate_modified_mods(void) {
 		return true;
 	}
 
+	static bool opened_resources = false;
 	if (!opened_resources) {
 		open_resources();
+		opened_resources = true;
 	}
 
 	grug_reloads_size = 0;
