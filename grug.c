@@ -2895,19 +2895,6 @@ static void compile() {
 	text_offsets[text_offset_index++] = text_offset;
 	text_offset += codes_size - start_codes_size;
 
-	// get_globals_size()
-	start_codes_size = codes_size;
-	compile_push_byte(MOV_TO_EAX);
-	size_t globals_bytes = 0;
-	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
-		struct global_variable global_variable = global_variables[global_variable_index];
-		globals_bytes += type_sizes[global_variable.type];
-	}
-	compile_push_number(globals_bytes, 4);
-	compile_push_byte(RET);
-	text_offsets[text_offset_index++] = text_offset;
-	text_offset += codes_size - start_codes_size;
-
 	// init_globals()
 	start_codes_size = codes_size;
 	size_t ptr_offset = 0;
@@ -3827,6 +3814,14 @@ static void push_data(void) {
 	// "define_type" symbol
 	push_string_bytes(define_fn.return_type);
 
+	// "globals_size" symbol
+	size_t globals_bytes = 0;
+	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
+		struct global_variable global_variable = global_variables[global_variable_index];
+		globals_bytes += type_sizes[global_variable.type];
+	}
+	push_number(globals_bytes, 8);
+
 	// "on_fns" function addresses
 	size_t previous_on_fn_index = 0;
 	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
@@ -3939,7 +3934,7 @@ static void push_rela(u64 offset, u64 info, u64 addend) {
 static void push_rela_plt(void) {
 	rela_plt_offset = bytes_size;
 
-	size_t define_entity_dynsym_index = 2; // TODO: Stop having this hardcoded!
+	size_t define_entity_dynsym_index = 3; // TODO: Stop having this hardcoded!
 	size_t define_entity_symtab_index = 7; // TODO: Stop having this hardcoded!
 
 	size_t dynsym_index = 1 + symbol_index_to_shuffled_symbol_index[define_entity_dynsym_index]; // `1 +` skips UND
@@ -3955,7 +3950,9 @@ static void push_rela_plt(void) {
 static void push_rela_dyn(void) {
 	rela_dyn_offset = bytes_size;
 
-	size_t on_fn_data_offset = strlen(define_fn.return_type) + 1;
+	size_t return_type_data_size = strlen(define_fn.return_type) + 1;
+	size_t globals_size_data_size = sizeof(uint64_t);
+	size_t on_fn_data_offset = return_type_data_size + globals_size_data_size;
 
 	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
 		struct on_fn *on_fn = on_fns_size > 0 ? get_on_fn(grug_define_entity->on_functions[i].name) : NULL;
@@ -4362,10 +4359,14 @@ static void init_data_offsets(void) {
 	// "define_type" symbol
 	data_offsets[0] = 0;
 	offset += strlen(define_fn.return_type) + 1;
+
+	// "globals_size" symbol
 	data_offsets[1] = offset;
+	offset += sizeof(uint64_t);
 
 	// "on_fns" function address symbols
-	size_t i = 1;
+	data_offsets[2] = offset;
+	size_t i = 2;
 	for (size_t on_fn_index = 0; on_fn_index < grug_define_entity->on_function_count; on_fn_index++) {
 		data_offsets[i++] = offset;
 		offset += sizeof(size_t);
@@ -4665,6 +4666,9 @@ static void generate_so(char *grug_path, char *dll_path) {
 	push_symbol("define_type");
 	data_symbols_size++;
 
+	push_symbol("globals_size");
+	data_symbols_size++;
+
 	push_symbol("on_fns");
 	data_symbols_size++;
 
@@ -4673,7 +4677,6 @@ static void generate_so(char *grug_path, char *dll_path) {
 	extern_symbols_size = 1;
 
 	push_symbol("define");
-	push_symbol("get_globals_size");
 	push_symbol("init_globals");
 
 	for (size_t i = 0; i < on_fns_size; i++) {
@@ -4709,8 +4712,6 @@ struct grug_mod_dir grug_mods;
 struct grug_modified *grug_reloads;
 size_t grug_reloads_size;
 static size_t reloads_capacity;
-
-typedef size_t (*get_globals_size_fn_t)(void);
 
 static void reset_regenerate_dll(void) {
 	tokens_size = 0;
@@ -5016,14 +5017,11 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, struct
 					GRUG_ERROR("Retrieving the define() function with grug_get() failed for %s", dll_path);
 				}
 
-				#pragma GCC diagnostic push
-				#pragma GCC diagnostic ignored "-Wpedantic"
-				get_globals_size_fn_t get_globals_size_fn = grug_get(file.dll, "get_globals_size");
-				#pragma GCC diagnostic pop
-				if (!get_globals_size_fn) {
-					GRUG_ERROR("Retrieving the get_globals_size() function with grug_get() failed for %s", dll_path);
+				size_t *globals_size_ptr = grug_get(file.dll, "globals_size");
+				if (!globals_size_ptr) {
+					GRUG_ERROR("Retrieving the globals_size variable with grug_get() failed for %s", dll_path);
 				}
-				file.globals_size = get_globals_size_fn();
+				file.globals_size = *globals_size_ptr;
 
 				#pragma GCC diagnostic push
 				#pragma GCC diagnostic ignored "-Wpedantic"

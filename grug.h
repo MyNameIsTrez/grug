@@ -4,7 +4,6 @@
 #include <stddef.h>
 
 typedef void (*grug_define_fn_t)(void);
-typedef size_t (*grug_get_globals_size_fn_t)(void);
 typedef void (*grug_init_globals_fn_t)(void *globals);
 
 struct grug_file {
