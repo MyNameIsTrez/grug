@@ -2750,8 +2750,8 @@ enum code {
 	MOV_TO_RDI_PTR = 0x47c7,
 	MOVABS_TO_RDI = 0xbf48,
 	MOVABS_TO_RSI = 0xbe48,
-	LEA_TO_RDI = 0x358d48,
-	LEA_TO_RSI = 0x3d8d48,
+	LEA_TO_RDI = 0x3d8d48,
+	LEA_TO_RSI = 0x358d48,
 };
 
 static size_t text_offsets[MAX_SYMBOLS];
