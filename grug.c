@@ -1331,7 +1331,7 @@ static void tokenize(char *grug_text) {
 			do {
 				i++;
 				if (grug_text[i] == '\0') {
-					GRUG_ERROR("Unclosed \" at character %zu of the grug text file", open_double_quote_index);
+					GRUG_ERROR("Unclosed \" at character %zu of the grug text file", open_double_quote_index + 1);
 				}
 			} while (grug_text[i] != '\"');
 			i++;
