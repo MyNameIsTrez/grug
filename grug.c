@@ -695,13 +695,16 @@ void json(char *json_file_path, struct json_node *returned) {
 
 enum type {
 	type_void,
-	i32,
+	type_i32,
+	type_string,
 };
 static char *type_names[] = {
-	[i32] = "i32",
+	[type_i32] = "i32",
+	[type_string] = "string",
 };
 static size_t type_sizes[] = {
-	[i32] = sizeof(int32_t),
+	[type_i32] = sizeof(int32_t),
+	[type_string] = sizeof(char *),
 };
 
 struct grug_on_function {
@@ -772,10 +775,13 @@ static void push_grug_argument(struct grug_argument argument) {
 
 static enum type parse_type(char *type) {
 	if (streq(type, "i32")) {
-		return i32;
+		return type_i32;
+	}
+	if (streq(type, "string")) {
+		return type_string;
 	}
 	// TODO: Make sure to add any new types to this error message
-	GRUG_ERROR("Types must be one of i32/...");
+	GRUG_ERROR("Types must be one of i32/string");
 }
 
 static void init_game_fns(struct json_object fns) {
