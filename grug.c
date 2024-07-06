@@ -2750,6 +2750,8 @@ enum code {
 	MOV_TO_RDI_PTR = 0x47c7,
 	MOVABS_TO_RDI = 0xbf48,
 	MOVABS_TO_RSI = 0xbe48,
+	LEA_TO_RDI = 0x358d48,
+	LEA_TO_RSI = 0x3d8d48,
 };
 
 static size_t text_offsets[MAX_SYMBOLS];
@@ -2931,15 +2933,10 @@ static void compile() {
 
 	// define()
 	size_t start_codes_size = codes_size;
-	for (size_t field_index = 0; field_index < define_fn.returned_compound_literal.field_count; field_index++) {
-		static enum code movabs[] = {
-			MOVABS_TO_RDI,
-			MOVABS_TO_RSI,
-		};
-
-		assert(field_index < 2); // TODO: Support more arguments
-		compile_push_number(movabs[field_index], 2);
-
+	size_t field_count = define_fn.returned_compound_literal.field_count;
+	assert(field_count <= 2); // TODO: Support more arguments
+	for (size_t field_index = 0; field_index < field_count; field_index++) {
+		// TODO: Replace .fields_offset with a simple pointer to the first field
 		struct field field = fields[define_fn.returned_compound_literal.fields_offset + field_index];
 
 		if (!streq(field.key, grug_define_entity->arguments[field_index].name)) {
@@ -2948,8 +2945,25 @@ static void compile() {
 
 		// TODO: Verify that the argument has the same type as the one in grug_define_entity
 
-		// TODO: Replace .fields_offset with a simple pointer to the first field
-		compile_push_number(field.expr_value.literal.number, 8);
+		if (field.expr_value.type == NUMBER_EXPR) {
+			static enum code code_lut[] = {
+				MOVABS_TO_RDI,
+				MOVABS_TO_RSI,
+			};
+			compile_push_number(code_lut[field_index], 2);
+
+			compile_push_number(field.expr_value.literal.number, 8);
+		} else if (field.expr_value.type == STRING_EXPR) {
+			static enum code code_lut[] = {
+				LEA_TO_RDI,
+				LEA_TO_RSI,
+			};
+			compile_push_number(code_lut[field_index], 3);
+
+			// compile_push_number(, 4); // TODO: Add this back
+		} else {
+			assert(false);
+		}
 	}
 	compile_push_byte(CALL);
 	// TODO: Figure out where 0xffffffeb comes from,
@@ -4005,7 +4019,7 @@ static void push_rela(u64 offset, u64 info, u64 addend) {
 static void push_rela_plt(void) {
 	rela_plt_offset = bytes_size;
 
-	size_t define_entity_dynsym_index = 3; // TODO: Stop having this hardcoded!
+	size_t define_entity_dynsym_index = grug_define_entity->on_function_count > 0 ? 3 : 2; // TODO: Stop having this hardcoded!
 	size_t define_entity_symtab_index = 7; // TODO: Stop having this hardcoded!
 
 	size_t dynsym_index = 1 + symbol_index_to_shuffled_symbol_index[define_entity_dynsym_index]; // `1 +` skips UND
@@ -4437,10 +4451,12 @@ static void init_data_offsets(void) {
 	offset += sizeof(uint64_t);
 
 	// "strings" symbol
-	data_offsets[i++] = offset;
-	for (size_t string_index = 0; string_index < data_strings_size; string_index++) {
-		char *string = data_strings[string_index];
-		offset += strlen(string) + 1;
+	if (data_strings_size > 0) {
+		data_offsets[i++] = offset;
+		for (size_t string_index = 0; string_index < data_strings_size; string_index++) {
+			char *string = data_strings[string_index];
+			offset += strlen(string) + 1;
+		}
 	}
 
 	// "on_fns" function address symbols
@@ -4747,8 +4763,10 @@ static void generate_so(char *grug_path, char *dll_path) {
 	push_symbol("globals_size");
 	data_symbols_size++;
 
-	push_symbol("strings");
-	data_symbols_size++;
+	if (data_strings_size > 0) {
+		push_symbol("strings");
+		data_symbols_size++;
+	}
 
 	if (grug_define_entity->on_function_count > 0) {
 		push_symbol("on_fns");
