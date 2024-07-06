@@ -2960,16 +2960,20 @@ static void compile() {
 			};
 			compile_push_number(code_lut[field_index], 3);
 
-			// compile_push_number(, 4); // TODO: Add this back
+			// size_t string_address = 42; // TODO: Replace
+			// size_t next_instruction_address = codes_size + 4; // rip/PC (program counter)
+			// size_t string_offset = string_address - next_instruction_address;
+			size_t string_offset = 42;
+			compile_push_number(string_offset, 4);
 		} else {
 			assert(false);
 		}
 	}
+	size_t define_field_bytes = codes_size - start_codes_size;
 	compile_push_byte(CALL);
 	// TODO: Figure out where 0xffffffeb comes from,
 	//       so it can be replaced with a named variable/define/enum
-	size_t code_bytes_per_field = 10; // See the compile_push_number() calls with a byte_count of 2 and 8 in the loop above
-	compile_push_number(0xffffffeb - define_fn.returned_compound_literal.field_count * code_bytes_per_field, 4);
+	compile_push_number(0xffffffeb - define_field_bytes, 4);
 	compile_push_byte(RET);
 	text_offsets[text_offset_index++] = text_offset;
 	text_offset += codes_size - start_codes_size;
