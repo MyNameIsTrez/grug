@@ -4750,8 +4750,10 @@ static void generate_so(char *grug_path, char *dll_path) {
 	push_symbol("strings");
 	data_symbols_size++;
 
-	push_symbol("on_fns");
-	data_symbols_size++;
+	if (grug_define_entity->on_function_count > 0) {
+		push_symbol("on_fns");
+		data_symbols_size++;
+	}
 
 	push_symbol(define_fn_name);
 	// TODO: Only push the grug_game_function symbols that are called
@@ -5119,10 +5121,8 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, struct
 				}
 				file.define_type = *define_type_ptr;
 
+				// on_fns is optional, so don't check for NULL
 				file.on_fns = grug_get(file.dll, "on_fns");
-				if (!file.on_fns) {
-					GRUG_ERROR("Retrieving the on_fns struct with grug_get() failed for %s", dll_path);
-				}
 
 				if (old_file) {
 					old_file->dll = file.dll;
