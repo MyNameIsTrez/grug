@@ -1323,18 +1323,20 @@ static void tokenize(char *grug_text) {
 
 			push_token(NEWLINES_TOKEN, str, i - old_i);
 		} else if (grug_text[i] == '\"') {
-			char *str = grug_text+i;
-			size_t old_i = i;
+			char *str = grug_text+i + 1;
+			size_t old_i = i + 1;
+
+			size_t open_double_quote_index = i;
 
 			do {
 				i++;
-			} while (grug_text[i] != '\"' && grug_text[i] != '\0');
+				if (grug_text[i] == '\0') {
+					GRUG_ERROR("Unclosed \" at character %zu of the grug text file", open_double_quote_index);
+				}
+			} while (grug_text[i] != '\"');
+			i++;
 
-			if (grug_text[i] == '\"') {
-				i++;
-			}
-
-			push_token(STRING_TOKEN, str, i - old_i);
+			push_token(STRING_TOKEN, str, i - old_i - 1);
 		} else if (isalpha(grug_text[i]) || grug_text[i] == '_') {
 			char *str = grug_text+i;
 			size_t old_i = i;
@@ -2906,10 +2908,6 @@ static struct grug_entity *compile_get_entity(char *return_type) {
 }
 
 static void compile() {
-	size_t text_offset_index = 0;
-	size_t text_offset = 0;
-	size_t start_codes_size;
-
 	// Getting the used define fn's grug_entity
 	grug_define_entity = compile_get_entity(define_fn.return_type);
 	if (!grug_define_entity) {
@@ -2928,8 +2926,11 @@ static void compile() {
 
 	init_data_strings();
 
+	size_t text_offset_index = 0;
+	size_t text_offset = 0;
+
 	// define()
-	start_codes_size = codes_size;
+	size_t start_codes_size = codes_size;
 	for (size_t field_index = 0; field_index < define_fn.returned_compound_literal.field_count; field_index++) {
 		static enum code movabs[] = {
 			MOVABS_TO_RDI,
@@ -3506,8 +3507,6 @@ static void compile() {
 #define RELA_ENTRY_SIZE 24
 #define SYMTAB_ENTRY_SIZE 24
 
-#define ON_FNS_SYMBOL_OFFSET 6
-
 // The array element specifies the location and size of a segment
 // which may be made read-only after relocations have been processed
 // From https://refspecs.linuxfoundation.org/LSB_5.0.0/LSB-Core-generic/LSB-Core-generic/progheader.html
@@ -3538,6 +3537,8 @@ static size_t shindex_shstrtab;
 
 static char *symbols[MAX_SYMBOLS];
 static size_t symbols_size;
+
+static size_t on_fns_symbol_offset;
 
 static size_t data_symbols_size;
 static size_t extern_symbols_size;
@@ -3886,6 +3887,12 @@ static void push_data(void) {
 	}
 	push_number(globals_bytes, 8);
 
+	// "strings" symbol
+	for (size_t i = 0; i < data_strings_size; i++) {
+		char *string = data_strings[i];
+		push_string_bytes(string);
+	}
+
 	// "on_fns" function addresses
 	size_t previous_on_fn_index = 0;
 	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
@@ -3897,7 +3904,7 @@ static void push_data(void) {
 			}
 			previous_on_fn_index = on_fn_index;
 
-			size_t symbol_index = ON_FNS_SYMBOL_OFFSET + on_fn_index;
+			size_t symbol_index = on_fns_symbol_offset + on_fn_index;
 			size_t text_index = symbol_index - data_symbols_size - extern_symbols_size;
 			push_number(TEXT_OFFSET + text_offsets[text_index], 8);
 		} else {
@@ -4022,7 +4029,7 @@ static void push_rela_dyn(void) {
 		struct on_fn *on_fn = on_fns_size > 0 ? get_on_fn(grug_define_entity->on_functions[i].name) : NULL;
 		if (on_fn) {
 			size_t on_fn_index = on_fn - on_fns;
-			size_t symbol_index = ON_FNS_SYMBOL_OFFSET + on_fn_index;
+			size_t symbol_index = on_fns_symbol_offset + on_fn_index;
 			size_t text_index = symbol_index - data_symbols_size - extern_symbols_size;
 
 			size_t future_got_plt_size = 0x20;
@@ -4418,19 +4425,26 @@ static void push_bytes(char *grug_path) {
 }
 
 static void init_data_offsets(void) {
+	size_t i = 0;
 	size_t offset = 0;
 
 	// "define_type" symbol
-	data_offsets[0] = 0;
+	data_offsets[i++] = offset;
 	offset += strlen(define_fn.return_type) + 1;
 
 	// "globals_size" symbol
-	data_offsets[1] = offset;
+	data_offsets[i++] = offset;
 	offset += sizeof(uint64_t);
 
+	// "strings" symbol
+	data_offsets[i++] = offset;
+	for (size_t string_index = 0; string_index < data_strings_size; string_index++) {
+		char *string = data_strings[string_index];
+		offset += strlen(string) + 1;
+	}
+
 	// "on_fns" function address symbols
-	data_offsets[2] = offset;
-	size_t i = 2;
+	data_offsets[i] = offset; // This can deliberately be overwritten by the loop
 	for (size_t on_fn_index = 0; on_fn_index < grug_define_entity->on_function_count; on_fn_index++) {
 		data_offsets[i++] = offset;
 		offset += sizeof(size_t);
@@ -4733,6 +4747,9 @@ static void generate_so(char *grug_path, char *dll_path) {
 	push_symbol("globals_size");
 	data_symbols_size++;
 
+	push_symbol("strings");
+	data_symbols_size++;
+
 	push_symbol("on_fns");
 	data_symbols_size++;
 
@@ -4743,6 +4760,7 @@ static void generate_so(char *grug_path, char *dll_path) {
 	push_symbol("define");
 	push_symbol("init_globals");
 
+	on_fns_symbol_offset = symbols_size;
 	for (size_t i = 0; i < on_fns_size; i++) {
 		push_symbol(on_fns[i].fn_name);
 	}
