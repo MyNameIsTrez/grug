@@ -1597,13 +1597,11 @@ static void verify_and_trim_spaces(void) {
 
 //// PARSING
 
-struct string_literal_expr {
-	char *str;
-};
-
-// TODO: Support other number types
-struct number_expr {
-	i64 value;
+struct literal_expr {
+	union {
+		char *string;
+		i64 number; // TODO: Support other number types
+	};
 };
 
 struct unary_expr {
@@ -1640,12 +1638,11 @@ struct expr {
 		PARENTHESIZED_EXPR,
 	} type;
 	union {
-		struct string_literal_expr string_literal_expr;
-		struct number_expr number_expr;
-		struct unary_expr unary_expr;
-		struct binary_expr binary_expr;
-		struct call_expr call_expr;
-		struct parenthesized_expr parenthesized_expr;
+		struct literal_expr literal;
+		struct unary_expr unary;
+		struct binary_expr binary;
+		struct call_expr call;
+		struct parenthesized_expr parenthesized;
 	};
 };
 static char *get_expr_type_str[] = {
@@ -1818,25 +1815,25 @@ static void print_expr(struct expr expr) {
 			break;
 		case STRING_EXPR:
 		case IDENTIFIER_EXPR:
-			grug_log("\"str\": \"%s\",\n", expr.string_literal_expr.str);
+			grug_log("\"str\": \"%s\",\n", expr.literal.string);
 			break;
 		case NUMBER_EXPR:
-			grug_log("\"value\": %ld,\n", expr.number_expr.value);
+			grug_log("\"value\": %ld,\n", expr.literal.number);
 			break;
 		case UNARY_EXPR:
-			grug_log("\"operator\": \"%s\",\n", get_token_type_str[expr.unary_expr.operator]);
+			grug_log("\"operator\": \"%s\",\n", get_token_type_str[expr.unary.operator]);
 			grug_log("\"expr\": {\n");
-			print_expr(exprs[expr.unary_expr.expr_index]);
+			print_expr(exprs[expr.unary.expr_index]);
 			grug_log("},\n");
 			break;
 		case BINARY_EXPR:
-			print_binary_expr(expr.binary_expr);
+			print_binary_expr(expr.binary);
 			break;
 		case CALL_EXPR:
-			print_call_expr(expr.call_expr);
+			print_call_expr(expr.call);
 			break;
 		case PARENTHESIZED_EXPR:
-			print_parenthesized_expr(expr.parenthesized_expr);
+			print_parenthesized_expr(expr.parenthesized);
 			break;
 	}
 }
@@ -1865,7 +1862,7 @@ static void print_statements(size_t statements_offset, size_t statement_count) {
 
 				break;
 			case CALL_STATEMENT:
-				print_call_expr(exprs[statement.call_statement.expr_index].call_expr);
+				print_call_expr(exprs[statement.call_statement.expr_index].call);
 				break;
 			case IF_STATEMENT:
 				grug_log("\"condition\": {\n");
@@ -2123,7 +2120,7 @@ static struct expr parse_primary(size_t *i) {
 		case OPEN_PARENTHESIS_TOKEN:
 			(*i)++;
 			expr.type = PARENTHESIZED_EXPR;
-			expr.parenthesized_expr.expr_index = push_expr(parse_expression(i));
+			expr.parenthesized.expr_index = push_expr(parse_expression(i));
 			consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
 			return expr;
 		case TRUE_TOKEN:
@@ -2137,17 +2134,17 @@ static struct expr parse_primary(size_t *i) {
 		case STRING_TOKEN:
 			(*i)++;
 			expr.type = STRING_EXPR;
-			expr.string_literal_expr.str = token.str;
+			expr.literal.string = token.str;
 			return expr;
 		case WORD_TOKEN:
 			(*i)++;
 			expr.type = IDENTIFIER_EXPR;
-			expr.string_literal_expr.str = token.str;
+			expr.literal.string = token.str;
 			return expr;
 		case NUMBER_TOKEN:
 			(*i)++;
 			expr.type = NUMBER_EXPR;
-			expr.number_expr.value = str_to_i64(token.str);
+			expr.literal.number = str_to_i64(token.str);
 			return expr;
 		default:
 			GRUG_ERROR("Expected a primary expression token, but got token type %s at token index %zu", get_token_type_str[token.type], *i);
@@ -2166,9 +2163,9 @@ static struct expr parse_call(size_t *i) {
 		}
 		expr.type = CALL_EXPR;
 
-		expr.call_expr.fn_name = expr.string_literal_expr.str;
+		expr.call.fn_name = expr.literal.string;
 
-		expr.call_expr.argument_count = 0;
+		expr.call.argument_count = 0;
 
 		token = peek_token(*i);
 		if (token.type == CLOSE_PARENTHESIS_TOKEN) {
@@ -2179,10 +2176,10 @@ static struct expr parse_call(size_t *i) {
 			while (true) {
 				struct expr call_argument = parse_expression(i);
 
-				if (expr.call_expr.argument_count >= MAX_CALL_ARGUMENTS_PER_STACK_FRAME) {
+				if (expr.call.argument_count >= MAX_CALL_ARGUMENTS_PER_STACK_FRAME) {
 					GRUG_ERROR("There are more than %d arguments to a function call in one of the grug file's stack frames, exceeding MAX_CALL_ARGUMENTS_PER_STACK_FRAME", MAX_CALL_ARGUMENTS_PER_STACK_FRAME);
 				}
-				local_call_arguments[expr.call_expr.argument_count++] = call_argument;
+				local_call_arguments[expr.call.argument_count++] = call_argument;
 
 				token = peek_token(*i);
 				if (token.type != COMMA_TOKEN) {
@@ -2193,8 +2190,8 @@ static struct expr parse_call(size_t *i) {
 				(*i)++;
 			}
 
-			expr.call_expr.arguments_exprs_offset = exprs_size;
-			for (size_t argument_index = 0; argument_index < expr.call_expr.argument_count; argument_index++) {
+			expr.call.arguments_exprs_offset = exprs_size;
+			for (size_t argument_index = 0; argument_index < expr.call.argument_count; argument_index++) {
 				push_expr(local_call_arguments[argument_index]);
 			}
 		}
@@ -2212,9 +2209,9 @@ static struct expr parse_member(size_t *i) {
 			break;
 		}
 		(*i)++;
-		expr.binary_expr.left_expr_index = push_expr(expr);
-		expr.binary_expr.operator = PERIOD_TOKEN;
-		expr.binary_expr.right_expr_index = push_expr(parse_call(i));
+		expr.binary.left_expr_index = push_expr(expr);
+		expr.binary.operator = PERIOD_TOKEN;
+		expr.binary.right_expr_index = push_expr(parse_call(i));
 		expr.type = BINARY_EXPR;
 	}
 
@@ -2228,8 +2225,8 @@ static struct expr parse_unary(size_t *i) {
 		(*i)++;
 		struct expr expr = {0};
 
-		expr.unary_expr.operator = token.type;
-		expr.unary_expr.expr_index = push_expr(parse_unary(i));
+		expr.unary.operator = token.type;
+		expr.unary.expr_index = push_expr(parse_unary(i));
 		expr.type = UNARY_EXPR;
 		
 		return expr;
@@ -2249,9 +2246,9 @@ static struct expr parse_factor(size_t *i) {
 			break;
 		}
 		(*i)++;
-		expr.binary_expr.left_expr_index = push_expr(expr);
-		expr.binary_expr.operator = token.type;
-		expr.binary_expr.right_expr_index = push_expr(parse_unary(i));
+		expr.binary.left_expr_index = push_expr(expr);
+		expr.binary.operator = token.type;
+		expr.binary.right_expr_index = push_expr(parse_unary(i));
 		expr.type = BINARY_EXPR;
 	}
 
@@ -2268,9 +2265,9 @@ static struct expr parse_term(size_t *i) {
 			break;
 		}
 		(*i)++;
-		expr.binary_expr.left_expr_index = push_expr(expr);
-		expr.binary_expr.operator = token.type;
-		expr.binary_expr.right_expr_index = push_expr(parse_factor(i));
+		expr.binary.left_expr_index = push_expr(expr);
+		expr.binary.operator = token.type;
+		expr.binary.right_expr_index = push_expr(parse_factor(i));
 		expr.type = BINARY_EXPR;
 	}
 
@@ -2289,9 +2286,9 @@ static struct expr parse_comparison(size_t *i) {
 			break;
 		}
 		(*i)++;
-		expr.binary_expr.left_expr_index = push_expr(expr);
-		expr.binary_expr.operator = token.type;
-		expr.binary_expr.right_expr_index = push_expr(parse_term(i));
+		expr.binary.left_expr_index = push_expr(expr);
+		expr.binary.operator = token.type;
+		expr.binary.right_expr_index = push_expr(parse_term(i));
 		expr.type = BINARY_EXPR;
 	}
 
@@ -2308,9 +2305,9 @@ static struct expr parse_equality(size_t *i) {
 			break;
 		}
 		(*i)++;
-		expr.binary_expr.left_expr_index = push_expr(expr);
-		expr.binary_expr.operator = token.type;
-		expr.binary_expr.right_expr_index = push_expr(parse_comparison(i));
+		expr.binary.left_expr_index = push_expr(expr);
+		expr.binary.operator = token.type;
+		expr.binary.right_expr_index = push_expr(parse_comparison(i));
 		expr.type = BINARY_EXPR;
 	}
 
@@ -2742,6 +2739,7 @@ static void parse(void) {
 
 #define MAX_SYMBOLS 420420
 #define MAX_CODES 420420
+#define MAX_DATA_STRINGS 420420
 
 enum code {
 	MOV_TO_EAX = 0xb8,
@@ -2762,6 +2760,9 @@ static struct grug_entity *grug_define_entity;
 
 static u32 buckets_define_on_fns[MAX_ON_FNS_IN_FILE];
 static u32 chains_define_on_fns[MAX_ON_FNS_IN_FILE];
+
+static char *data_strings[MAX_DATA_STRINGS];
+static size_t data_strings_size;
 
 static void compile_push_byte(u8 byte) {
 	if (codes_size >= MAX_CODES) {
@@ -2788,6 +2789,24 @@ static void compile_push_number(u64 n, size_t byte_count) {
 
 	// Optional padding
 	compile_push_zeros(byte_count);
+}
+
+static void push_data_string(char *string) {
+	if (data_strings_size >= MAX_DATA_STRINGS) {
+		GRUG_ERROR("There are more than %d data strings, exceeding MAX_DATA_STRINGS", MAX_DATA_STRINGS);
+	}
+
+	data_strings[data_strings_size++] = string;
+}
+
+static void init_data_strings(void) {
+	for (size_t field_index = 0; field_index < define_fn.returned_compound_literal.field_count; field_index++) {
+		struct field field = fields[define_fn.returned_compound_literal.fields_offset + field_index];
+
+		if (field.expr_value.type == STRING_EXPR) {
+			push_data_string(field.expr_value.literal.string);
+		}
+	}
 }
 
 static struct grug_on_function *get_define_on_fn(char *name) {
@@ -2824,7 +2843,7 @@ static void hash_define_on_fns(void) {
 	}
 }
 
-static void compile_init_define_fn_name(char *name) {
+static void init_define_fn_name(char *name) {
 	if (strings_size + sizeof("define_") - 1 + strlen(name) >= MAX_STRINGS_CHARACTERS) {
 		GRUG_ERROR("There are more than %d characters in the strings array, exceeding MAX_STRINGS_CHARACTERS", MAX_STRINGS_CHARACTERS);
 	}
@@ -2862,13 +2881,15 @@ static void compile() {
 	if (grug_define_entity->argument_count != define_fn.returned_compound_literal.field_count) {
 		GRUG_ERROR("The entity '%s' expects %zu fields, but got %zu", grug_define_entity->name, grug_define_entity->argument_count, define_fn.returned_compound_literal.field_count);
 	}
-	compile_init_define_fn_name(grug_define_entity->name);
+	init_define_fn_name(grug_define_entity->name);
 	hash_define_on_fns();
 	for (size_t on_fn_index = 0; on_fn_index < on_fns_size; on_fn_index++) {
 		if (grug_define_entity->on_function_count == 0 || !get_define_on_fn(on_fns[on_fn_index].fn_name)) {
 			GRUG_ERROR("The function '%s' was not was not declared by entity '%s' in mod_api.json", on_fns[on_fn_index].fn_name, define_fn.return_type);
 		}
 	}
+
+	init_data_strings();
 
 	// define()
 	start_codes_size = codes_size;
@@ -2890,7 +2911,7 @@ static void compile() {
 		// TODO: Verify that the argument has the same type as the one in grug_define_entity
 
 		// TODO: Replace .fields_offset with a simple pointer to the first field
-		compile_push_number(field.expr_value.number_expr.value, 8);
+		compile_push_number(field.expr_value.literal.number, 8);
 	}
 	compile_push_byte(CALL);
 	// TODO: Figure out where 0xffffffeb comes from,
@@ -2916,7 +2937,7 @@ static void compile() {
 
 		// TODO: Make it possible to retrieve .string_literal_expr here
 		// TODO: Add test that only literals can initialize global variables, so no equations
-		i64 value = global_variable.assignment_expr.number_expr.value;
+		i64 value = global_variable.assignment_expr.literal.number;
 
 		compile_push_number(value, 4);
 	}
