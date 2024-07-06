@@ -2764,6 +2764,11 @@ static u32 chains_define_on_fns[MAX_ON_FNS_IN_FILE];
 static char *data_strings[MAX_DATA_STRINGS];
 static size_t data_strings_size;
 
+// TODO: Replace this 420 define with the total number of data strings in the entire file
+#define MAX_BUCKETS_DATA_STRINGS 420
+static u32 buckets_data_strings[MAX_DATA_STRINGS];
+static u32 chains_data_strings[MAX_DATA_STRINGS];
+
 static void compile_push_byte(u8 byte) {
 	if (codes_size >= MAX_CODES) {
 		GRUG_ERROR("There are more than %d code bytes, exceeding MAX_CODES", MAX_CODES);
@@ -2799,12 +2804,44 @@ static void push_data_string(char *string) {
 	data_strings[data_strings_size++] = string;
 }
 
-static void init_data_strings(void) {
-	for (size_t field_index = 0; field_index < define_fn.returned_compound_literal.field_count; field_index++) {
-		struct field field = fields[define_fn.returned_compound_literal.fields_offset + field_index];
+static char *get_data_string(char *string) {
+	u32 i = buckets_data_strings[elf_hash(string) % MAX_BUCKETS_DATA_STRINGS];
 
-		if (field.expr_value.type == STRING_EXPR) {
-			push_data_string(field.expr_value.literal.string);
+	while (1) {
+		if (i == UINT32_MAX) {
+			return NULL;
+		}
+
+		if (streq(string, data_strings[i])) {
+			break;
+		}
+
+		i = chains_data_strings[i];
+	}
+
+	return data_strings[i];
+}
+
+static void init_data_strings(void) {
+	size_t field_count = define_fn.returned_compound_literal.field_count;
+
+	memset(buckets_data_strings, UINT32_MAX, MAX_BUCKETS_DATA_STRINGS * sizeof(u32));
+
+	size_t chains_size = 0;
+
+	for (size_t i = 0; i < field_count; i++) {
+		struct field field = fields[define_fn.returned_compound_literal.fields_offset + i];
+
+		if (field.expr_value.type == STRING_EXPR && get_data_string(field.expr_value.literal.string) == NULL) {
+			char *string = field.expr_value.literal.string;
+
+			push_data_string(string);
+
+			u32 bucket_index = elf_hash(string) % MAX_BUCKETS_DATA_STRINGS;
+
+			chains_data_strings[chains_size++] = buckets_data_strings[bucket_index];
+
+			buckets_data_strings[bucket_index] = i;
 		}
 	}
 }
