@@ -2743,6 +2743,9 @@ static void parse(void) {
 #define MAX_CODES 420420
 #define MAX_DATA_STRINGS 420420
 
+#define PLACEHOLDER_32 0x32343234
+#define PLACEHOLDER_64 0x3234323432343234
+
 enum code {
 	MOV_TO_EAX = 0xb8,
 	CALL = 0xe8,
@@ -2964,8 +2967,7 @@ static void compile() {
 			// size_t string_address = 42; // TODO: Replace
 			// size_t next_instruction_address = codes_size + 4; // rip/PC (program counter)
 			// size_t string_offset = string_address - next_instruction_address;
-			size_t string_offset = 42;
-			compile_push_number(string_offset, 4);
+			compile_push_number(PLACEHOLDER_32, 4);
 		} else {
 			assert(false);
 		}
@@ -3525,8 +3527,6 @@ static void compile() {
 
 #define RELA_ENTRY_SIZE 24
 #define SYMTAB_ENTRY_SIZE 24
-
-#define PLACEHOLDER_64 0x3234323432343234
 
 // The array element specifies the location and size of a segment
 // which may be made read-only after relocations have been processed
