@@ -3596,7 +3596,7 @@ static size_t symbol_index_to_shuffled_symbol_index[MAX_SYMBOLS];
 static size_t define_fn_name_symbol_index;
 
 static size_t data_offsets[MAX_SYMBOLS];
-static size_t data_strings_data_offset;
+static size_t data_string_offsets[MAX_SYMBOLS];
 
 static u8 bytes[MAX_BYTES];
 static size_t bytes_size;
@@ -3703,7 +3703,7 @@ static void patch_bytes() {
 		size_t string_index = get_data_string_index(string);
 		assert(string_index != UINT32_MAX);
 
-		size_t string_address = DATA_OFFSET + data_offsets[data_strings_data_offset + string_index];
+		size_t string_address = DATA_OFFSET + data_string_offsets[string_index];
 		size_t string_offset = string_address - next_instruction_address;
 
 		size_t text_offset = text_starting_offset + code_offset;
@@ -4076,8 +4076,9 @@ static void push_rela_plt(void) {
 	 // `1 +` skips the first symbol, which is always undefined
 	size_t define_entity_dynsym_index = 1 + symbol_index_to_shuffled_symbol_index[define_fn_name_symbol_index];
 
-	size_t define_entity_symtab_index = 7; // TODO: Stop having this hardcoded!
+	size_t define_entity_symtab_index = 7;
 
+	// TODO: Turn 0x18 into a descriptive variable
 	push_rela(GOT_PLT_OFFSET + 0x18, ELF64_R_INFO(define_entity_dynsym_index, define_entity_symtab_index), 0);
 
 	segment_0_size = bytes_size;
@@ -4499,10 +4500,10 @@ static void init_data_offsets(void) {
 	offset += sizeof(uint64_t);
 
 	// "strings" symbol
-	data_strings_data_offset = i;
 	if (data_strings_size > 0) {
 		data_offsets[i++] = offset;
 		for (size_t string_index = 0; string_index < data_strings_size; string_index++) {
+			data_string_offsets[string_index] = offset;
 			char *string = data_strings[string_index];
 			offset += strlen(string) + 1;
 		}
