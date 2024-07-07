@@ -4045,12 +4045,6 @@ static void push_data(void) {
 	}
 	push_number(globals_bytes, 8);
 
-	// "strings" symbol
-	for (size_t i = 0; i < data_strings_size; i++) {
-		char *string = data_strings[i];
-		push_string_bytes(string);
-	}
-
 	// "on_fns" function addresses
 	size_t previous_on_fn_index = 0;
 	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
@@ -4068,6 +4062,12 @@ static void push_data(void) {
 		} else {
 			push_number(0x0, 8);
 		}
+	}
+
+	// "strings" symbol
+	for (size_t i = 0; i < data_strings_size; i++) {
+		char *string = data_strings[i];
+		push_string_bytes(string);
 	}
 
 	push_alignment(8);
@@ -4560,6 +4560,13 @@ static void init_data_offsets(void) {
 	data_offsets[i++] = offset;
 	offset += sizeof(uint64_t);
 
+	// "on_fns" function address symbols
+	data_offsets[i] = offset; // This can deliberately be overwritten by the loop
+	for (size_t on_fn_index = 0; on_fn_index < grug_define_entity->on_function_count; on_fn_index++) {
+		data_offsets[i++] = offset;
+		offset += sizeof(size_t);
+	}
+
 	// "strings" symbol
 	if (data_strings_size > 0) {
 		data_offsets[i++] = offset;
@@ -4568,13 +4575,6 @@ static void init_data_offsets(void) {
 			char *string = data_strings[string_index];
 			offset += strlen(string) + 1;
 		}
-	}
-
-	// "on_fns" function address symbols
-	data_offsets[i] = offset; // This can deliberately be overwritten by the loop
-	for (size_t on_fn_index = 0; on_fn_index < grug_define_entity->on_function_count; on_fn_index++) {
-		data_offsets[i++] = offset;
-		offset += sizeof(size_t);
 	}
 
 	data_size = offset;
@@ -4831,13 +4831,13 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 	push_symbol("globals_size");
 	data_symbols_size++;
 
-	if (data_strings_size > 0) {
-		push_symbol("strings");
+	if (grug_define_entity->on_function_count > 0) {
+		push_symbol("on_fns");
 		data_symbols_size++;
 	}
 
-	if (grug_define_entity->on_function_count > 0) {
-		push_symbol("on_fns");
+	if (data_strings_size > 0) {
+		push_symbol("strings");
 		data_symbols_size++;
 	}
 
