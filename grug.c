@@ -2750,10 +2750,20 @@ enum code {
 	CALL = 0xe8,
 	RET = 0xc3,
 	MOV_TO_RDI_PTR = 0x47c7,
+
 	MOVABS_TO_RDI = 0xbf48,
 	MOVABS_TO_RSI = 0xbe48,
+	MOVABS_TO_RDX = 0xba48,
+	MOVABS_TO_RCX = 0xb948,
+	MOVABS_TO_R8 = 0xb849,
+	MOVABS_TO_R9 = 0xb949,
+
 	LEA_TO_RDI = 0x3d8d48,
 	LEA_TO_RSI = 0x358d48,
+	LEA_TO_RDX = 0x158d48,
+	LEA_TO_RCX = 0x0d8d48,
+	LEA_TO_R8 = 0x058d4c,
+	LEA_TO_R9 = 0x0d8d4c,
 };
 
 struct data_string_code {
@@ -2953,7 +2963,7 @@ static void compile() {
 	// define()
 	size_t start_codes_size = codes_size;
 	size_t field_count = define_fn.returned_compound_literal.field_count;
-	assert(field_count <= 2); // TODO: Support more arguments
+	assert(field_count <= 6); // TODO: Support more arguments
 	for (size_t field_index = 0; field_index < field_count; field_index++) {
 		// TODO: Replace .fields_offset with a simple pointer to the first field
 		struct field field = fields[define_fn.returned_compound_literal.fields_offset + field_index];
@@ -2968,6 +2978,10 @@ static void compile() {
 			static enum code arg_index_to_code[] = {
 				MOVABS_TO_RDI,
 				MOVABS_TO_RSI,
+				MOVABS_TO_RDX,
+				MOVABS_TO_RCX,
+				MOVABS_TO_R8,
+				MOVABS_TO_R9,
 			};
 			compile_push_number(arg_index_to_code[field_index], 2);
 
@@ -2976,6 +2990,10 @@ static void compile() {
 			static enum code arg_index_to_code[] = {
 				LEA_TO_RDI,
 				LEA_TO_RSI,
+				LEA_TO_RDX,
+				LEA_TO_RCX,
+				LEA_TO_R8,
+				LEA_TO_R9,
 			};
 			compile_push_number(arg_index_to_code[field_index], 3);
 
