@@ -3593,6 +3593,8 @@ static size_t shuffled_symbols_size;
 static size_t shuffled_symbol_index_to_symbol_index[MAX_SYMBOLS];
 static size_t symbol_index_to_shuffled_symbol_index[MAX_SYMBOLS];
 
+static size_t define_fn_name_symbol_index;
+
 static size_t data_offsets[MAX_SYMBOLS];
 static size_t data_strings_data_offset;
 
@@ -4071,12 +4073,12 @@ static void push_rela(u64 offset, u64 info, u64 addend) {
 static void push_rela_plt(void) {
 	rela_plt_offset = bytes_size;
 
-	size_t define_entity_dynsym_index = symbol_index_to_shuffled_symbol_index[0]; // TODO: Why [0]?
+	 // `1 +` skips the first symbol, which is always undefined
+	size_t define_entity_dynsym_index = 1 + symbol_index_to_shuffled_symbol_index[define_fn_name_symbol_index];
+
 	size_t define_entity_symtab_index = 7; // TODO: Stop having this hardcoded!
 
-	size_t dynsym_index = 1 + symbol_index_to_shuffled_symbol_index[define_entity_dynsym_index]; // `1 +` skips UND
-
-	push_rela(GOT_PLT_OFFSET + 0x18, ELF64_R_INFO(dynsym_index, define_entity_symtab_index), 0);
+	push_rela(GOT_PLT_OFFSET + 0x18, ELF64_R_INFO(define_entity_dynsym_index, define_entity_symtab_index), 0);
 
 	segment_0_size = bytes_size;
 
@@ -4820,6 +4822,7 @@ static void generate_so(char *grug_path, char *dll_path) {
 		data_symbols_size++;
 	}
 
+	define_fn_name_symbol_index = data_symbols_size;
 	push_symbol(define_fn_name);
 	// TODO: Only push the grug_game_function symbols that are called
 	extern_symbols_size = 1;
