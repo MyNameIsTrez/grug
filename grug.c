@@ -3807,6 +3807,15 @@ static void push_zeros(size_t count) {
 	}
 }
 
+static void push_nasm_alignment(size_t alignment) {
+	size_t excess = bytes_size % alignment;
+	if (excess > 0) {
+		for (size_t i = 0; i < alignment - excess; i++) {
+			push_byte(0x90);
+		}
+	}
+}
+
 static void push_alignment(size_t alignment) {
 	size_t excess = bytes_size % alignment;
 	if (excess > 0) {
@@ -4028,6 +4037,7 @@ static void push_data(void) {
 	push_string_bytes(define_fn.return_type);
 
 	// "globals_size" symbol
+	push_nasm_alignment(8);
 	size_t globals_bytes = 0;
 	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
 		struct global_variable global_variable = global_variables[global_variable_index];
@@ -4327,7 +4337,7 @@ static void push_section_headers(void) {
 	push_section_header(got_plt_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, GOT_PLT_OFFSET, GOT_PLT_OFFSET, got_plt_size, SHN_UNDEF, 0, 8, 8);
 
 	// .data: Data section
-	push_section_header(data_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, DATA_OFFSET, DATA_OFFSET, data_size, SHN_UNDEF, 0, 4, 0);
+	push_section_header(data_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, DATA_OFFSET, DATA_OFFSET, data_size, SHN_UNDEF, 0, 8, 0);
 
 	// .symtab: Symbol table section
 	// The "link" argument is the section header index of the associated string table
@@ -4538,6 +4548,10 @@ static void init_data_offsets(void) {
 	offset += strlen(define_fn.return_type) + 1;
 
 	// "globals_size" symbol
+	size_t excess = offset % sizeof(uint64_t); // Alignment
+	if (excess > 0) {
+		offset += sizeof(uint64_t) - excess;
+	}
 	data_offsets[i++] = offset;
 	offset += sizeof(uint64_t);
 
