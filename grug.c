@@ -78,7 +78,7 @@ static jmp_buf error_jmp_buffer;
 static char temp_strings[TEMP_MAX_STRINGS_CHARACTERS];
 static size_t temp_strings_size;
 
-static void reset_utils() {
+static void reset_utils(void) {
 	temp_strings_size = 0;
 }
 
@@ -1152,6 +1152,10 @@ static char *get_token_type_str[] = {
 static struct token tokens[MAX_TOKENS_IN_FILE];
 static size_t tokens_size;
 
+static void reset_tokenization(void) {
+	tokens_size = 0;
+}
+
 static size_t max_size_t(size_t a, size_t b) {
 	if (a > b) {
 		return a;
@@ -1246,6 +1250,8 @@ static void push_token(enum token_type type, char *str, size_t len) {
 }
 
 static void tokenize(char *grug_text) {
+	reset_tokenization();
+
 	size_t i = 0;
 	while (grug_text[i]) {
 		if (       grug_text[i] == '(') {
@@ -1802,6 +1808,16 @@ struct global_variable {
 };
 static struct global_variable global_variables[MAX_GLOBAL_VARIABLES_IN_FILE];
 static size_t global_variables_size;
+
+static void reset_parsing(void) {
+	exprs_size = 0;
+	fields_size = 0;
+	statements_size = 0;
+	arguments_size = 0;
+	on_fns_size = 0;
+	helper_fns_size = 0;
+	global_variables_size = 0;
+}
 
 static void print_expr(struct expr expr);
 
@@ -2716,6 +2732,8 @@ static void parse_global_resources_fn(size_t *i) {
 }
 
 static void parse(void) {
+	reset_parsing();
+
 	bool seen_define_fn = false;
 	bool seen_global_resources_fn = false;
 
@@ -2772,8 +2790,8 @@ static void parse(void) {
 #define MAX_DATA_STRINGS 420420
 #define MAX_DATA_STRING_CODES 420420
 
-#define PLACEHOLDER_32 0x32343234
-#define PLACEHOLDER_64 0x3234323432343234
+#define PLACEHOLDER_32 0xDEADBEEF
+#define PLACEHOLDER_64 0xDEADBEEFDEADBEEF
 
 enum code {
 	MOV_TO_EAX = 0xb8,
@@ -2822,6 +2840,12 @@ static u32 chains_data_strings[MAX_DATA_STRINGS];
 
 static struct data_string_code data_string_codes[MAX_DATA_STRING_CODES];
 static size_t data_string_codes_size;
+
+static void reset_compiling(void) {
+	codes_size = 0;
+	data_strings_size = 0;
+	data_string_codes_size = 0;
+}
 
 static void push_data_string_code(char *string, size_t code_offset) {
 	if (data_string_codes_size >= MAX_DATA_STRING_CODES) {
@@ -2969,6 +2993,8 @@ static struct grug_entity *compile_get_entity(char *return_type) {
 }
 
 static void compile() {
+	reset_compiling();
+
 	// Getting the used define fn's grug_entity
 	grug_define_entity = compile_get_entity(define_fn.return_type);
 	if (!grug_define_entity) {
@@ -3692,6 +3718,13 @@ static size_t symtab_shstrtab_offset;
 static size_t strtab_shstrtab_offset;
 static size_t shstrtab_shstrtab_offset;
 
+static void reset_generate_shared_object(void) {
+	symbols_size = 0;
+	data_symbols_size = 0;
+	shuffled_symbols_size = 0;
+	bytes_size = 0;
+}
+
 static void overwrite(u64 n, size_t bytes_offset, size_t overwrite_count) {
 	for (size_t i = 0; i < overwrite_count; i++) {
 		// Little-endian requires the least significant byte first
@@ -4202,46 +4235,7 @@ static u32 get_nbucket(void) {
 	return nbucket;
 }
 
-// See https://flapenguin.me/elf-dt-hash
-// See https://refspecs.linuxfoundation.org/elf/gabi4+/ch5.dynamic.html#hash
-//
-// Example with 16 symbols "abcdefghijklmnop":
-// 
-// nbuckets: 3 (what get_nbucket() returns when there are 16 symbols)
-// nchain: 17 (16 symbols + the SHT_UNDEF at index 0)
-// 
-// Bucket[i] always has the value of the last entry that has `hash % nbucket` equal to `i`
-// 
-//  i  bucket[i]  name of first symbol in chain
-// --  ---------  -----------------------------
-//  0  11         c
-//  1  16         m
-//  2  15         e
-// 
-// Two asterisks ** and parens () indicate the start of a chain
-// 
-//        SYMBOL TABLE   |
-//                       |
-// 	   name =            | hash =          bucket_index =
-//  i  symtab[i].st_name | elf_hash(name)  hash % nbucket
-// --  ----------------- | --------------  --------------  
-//  0  <STN_UNDEF>       |
-//  1  b                 |  98             2                 /---> 0
-//  2  p                 | 112             1                 | /-> 0
-//  3  j                 | 106             1                 | \-- 2 <---\.
-//  4  n                 | 110             2                 \---- 1 <---|-\.
-//  5  f                 | 102             0                       0 <-\ | |
-//  6  g                 | 103             1                 /---> 3 --|-/ |
-//  7  o                 | 111             0                 | /-> 5 --/   |
-//  8  l                 | 108             0                 | \-- 7 <-\   |
-//  9  k                 | 107             2               /-|---> 4 --|---/
-// 10  i                 | 105             0               | | /-> 8 --/
-// 11  c                 |  99             0 **            | | \-(10)
-// 12  d                 | 100             1               | \---- 6 <-\.
-// 13  h                 | 104             2               \------ 9 <-|-\.
-// 14  a                 |  97             1                  /-> 12 --/ |
-// 15  e                 | 101             2 **               |  (13)----/
-// 16  m                 | 109             1 **               \--(14)
+// See my blog post: https://mynameistrez.github.io/2024/06/19/array-based-hash-table-in-c.html
 static void push_hash(void) {
 	hash_offset = bytes_size;
 
@@ -4680,44 +4674,8 @@ static unsigned long bfd_hash_hash(const char *string) {
 	return hash;
 }
 
-// See the documentation of push_hash() for how this function roughly works
-//
-// name | index
-// "a"  | 3485
-// "b"  |  245
-// "c"  | 2224
-// "d"  | 2763
-// "e"  | 3574
-// "f"  |  553
-// "g"  |  872
-// "h"  | 3042
-// "i"  | 1868
-// "j"  |  340
-// "k"  | 1151
-// "l"  | 1146
-// "m"  | 3669
-// "n"  |  429
-// "o"  |  967
-// "p"  |  256
-//
-// This gets shuffled by ld to this:
-// (see https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l618)
-// "b"
-// "p"
-// "j"
-// "n"
-// "f"
-// "g"
-// "o"
-// "l"
-// "k"
-// "i"
-// "c"
-// "d"
-// "h"
-// "a"
-// "e"
-// "m"
+// See my blog post: https://mynameistrez.github.io/2024/06/19/array-based-hash-table-in-c.html
+// See https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l618)
 static void generate_shuffled_symbols(void) {
 	#define DEFAULT_SIZE 4051 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l345
 
@@ -4841,17 +4799,10 @@ static void init_section_header_indices(void) {
 	shindex_shstrtab = shindex++;
 }
 
-static void reset_generate_so(void) {
-	symbols_size = 0;
-	data_symbols_size = 0;
-	shuffled_symbols_size = 0;
-	bytes_size = 0;
-}
-
-static void generate_so(char *grug_path, char *dll_path) {
+static void generate_shared_object(char *grug_path, char *dll_path) {
 	text_size = codes_size;
 
-	reset_generate_so();
+	reset_generate_shared_object();
 
 	init_section_header_indices();
 
@@ -4914,20 +4865,6 @@ struct grug_modified *grug_reloads;
 size_t grug_reloads_size;
 static size_t reloads_capacity;
 
-static void reset_regenerate_dll(void) {
-	reset_utils();
-
-	// TODO: Move these into their sections' reset() functions!
-	tokens_size = 0;
-	fields_size = 0;
-	exprs_size = 0;
-	statements_size = 0;
-	arguments_size = 0;
-	helper_fns_size = 0;
-	on_fns_size = 0;
-	global_variables_size = 0;
-}
-
 static void regenerate_dll(char *grug_path, char *dll_path) {
 	grug_log("Regenerating %s\n", dll_path);
 
@@ -4937,7 +4874,7 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 		parsed_mod_api_json = true;
 	}
 
-	reset_regenerate_dll();
+	reset_utils();
 
 	char *grug_text = read_file(grug_path);
 	grug_log("grug_text:\n%s\n", grug_text);
@@ -4956,7 +4893,7 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 
 	compile();
 
-	generate_so(grug_path, dll_path);
+	generate_shared_object(grug_path, dll_path);
 }
 
 // Returns whether an error occurred
