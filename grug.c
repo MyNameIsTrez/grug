@@ -335,8 +335,6 @@ static bool is_duplicate_key(struct json_field *child_fields, size_t field_count
 static void check_duplicate_keys(struct json_field *child_fields, size_t field_count) {
 	memset(json_buckets, UINT32_MAX, field_count * sizeof(u32));
 
-	size_t chains_size = 0;
-
 	for (size_t i = 0; i < field_count; i++) {
 		char *key = child_fields[i].key;
 
@@ -346,7 +344,7 @@ static void check_duplicate_keys(struct json_field *child_fields, size_t field_c
 
 		u32 bucket_index = elf_hash(key) % field_count;
 
-		json_chains[chains_size++] = json_buckets[bucket_index];
+		json_chains[i] = json_buckets[bucket_index];
 
 		json_buckets[bucket_index] = i;
 	}
@@ -2742,6 +2740,7 @@ static void parse(void) {
 #define MAX_SYMBOLS 420420
 #define MAX_CODES 420420
 #define MAX_DATA_STRINGS 420420
+#define MAX_DATA_STRING_CODES 420420
 
 #define PLACEHOLDER_32 0x32343234
 #define PLACEHOLDER_64 0x3234323432343234
@@ -2755,6 +2754,11 @@ enum code {
 	MOVABS_TO_RSI = 0xbe48,
 	LEA_TO_RDI = 0x3d8d48,
 	LEA_TO_RSI = 0x358d48,
+};
+
+struct data_string_code {
+	char *string;
+	size_t code_offset;
 };
 
 static size_t text_offsets[MAX_SYMBOLS];
@@ -2775,6 +2779,20 @@ static size_t data_strings_size;
 #define MAX_BUCKETS_DATA_STRINGS 420
 static u32 buckets_data_strings[MAX_DATA_STRINGS];
 static u32 chains_data_strings[MAX_DATA_STRINGS];
+
+static struct data_string_code data_string_codes[MAX_DATA_STRING_CODES];
+static size_t data_string_codes_size;
+
+static void push_data_string_code(char *string, size_t code_offset) {
+	if (data_string_codes_size >= MAX_DATA_STRING_CODES) {
+		GRUG_ERROR("There are more than %d data string code bytes, exceeding MAX_DATA_STRING_CODES", MAX_DATA_STRING_CODES);
+	}
+
+	data_string_codes[data_string_codes_size++] = (struct data_string_code){
+		.string = string,
+		.code_offset = code_offset,
+	};
+}
 
 static void compile_push_byte(u8 byte) {
 	if (codes_size >= MAX_CODES) {
@@ -2811,12 +2829,12 @@ static void push_data_string(char *string) {
 	data_strings[data_strings_size++] = string;
 }
 
-static char *get_data_string(char *string) {
+static u32 get_data_string_index(char *string) {
 	u32 i = buckets_data_strings[elf_hash(string) % MAX_BUCKETS_DATA_STRINGS];
 
 	while (1) {
 		if (i == UINT32_MAX) {
-			return NULL;
+			return UINT32_MAX;
 		}
 
 		if (streq(string, data_strings[i])) {
@@ -2826,7 +2844,7 @@ static char *get_data_string(char *string) {
 		i = chains_data_strings[i];
 	}
 
-	return data_strings[i];
+	return i;
 }
 
 static void init_data_strings(void) {
@@ -2836,19 +2854,19 @@ static void init_data_strings(void) {
 
 	size_t chains_size = 0;
 
-	for (size_t i = 0; i < field_count; i++) {
-		struct field field = fields[define_fn.returned_compound_literal.fields_offset + i];
+	for (size_t field_index = 0; field_index < field_count; field_index++) {
+		struct field field = fields[define_fn.returned_compound_literal.fields_offset + field_index];
 
-		if (field.expr_value.type == STRING_EXPR && get_data_string(field.expr_value.literal.string) == NULL) {
+		if (field.expr_value.type == STRING_EXPR && get_data_string_index(field.expr_value.literal.string) == UINT32_MAX) {
 			char *string = field.expr_value.literal.string;
 
 			push_data_string(string);
 
 			u32 bucket_index = elf_hash(string) % MAX_BUCKETS_DATA_STRINGS;
 
-			chains_data_strings[chains_size++] = buckets_data_strings[bucket_index];
+			chains_data_strings[chains_size] = buckets_data_strings[bucket_index];
 
-			buckets_data_strings[bucket_index] = i;
+			buckets_data_strings[bucket_index] = chains_size++;
 		}
 	}
 }
@@ -2874,14 +2892,12 @@ static struct grug_on_function *get_define_on_fn(char *name) {
 static void hash_define_on_fns(void) {
 	memset(buckets_define_on_fns, UINT32_MAX, grug_define_entity->on_function_count * sizeof(u32));
 
-	size_t chains_size = 0;
-
 	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
 		char *name = grug_define_entity->on_functions[i].name;
 
 		u32 bucket_index = elf_hash(name) % grug_define_entity->on_function_count;
 
-		chains_define_on_fns[chains_size++] = buckets_define_on_fns[bucket_index];
+		chains_define_on_fns[i] = buckets_define_on_fns[bucket_index];
 
 		buckets_define_on_fns[bucket_index] = i;
 	}
@@ -2949,24 +2965,23 @@ static void compile() {
 		// TODO: Verify that the argument has the same type as the one in grug_define_entity
 
 		if (field.expr_value.type == NUMBER_EXPR) {
-			static enum code code_lut[] = {
+			static enum code arg_index_to_code[] = {
 				MOVABS_TO_RDI,
 				MOVABS_TO_RSI,
 			};
-			compile_push_number(code_lut[field_index], 2);
+			compile_push_number(arg_index_to_code[field_index], 2);
 
 			compile_push_number(field.expr_value.literal.number, 8);
 		} else if (field.expr_value.type == STRING_EXPR) {
-			static enum code code_lut[] = {
+			static enum code arg_index_to_code[] = {
 				LEA_TO_RDI,
 				LEA_TO_RSI,
 			};
-			compile_push_number(code_lut[field_index], 3);
+			compile_push_number(arg_index_to_code[field_index], 3);
 
-			// TODO: Move this to patch_bytes()
-			// size_t string_address = 42; // TODO: Replace
-			// size_t next_instruction_address = codes_size + 4; // rip/PC (program counter)
-			// size_t string_offset = string_address - next_instruction_address;
+			push_data_string_code(field.expr_value.literal.string, codes_size);
+
+			// RIP-relative address of data string
 			compile_push_number(PLACEHOLDER_32, 4);
 		} else {
 			assert(false);
@@ -3579,9 +3594,11 @@ static size_t shuffled_symbol_index_to_symbol_index[MAX_SYMBOLS];
 static size_t symbol_index_to_shuffled_symbol_index[MAX_SYMBOLS];
 
 static size_t data_offsets[MAX_SYMBOLS];
+static size_t data_strings_data_offset;
 
 static u8 bytes[MAX_BYTES];
 static size_t bytes_size;
+static size_t text_starting_offset;
 
 static size_t symtab_index_first_global;
 
@@ -3625,8 +3642,8 @@ static size_t symtab_shstrtab_offset;
 static size_t strtab_shstrtab_offset;
 static size_t shstrtab_shstrtab_offset;
 
-static void overwrite_address(u64 n, size_t bytes_offset) {
-	for (size_t i = 0; i < 8; i++) {
+static void overwrite(u64 n, size_t bytes_offset, size_t overwrite_count) {
+	for (size_t i = 0; i < overwrite_count; i++) {
 		// Little-endian requires the least significant byte first
 		bytes[bytes_offset++] = n & 0xff;
 
@@ -3634,34 +3651,63 @@ static void overwrite_address(u64 n, size_t bytes_offset) {
 	}
 }
 
+static void overwrite_32(u64 n, size_t bytes_offset) {
+	overwrite(n, bytes_offset, 4);
+}
+
+static void overwrite_64(u64 n, size_t bytes_offset) {
+	overwrite(n, bytes_offset, 8);
+}
+
 static void patch_bytes() {
 	// ELF section header table offset
-	overwrite_address(section_headers_offset, 0x28);
+	overwrite_64(section_headers_offset, 0x28);
 
 	// Segment 0 its file_size
-	overwrite_address(segment_0_size, 0x60);
+	overwrite_64(segment_0_size, 0x60);
 	// Segment 0 its mem_size
-	overwrite_address(segment_0_size, 0x68);
+	overwrite_64(segment_0_size, 0x68);
 
 	// Segment 1 its file_size
-	overwrite_address(plt_size + text_size, 0x98);
+	overwrite_64(plt_size + text_size, 0x98);
 	// Segment 1 its mem_size
-	overwrite_address(plt_size + text_size, 0xa0);
+	overwrite_64(plt_size + text_size, 0xa0);
 
 	// Segment 3 its file_size
-	overwrite_address(dynamic_size + got_plt_size + data_size, 0x108);
+	overwrite_64(dynamic_size + got_plt_size + data_size, 0x108);
 	// Segment 3 its mem_size
-	overwrite_address(dynamic_size + got_plt_size + data_size, 0x110);
+	overwrite_64(dynamic_size + got_plt_size + data_size, 0x110);
 
 	// Segment 4 its file_size
-	overwrite_address(dynamic_size, 0x140);
+	overwrite_64(dynamic_size, 0x140);
 	// Segment 4 its mem_size
-	overwrite_address(dynamic_size, 0x148);
+	overwrite_64(dynamic_size, 0x148);
 
 	// Segment 5 its file_size
-	overwrite_address(dynamic_size, 0x178);
+	overwrite_64(dynamic_size, 0x178);
 	// Segment 5 its mem_size
-	overwrite_address(dynamic_size, 0x180);
+	overwrite_64(dynamic_size, 0x180);
+
+	for (size_t i = 0; i < data_string_codes_size; i++) {
+		struct data_string_code dsc = data_string_codes[i];
+		char *string = dsc.string;
+		size_t code_offset = dsc.code_offset;
+
+		// rip/PC (program counter) has +4,
+		// because that's the address of the next instruction,
+		// which is used for RIP-relative addressing
+		size_t next_instruction_address = TEXT_OFFSET + code_offset + 4;
+
+		size_t string_index = get_data_string_index(string);
+		assert(string_index != UINT32_MAX);
+
+		size_t string_address = DATA_OFFSET + data_offsets[data_strings_data_offset + string_index];
+		size_t string_offset = string_address - next_instruction_address;
+
+		size_t text_offset = text_starting_offset + code_offset;
+
+		overwrite_32(string_offset, text_offset);
+	}
 }
 
 static void push_byte(u8 byte) {
@@ -3879,8 +3925,6 @@ static struct on_fn *get_on_fn(char *name) {
 static void hash_on_fns(void) {
 	memset(buckets_on_fns, UINT32_MAX, on_fns_size * sizeof(u32));
 
-	size_t chains_size = 0;
-
 	for (size_t i = 0; i < on_fns_size; i++) {
 		char *name = on_fns[i].fn_name;
 
@@ -3890,7 +3934,7 @@ static void hash_on_fns(void) {
 
 		u32 bucket_index = elf_hash(name) % on_fns_size;
 
-		chains_on_fns[chains_size++] = buckets_on_fns[bucket_index];
+		chains_on_fns[i] = buckets_on_fns[bucket_index];
 
 		buckets_on_fns[bucket_index] = i;
 	}
@@ -3984,6 +4028,7 @@ static void push_text(void) {
 		GRUG_ERROR("There are more than %d bytes, exceeding MAX_BYTES", MAX_BYTES);
 	}
 
+	text_starting_offset = bytes_size;
 	for (size_t i = 0; i < codes_size; i++) {
 		bytes[bytes_size++] = codes[i];
 	}
@@ -4167,9 +4212,9 @@ static void push_hash(void) {
 	for (size_t i = 0; i < symbols_size; i++) {
 		u32 bucket_index = elf_hash(shuffled_symbols[i]) % nbucket;
 
-		chains[chains_size++] = buckets[bucket_index];
+		chains[chains_size] = buckets[bucket_index];
 
-		buckets[bucket_index] = i + 1;
+		buckets[bucket_index] = chains_size++;
 	}
 
 	for (size_t i = 0; i < nbucket; i++) {
@@ -4452,6 +4497,7 @@ static void init_data_offsets(void) {
 	offset += sizeof(uint64_t);
 
 	// "strings" symbol
+	data_strings_data_offset = i;
 	if (data_strings_size > 0) {
 		data_offsets[i++] = offset;
 		for (size_t string_index = 0; string_index < data_strings_size; string_index++) {
@@ -4638,9 +4684,9 @@ static void generate_shuffled_symbols(void) {
 		u32 hash = bfd_hash_hash(symbols[i]);
 		u32 bucket_index = hash % DEFAULT_SIZE;
 
-		chains[chains_size++] = buckets[bucket_index];
+		chains[chains_size] = buckets[bucket_index];
 
-		buckets[bucket_index] = i + 1;
+		buckets[bucket_index] = chains_size++;
 	}
 
 	for (size_t i = 0; i < DEFAULT_SIZE; i++) {
