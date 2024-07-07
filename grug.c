@@ -3526,6 +3526,8 @@ static void compile() {
 #define RELA_ENTRY_SIZE 24
 #define SYMTAB_ENTRY_SIZE 24
 
+#define PLACEHOLDER_64 0x3234323432343234
+
 // The array element specifies the location and size of a segment
 // which may be made read-only after relocations have been processed
 // From https://refspecs.linuxfoundation.org/LSB_5.0.0/LSB-Core-generic/LSB-Core-generic/progheader.html
@@ -4283,14 +4285,12 @@ static void push_program_header(u32 type, u32 flags, u64 offset, u64 virtual_add
 
 static void push_program_headers(void) {
 	// .hash, .dynsym, .dynstr, .rela.dyn, .rela.plt segment
-	// NOTE: file_size and mem_size get overwritten later by patch_bytes()
 	// 0x40 to 0x78
-	push_program_header(PT_LOAD, PF_R, 0, 0, 0, 0, 0, 0x1000);
+	push_program_header(PT_LOAD, PF_R, 0, 0, 0, PLACEHOLDER_64, PLACEHOLDER_64, 0x1000);
 
 	// .plt, .text segment
-	// NOTE: file_size and mem_size get overwritten later by patch_bytes()
 	// 0x78 to 0xb0
-	push_program_header(PT_LOAD, PF_R | PF_X, PLT_OFFSET, PLT_OFFSET, PLT_OFFSET, 0, 0, 0x1000);
+	push_program_header(PT_LOAD, PF_R | PF_X, PLT_OFFSET, PLT_OFFSET, PLT_OFFSET, PLACEHOLDER_64, PLACEHOLDER_64, 0x1000);
 
 	// .eh_frame segment
 	// 0xb0 to 0xe8
@@ -4298,18 +4298,15 @@ static void push_program_headers(void) {
 
 	// .dynamic, .got.plt, .data
 	// 0xe8 to 0x120
-	// NOTE: file_size and mem_size get overwritten later by patch_bytes()
-	push_program_header(PT_LOAD, PF_R | PF_W, DYNAMIC_OFFSET, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0, 0, 0x1000);
+	push_program_header(PT_LOAD, PF_R | PF_W, DYNAMIC_OFFSET, DYNAMIC_OFFSET, DYNAMIC_OFFSET, PLACEHOLDER_64, PLACEHOLDER_64, 0x1000);
 
 	// .dynamic segment
 	// 0x120 to 0x158
-	// NOTE: file_size and mem_size get overwritten later by patch_bytes()
-	push_program_header(PT_DYNAMIC, PF_R | PF_W, DYNAMIC_OFFSET, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0, 0, 8);
+	push_program_header(PT_DYNAMIC, PF_R | PF_W, DYNAMIC_OFFSET, DYNAMIC_OFFSET, DYNAMIC_OFFSET, PLACEHOLDER_64, PLACEHOLDER_64, 8);
 
 	// .dynamic segment
 	// 0x158 to 0x190
-	// NOTE: file_size and mem_size get overwritten later by patch_bytes()
-	push_program_header(PT_GNU_RELRO, PF_R, DYNAMIC_OFFSET, DYNAMIC_OFFSET, DYNAMIC_OFFSET, 0, 0, 1);
+	push_program_header(PT_GNU_RELRO, PF_R, DYNAMIC_OFFSET, DYNAMIC_OFFSET, DYNAMIC_OFFSET, PLACEHOLDER_64, PLACEHOLDER_64, 1);
 }
 
 static void push_elf_header(void) {
@@ -4365,9 +4362,8 @@ static void push_elf_header(void) {
 	push_zeros(7);
 
 	// Section header table offset
-	// NOTE: this value gets overwritten later by patch_bytes()
 	// 0x28 to 0x30
-	push_zeros(8);
+	push_number(PLACEHOLDER_64, 8);
 
 	// Processor-specific flags
 	// 0x30 to 0x34
