@@ -2788,7 +2788,7 @@ static void compile_push_zeros(size_t count) {
 }
 
 static void compile_push_number(u64 n, size_t byte_count) {
-	while (n > 0) {
+	while (n > 0 && byte_count > 0) {
 		// Little-endian requires the least significant byte first
 		compile_push_byte(n & 0xff);
 		byte_count--;
@@ -3789,7 +3789,7 @@ static void push_strtab(char *grug_path) {
 }
 
 static void push_number(u64 n, size_t byte_count) {
-	while (n > 0) {
+	while (n > 0 && byte_count > 0) {
 		// Little-endian requires the least significant byte first
 		push_byte(n & 0xff);
 		byte_count--;
