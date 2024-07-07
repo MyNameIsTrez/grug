@@ -2960,6 +2960,7 @@ static void compile() {
 			};
 			compile_push_number(code_lut[field_index], 3);
 
+			// TODO: Move this to patch_bytes()
 			// size_t string_address = 42; // TODO: Replace
 			// size_t next_instruction_address = codes_size + 4; // rip/PC (program counter)
 			// size_t string_offset = string_address - next_instruction_address;
@@ -4023,7 +4024,7 @@ static void push_rela(u64 offset, u64 info, u64 addend) {
 static void push_rela_plt(void) {
 	rela_plt_offset = bytes_size;
 
-	size_t define_entity_dynsym_index = grug_define_entity->on_function_count > 0 ? 3 : 2; // TODO: Stop having this hardcoded!
+	size_t define_entity_dynsym_index = symbol_index_to_shuffled_symbol_index[0]; // TODO: Why [0]?
 	size_t define_entity_symtab_index = 7; // TODO: Stop having this hardcoded!
 
 	size_t dynsym_index = 1 + symbol_index_to_shuffled_symbol_index[define_entity_dynsym_index]; // `1 +` skips UND
