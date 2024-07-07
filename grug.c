@@ -55,7 +55,12 @@
 #ifdef LOGGING
 #define grug_log(...) printf(__VA_ARGS__)
 #else
-#define grug_log(...){ _Pragma("GCC diagnostic push") _Pragma("GCC diagnostic ignored \"-Wunused-value\"") __VA_ARGS__; _Pragma("GCC diagnostic pop") } while (0)
+#define grug_log(...){\
+	_Pragma("GCC diagnostic push")\
+	_Pragma("GCC diagnostic ignored \"-Wunused-value\"")\
+	__VA_ARGS__;\
+	_Pragma("GCC diagnostic pop")\
+}
 #endif
 
 typedef uint8_t u8;
