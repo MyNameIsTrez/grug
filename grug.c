@@ -18,7 +18,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define MAX_STRINGS_CHARACTERS 420420
 #define MAX_CHARACTERS_IN_FILE 420420
 #define MAX_TOKENS_IN_FILE 420420
 #define MAX_FIELDS_IN_FILE 420420
@@ -74,20 +73,27 @@ static jmp_buf error_jmp_buffer;
 
 //// UTILS
 
-static char strings[MAX_STRINGS_CHARACTERS];
-static size_t strings_size;
+#define TEMP_MAX_STRINGS_CHARACTERS 420420
 
-static char *push_string(char *slice_start, size_t length) {
-	if (strings_size + length >= MAX_STRINGS_CHARACTERS) {
-		GRUG_ERROR("There are more than %d characters in the strings array, exceeding MAX_STRINGS_CHARACTERS", MAX_STRINGS_CHARACTERS);
+static char temp_strings[TEMP_MAX_STRINGS_CHARACTERS];
+static size_t temp_strings_size;
+
+static void reset_utils() {
+	temp_strings_size = 0;
+}
+
+// This string array gets reset by every regenerate_dll() call
+static char *push_temp_string(char *slice_start, size_t length) {
+	if (temp_strings_size + length >= TEMP_MAX_STRINGS_CHARACTERS) {
+		GRUG_ERROR("There are more than %d characters in the temp_strings array, exceeding TEMP_MAX_STRINGS_CHARACTERS", TEMP_MAX_STRINGS_CHARACTERS);
 	}
 
-	char *new_str = strings + strings_size;
+	char *new_str = temp_strings + temp_strings_size;
 
 	for (size_t i = 0; i < length; i++) {
-		strings[strings_size++] = slice_start[i];
+		temp_strings[temp_strings_size++] = slice_start[i];
 	}
-	strings[strings_size++] = '\0';
+	temp_strings[temp_strings_size++] = '\0';
 
 	return new_str;
 }
@@ -174,12 +180,13 @@ static void open_resources(void) {
 #include <stdlib.h>
 #include <sys/types.h>
 
-#define MAX_CHARACTERS_IN_JSON_FILE 420420
-#define MAX_TOKENS 420420
-#define MAX_NODES 420420
-#define MAX_FIELDS 420420
-#define MAX_CHILD_NODES 420
-#define MAX_RECURSION_DEPTH 42
+#define JSON_MAX_CHARACTERS_IN_FILE 420420
+#define JSON_MAX_TOKENS 420420
+#define JSON_MAX_NODES 420420
+#define JSON_MAX_FIELDS 420420
+#define JSON_MAX_CHILD_NODES 420
+#define JSON_MAX_STRINGS_CHARACTERS 420420
+#define JSON_MAX_RECURSION_DEPTH 42
 
 #define JSON_ERROR(error) {\
 	GRUG_ERROR("JSON error: %s", json_error_messages[error]);\
@@ -273,7 +280,7 @@ char *json_error_messages[] = {
 
 static size_t json_recursion_depth;
 
-static char json_text[MAX_CHARACTERS_IN_JSON_FILE];
+static char json_text[JSON_MAX_CHARACTERS_IN_FILE];
 static size_t json_text_size;
 
 enum json_token_type {
@@ -290,30 +297,33 @@ struct json_token {
 	enum json_token_type type;
 	char *str;
 };
-static struct json_token json_tokens[MAX_TOKENS];
+static struct json_token json_tokens[JSON_MAX_TOKENS];
 static size_t json_tokens_size;
 
-struct json_node json_nodes[MAX_NODES];
+struct json_node json_nodes[JSON_MAX_NODES];
 static size_t json_nodes_size;
 
-struct json_field json_fields[MAX_FIELDS];
+struct json_field json_fields[JSON_MAX_FIELDS];
 static size_t json_fields_size;
 
-static u32 json_buckets[MAX_FIELDS];
-static u32 json_chains[MAX_FIELDS];
+static u32 json_buckets[JSON_MAX_FIELDS];
+static u32 json_chains[JSON_MAX_FIELDS];
+
+static char json_strings[JSON_MAX_STRINGS_CHARACTERS];
+static size_t json_strings_size;
 
 static struct json_node json_parse_string(size_t *i);
 static struct json_node json_parse_array(size_t *i);
 
 static void json_push_node(struct json_node node) {
-	if (json_nodes_size >= MAX_NODES) {
+	if (json_nodes_size >= JSON_MAX_NODES) {
 		JSON_ERROR(JSON_ERROR_TOO_MANY_NODES);
 	}
 	json_nodes[json_nodes_size++] = node;
 }
 
 static void json_push_field(struct json_field field) {
-	if (json_fields_size >= MAX_FIELDS) {
+	if (json_fields_size >= JSON_MAX_FIELDS) {
 		JSON_ERROR(JSON_ERROR_TOO_MANY_FIELDS);
 	}
 	json_fields[json_fields_size++] = field;
@@ -362,13 +372,13 @@ static struct json_node json_parse_object(size_t *i) {
 	(*i)++;
 
 	json_recursion_depth++;
-	if (json_recursion_depth > MAX_RECURSION_DEPTH) {
+	if (json_recursion_depth > JSON_MAX_RECURSION_DEPTH) {
 		JSON_ERROR(JSON_ERROR_MAX_RECURSION_DEPTH_EXCEEDED);
 	}
 
 	node.data.object.field_count = 0;
 
-	struct json_field child_fields[MAX_CHILD_NODES];
+	struct json_field child_fields[JSON_MAX_CHILD_NODES];
 
 	bool seen_key = false;
 	bool seen_colon = false;
@@ -394,7 +404,7 @@ static struct json_node json_parse_object(size_t *i) {
 				string = json_parse_string(i);
 				field.value = json_nodes + json_nodes_size;
 				json_push_node(string);
-				if (node.data.object.field_count >= MAX_CHILD_NODES) {
+				if (node.data.object.field_count >= JSON_MAX_CHILD_NODES) {
 					JSON_ERROR(JSON_ERROR_TOO_MANY_CHILD_NODES);
 				}
 				child_fields[node.data.object.field_count++] = field;
@@ -408,7 +418,7 @@ static struct json_node json_parse_object(size_t *i) {
 				array = json_parse_array(i);
 				field.value = json_nodes + json_nodes_size;
 				json_push_node(array);
-				if (node.data.object.field_count >= MAX_CHILD_NODES) {
+				if (node.data.object.field_count >= JSON_MAX_CHILD_NODES) {
 					JSON_ERROR(JSON_ERROR_TOO_MANY_CHILD_NODES);
 				}
 				child_fields[node.data.object.field_count++] = field;
@@ -424,7 +434,7 @@ static struct json_node json_parse_object(size_t *i) {
 				object = json_parse_object(i);
 				field.value = json_nodes + json_nodes_size;
 				json_push_node(object);
-				if (node.data.object.field_count >= MAX_CHILD_NODES) {
+				if (node.data.object.field_count >= JSON_MAX_CHILD_NODES) {
 					JSON_ERROR(JSON_ERROR_TOO_MANY_CHILD_NODES);
 				}
 				child_fields[node.data.object.field_count++] = field;
@@ -475,13 +485,13 @@ static struct json_node json_parse_array(size_t *i) {
 	(*i)++;
 
 	json_recursion_depth++;
-	if (json_recursion_depth > MAX_RECURSION_DEPTH) {
+	if (json_recursion_depth > JSON_MAX_RECURSION_DEPTH) {
 		JSON_ERROR(JSON_ERROR_MAX_RECURSION_DEPTH_EXCEEDED);
 	}
 
 	node.data.array.value_count = 0;
 
-	struct json_node child_nodes[MAX_CHILD_NODES];
+	struct json_node child_nodes[JSON_MAX_CHILD_NODES];
 
 	bool expecting_value = true;
 
@@ -494,7 +504,7 @@ static struct json_node json_parse_array(size_t *i) {
 				JSON_ERROR(JSON_ERROR_UNEXPECTED_STRING);
 			}
 			expecting_value = false;
-			if (node.data.array.value_count >= MAX_CHILD_NODES) {
+			if (node.data.array.value_count >= JSON_MAX_CHILD_NODES) {
 				JSON_ERROR(JSON_ERROR_TOO_MANY_CHILD_NODES);
 			}
 			child_nodes[node.data.array.value_count++] = json_parse_string(i);
@@ -504,7 +514,7 @@ static struct json_node json_parse_array(size_t *i) {
 				JSON_ERROR(JSON_ERROR_UNEXPECTED_ARRAY_OPEN);
 			}
 			expecting_value = false;
-			if (node.data.array.value_count >= MAX_CHILD_NODES) {
+			if (node.data.array.value_count >= JSON_MAX_CHILD_NODES) {
 				JSON_ERROR(JSON_ERROR_TOO_MANY_CHILD_NODES);
 			}
 			child_nodes[node.data.array.value_count++] = json_parse_array(i);
@@ -522,7 +532,7 @@ static struct json_node json_parse_array(size_t *i) {
 				JSON_ERROR(JSON_ERROR_UNEXPECTED_OBJECT_OPEN);
 			}
 			expecting_value = false;
-			if (node.data.array.value_count >= MAX_CHILD_NODES) {
+			if (node.data.array.value_count >= JSON_MAX_CHILD_NODES) {
 				JSON_ERROR(JSON_ERROR_TOO_MANY_CHILD_NODES);
 			}
 			child_nodes[node.data.array.value_count++] = json_parse_object(i);
@@ -588,13 +598,28 @@ static struct json_node json_parse(size_t *i) {
 	return node;
 }
 
+static char *json_push_string(char *slice_start, size_t length) {
+	if (json_strings_size + length >= JSON_MAX_STRINGS_CHARACTERS) {
+		GRUG_ERROR("There are more than %d characters in the json_strings array, exceeding JSON_MAX_STRINGS_CHARACTERS", JSON_MAX_STRINGS_CHARACTERS);
+	}
+
+	char *new_str = json_strings + json_strings_size;
+
+	for (size_t i = 0; i < length; i++) {
+		json_strings[json_strings_size++] = slice_start[i];
+	}
+	json_strings[json_strings_size++] = '\0';
+
+	return new_str;
+}
+
 static void json_push_token(enum json_token_type type, size_t offset, size_t length) {
-	if (json_tokens_size >= MAX_TOKENS) {
+	if (json_tokens_size >= JSON_MAX_TOKENS) {
 		JSON_ERROR(JSON_ERROR_TOO_MANY_TOKENS);
 	}
 	json_tokens[json_tokens_size++] = (struct json_token){
 		.type = type,
-		.str = push_string(json_text + offset, length),
+		.str = json_push_string(json_text + offset, length),
 	};
 }
 
@@ -647,7 +672,7 @@ static void json_read_text(char *json_file_path) {
 	json_text_size = fread(
 		json_text,
 		sizeof(char),
-		MAX_CHARACTERS_IN_JSON_FILE,
+		JSON_MAX_CHARACTERS_IN_FILE,
 		f
 	);
 
@@ -661,7 +686,7 @@ static void json_read_text(char *json_file_path) {
 	if (json_text_size == 0) {
 		JSON_ERROR(JSON_ERROR_FILE_EMPTY);
 	}
-	if (!is_eof || json_text_size == MAX_CHARACTERS_IN_JSON_FILE) {
+	if (!is_eof || json_text_size == JSON_MAX_CHARACTERS_IN_FILE) {
 		JSON_ERROR(JSON_ERROR_FILE_TOO_BIG);
 	}
 	if (err) {
@@ -676,7 +701,7 @@ static void json_reset(void) {
 	json_text_size = 0;
 	json_tokens_size = 0;
 	json_nodes_size = 0;
-	strings_size = 0;
+	json_strings_size = 0;
 	json_fields_size = 0;
 }
 
@@ -1216,7 +1241,7 @@ static void push_token(enum token_type type, char *str, size_t len) {
 	}
 	tokens[tokens_size++] = (struct token){
 		.type = type,
-		.str = push_string(str, len),
+		.str = push_temp_string(str, len),
 	};
 }
 
@@ -2919,19 +2944,19 @@ static void hash_define_on_fns(void) {
 }
 
 static void init_define_fn_name(char *name) {
-	if (strings_size + sizeof("define_") - 1 + strlen(name) >= MAX_STRINGS_CHARACTERS) {
-		GRUG_ERROR("There are more than %d characters in the strings array, exceeding MAX_STRINGS_CHARACTERS", MAX_STRINGS_CHARACTERS);
+	if (temp_strings_size + sizeof("define_") - 1 + strlen(name) >= TEMP_MAX_STRINGS_CHARACTERS) {
+		GRUG_ERROR("There are more than %d characters in the strings array, exceeding TEMP_MAX_STRINGS_CHARACTERS", TEMP_MAX_STRINGS_CHARACTERS);
 	}
 
-	define_fn_name = strings + strings_size;
+	define_fn_name = temp_strings + temp_strings_size;
 
-	memcpy(strings + strings_size, "define_", sizeof("define_") - 1);
-	strings_size += sizeof("define_") - 1;
+	memcpy(temp_strings + temp_strings_size, "define_", sizeof("define_") - 1);
+	temp_strings_size += sizeof("define_") - 1;
 
 	for (size_t i = 0; i < strlen(name); i++) {
-		strings[strings_size++] = name[i];
+		temp_strings[temp_strings_size++] = name[i];
 	}
-	strings[strings_size++] = '\0';
+	temp_strings[temp_strings_size++] = '\0';
 }
 
 static struct grug_entity *compile_get_entity(char *return_type) {
@@ -4890,6 +4915,9 @@ size_t grug_reloads_size;
 static size_t reloads_capacity;
 
 static void reset_regenerate_dll(void) {
+	reset_utils();
+
+	// TODO: Move these into their sections' reset() functions!
 	tokens_size = 0;
 	fields_size = 0;
 	exprs_size = 0;
