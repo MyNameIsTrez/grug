@@ -5207,11 +5207,10 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, struct
 					GRUG_ERROR("Retrieving the init_globals() function with grug_get() failed for %s", dll_path);
 				}
 
-				char **define_type_ptr = grug_get(file.dll, "define_type");
-				if (!define_type_ptr) {
+				file.define_type = grug_get(file.dll, "define_type");
+				if (!file.define_type) {
 					GRUG_ERROR("Retrieving the define_type string with grug_get() failed for %s", dll_path);
 				}
-				file.define_type = *define_type_ptr;
 
 				// on_fns is optional, so don't check for NULL
 				file.on_fns = grug_get(file.dll, "on_fns");
