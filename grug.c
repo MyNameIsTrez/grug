@@ -4185,6 +4185,11 @@ static void push_rela_dyn(void) {
 	size_t globals_size_data_size = sizeof(uint64_t);
 	size_t on_fn_data_offset = return_type_data_size + globals_size_data_size;
 
+	size_t excess = on_fn_data_offset % sizeof(uint64_t); // Alignment
+	if (excess > 0) {
+		on_fn_data_offset += sizeof(uint64_t) - excess;
+	}
+
 	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
 		struct on_fn *on_fn = on_fns_size > 0 ? get_on_fn(grug_define_entity->on_functions[i].name) : NULL;
 		if (on_fn) {
