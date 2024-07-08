@@ -235,6 +235,7 @@ enum json_error {
 	JSON_ERROR_TOO_MANY_FIELDS,
 	JSON_ERROR_TOO_MANY_CHILD_NODES,
 	JSON_ERROR_MAX_RECURSION_DEPTH_EXCEEDED,
+	JSON_ERROR_TRAILING_COMMA,
 	JSON_ERROR_EXPECTED_ARRAY_CLOSE,
 	JSON_ERROR_EXPECTED_OBJECT_CLOSE,
 	JSON_ERROR_EXPECTED_COLON,
@@ -264,6 +265,7 @@ char *json_error_messages[] = {
 	[JSON_ERROR_TOO_MANY_FIELDS] = "Too many fields",
 	[JSON_ERROR_TOO_MANY_CHILD_NODES] = "Too many child nodes",
 	[JSON_ERROR_MAX_RECURSION_DEPTH_EXCEEDED] = "Max recursion depth exceeded",
+	[JSON_ERROR_TRAILING_COMMA] = "Trailing comma",
 	[JSON_ERROR_EXPECTED_ARRAY_CLOSE] = "Expected ']'",
 	[JSON_ERROR_EXPECTED_OBJECT_CLOSE] = "Expected '}'",
 	[JSON_ERROR_EXPECTED_COLON] = "Expected colon",
@@ -383,6 +385,7 @@ static struct json_node json_parse_object(size_t *i) {
 	bool seen_key = false;
 	bool seen_colon = false;
 	bool seen_value = false;
+	bool seen_comma = false;
 
 	struct json_field field;
 
@@ -401,6 +404,7 @@ static struct json_node json_parse_object(size_t *i) {
 				(*i)++;
 			} else if (seen_colon && !seen_value) {
 				seen_value = true;
+				seen_comma = false;
 				string = json_parse_string(i);
 				field.value = json_nodes + json_nodes_size;
 				json_push_node(string);
@@ -415,6 +419,7 @@ static struct json_node json_parse_object(size_t *i) {
 		case TOKEN_TYPE_ARRAY_OPEN:
 			if (seen_colon && !seen_value) {
 				seen_value = true;
+				seen_comma = false;
 				array = json_parse_array(i);
 				field.value = json_nodes + json_nodes_size;
 				json_push_node(array);
@@ -431,6 +436,7 @@ static struct json_node json_parse_object(size_t *i) {
 		case TOKEN_TYPE_OBJECT_OPEN:
 			if (seen_colon && !seen_value) {
 				seen_value = true;
+				seen_comma = false;
 				object = json_parse_object(i);
 				field.value = json_nodes + json_nodes_size;
 				json_push_node(object);
@@ -447,6 +453,8 @@ static struct json_node json_parse_object(size_t *i) {
 				JSON_ERROR(JSON_ERROR_EXPECTED_COLON);
 			} else if (seen_colon && !seen_value) {
 				JSON_ERROR(JSON_ERROR_EXPECTED_VALUE);
+			} else if (seen_comma) {
+				JSON_ERROR(JSON_ERROR_TRAILING_COMMA);
 			}
 			check_duplicate_keys(child_fields, node.data.object.field_count);
 			node.data.object.fields = json_fields + json_fields_size;
@@ -463,6 +471,7 @@ static struct json_node json_parse_object(size_t *i) {
 			seen_key = false;
 			seen_colon = false;
 			seen_value = false;
+			seen_comma = true;
 			(*i)++;
 			break;
 		case TOKEN_TYPE_COLON:
@@ -493,33 +502,39 @@ static struct json_node json_parse_array(size_t *i) {
 
 	struct json_node child_nodes[JSON_MAX_CHILD_NODES];
 
-	bool expecting_value = true;
+	bool seen_value = false;
+	bool seen_comma = false;
 
 	while (*i < json_tokens_size) {
 		struct json_token *token = json_tokens + *i;
 
 		switch (token->type) {
 		case TOKEN_TYPE_STRING:
-			if (!expecting_value) {
+			if (seen_value) {
 				JSON_ERROR(JSON_ERROR_UNEXPECTED_STRING);
 			}
-			expecting_value = false;
+			seen_value = true;
+			seen_comma = false;
 			if (node.data.array.value_count >= JSON_MAX_CHILD_NODES) {
 				JSON_ERROR(JSON_ERROR_TOO_MANY_CHILD_NODES);
 			}
 			child_nodes[node.data.array.value_count++] = json_parse_string(i);
 			break;
 		case TOKEN_TYPE_ARRAY_OPEN:
-			if (!expecting_value) {
+			if (seen_value) {
 				JSON_ERROR(JSON_ERROR_UNEXPECTED_ARRAY_OPEN);
 			}
-			expecting_value = false;
+			seen_value = true;
+			seen_comma = false;
 			if (node.data.array.value_count >= JSON_MAX_CHILD_NODES) {
 				JSON_ERROR(JSON_ERROR_TOO_MANY_CHILD_NODES);
 			}
 			child_nodes[node.data.array.value_count++] = json_parse_array(i);
 			break;
 		case TOKEN_TYPE_ARRAY_CLOSE:
+			if (seen_comma) {
+				JSON_ERROR(JSON_ERROR_TRAILING_COMMA);
+			}
 			node.data.array.values = json_nodes + json_nodes_size;
 			for (size_t value_index = 0; value_index < node.data.array.value_count; value_index++) {
 				json_push_node(child_nodes[value_index]);
@@ -528,10 +543,11 @@ static struct json_node json_parse_array(size_t *i) {
 			json_recursion_depth--;
 			return node;
 		case TOKEN_TYPE_OBJECT_OPEN:
-			if (!expecting_value) {
+			if (seen_value) {
 				JSON_ERROR(JSON_ERROR_UNEXPECTED_OBJECT_OPEN);
 			}
-			expecting_value = false;
+			seen_value = true;
+			seen_comma = false;
 			if (node.data.array.value_count >= JSON_MAX_CHILD_NODES) {
 				JSON_ERROR(JSON_ERROR_TOO_MANY_CHILD_NODES);
 			}
@@ -540,10 +556,11 @@ static struct json_node json_parse_array(size_t *i) {
 		case TOKEN_TYPE_OBJECT_CLOSE:
 			JSON_ERROR(JSON_ERROR_UNEXPECTED_OBJECT_CLOSE);
 		case TOKEN_TYPE_COMMA:
-			if (expecting_value) {
+			if (!seen_value) {
 				JSON_ERROR(JSON_ERROR_UNEXPECTED_COMMA);
 			}
-			expecting_value = true;
+			seen_value = false;
+			seen_comma = true;
 			(*i)++;
 			break;
 		case TOKEN_TYPE_COLON:
