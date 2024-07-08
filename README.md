@@ -4,7 +4,7 @@ See [my blog post](https://mynameistrez.github.io/2024/02/29/creating-the-perfec
 
 ## Sections
 
-`grug.c` is composed of sections, which you can find by searching for `////`:
+`grug.c` is composed of sections, which you can jump between by searching for `////` in the file:
 
 1. UTILS
 2. OPENING RESOURCES
@@ -14,9 +14,10 @@ See [my blog post](https://mynameistrez.github.io/2024/02/29/creating-the-perfec
 6. TOKENIZATION
 7. VERIFY AND TRIM SPACES
 8. PARSING
-9. COMPILING
-10. LINKING
-11. MISC
+9. PRINTING AST
+10. COMPILING
+11. LINKING
+12. MISC
 
 ## Small example programs
 
