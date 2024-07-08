@@ -2767,20 +2767,18 @@ static void print_on_fns(void) {
 }
 
 static void print_global_variables(void) {
-	grug_log("\"global_variables\":[");
+	grug_log("\"global_variables\":{");
 
 	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
 		if (global_variable_index > 0) {
 			grug_log(",");
 		}
 
-		grug_log("{");
-
 		struct global_variable global_variable = global_variables[global_variable_index];
 
-		grug_log("\"variable_name\":\"%s\",", global_variable.name);
+		grug_log("\"%s\":{", global_variable.name);
 
-		grug_log("\"variable_type\":\"%s\",", type_names[global_variable.type]);
+		grug_log("\"type\":\"%s\",", type_names[global_variable.type]);
 
 		grug_log("\"assignment\":{");
 		print_expr(global_variable.assignment_expr);
@@ -2789,10 +2787,10 @@ static void print_global_variables(void) {
 		grug_log("}");
 	}
 
-	grug_log("]");
+	grug_log("}");
 }
 
-static void print_compound_literal(struct compound_literal compound_literal) {
+static void print_returned_compound_literal(struct compound_literal compound_literal) {
 	grug_log("\"returned_compound_literal\":[");
 
 	for (size_t field_index = 0; field_index < compound_literal.field_count; field_index++) {
@@ -2804,7 +2802,7 @@ static void print_compound_literal(struct compound_literal compound_literal) {
 
 		struct field field = fields[compound_literal.fields_offset + field_index];
 
-		grug_log("\"key\":\"%s\",", field.key);
+		grug_log("\"name\":\"%s\",", field.key);
 
 		grug_log("\"value\":{");
 		print_expr(field.expr_value);
@@ -2821,7 +2819,7 @@ static void print_define_fn(void) {
 
 	grug_log("\"return_type\":\"%s\",", define_fn.return_type);
 
-	print_compound_literal(define_fn.returned_compound_literal);
+	print_returned_compound_literal(define_fn.returned_compound_literal);
 
 	grug_log("}");
 }
