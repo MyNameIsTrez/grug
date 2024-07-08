@@ -4957,15 +4957,25 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 
 	tokenize(grug_text);
 	grug_log("After tokenize():\n");
+#ifdef LOGGING
 	print_tokens();
+#else
+	(void)print_tokens;
+#endif
 
 	verify_and_trim_spaces();
 	grug_log("After verify_and_trim_spaces():\n");
+#ifdef LOGGING
 	print_tokens();
+#endif
 
 	parse();
 	grug_log("AST:\n");
+#ifdef LOGGING
 	print_ast();
+#else
+	(void)print_ast;
+#endif
 
 	compile();
 
