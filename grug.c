@@ -2845,8 +2845,10 @@ static void print_ast(void) {
 #define MAX_DATA_STRINGS 420420
 #define MAX_DATA_STRING_CODES 420420
 
-#define PLACEHOLDER_32 0xDEADBEEF
-#define PLACEHOLDER_64 0xDEADBEEFDEADBEEF
+// 0xDEADBEEF in little-endian
+#define PLACEHOLDER_16 0xADDE
+#define PLACEHOLDER_32 0xEFBEADDE
+#define PLACEHOLDER_64 0xEFBEADDEEFBEADDE
 
 enum code {
 	MOV_TO_EAX = 0xb8,
@@ -3118,9 +3120,9 @@ static void compile() {
 	}
 	size_t define_field_bytes = codes_size - start_codes_size;
 	compile_push_byte(CALL);
-	// TODO: Figure out where 0xffffffeb comes from,
-	//       so it can be replaced with a named variable/define/enum
-	compile_push_number(0xffffffeb - define_field_bytes, 4);
+	// TODO: Replace 0xffffffeb
+	// TODO: Replace `((on_fns_size > 0 && on_fns[0].body_statement_count > 0) ? 0x10 : 0)` here
+	compile_push_number(0xffffffeb - define_field_bytes - ((on_fns_size > 0 && on_fns[0].body_statement_count > 0) ? 0x10 : 0), 4);
 	compile_push_byte(RET);
 	text_offsets[text_offset_index++] = text_offset;
 	text_offset += codes_size - start_codes_size;
@@ -3150,6 +3152,14 @@ static void compile() {
 
 	for (size_t on_fn_index = 0; on_fn_index < on_fns_size; on_fn_index++) {
 		start_codes_size = codes_size;
+
+		struct on_fn on_fn = on_fns[on_fn_index];
+
+		if (on_fn.body_statement_count > 0) {
+			compile_push_byte(CALL);
+			// TODO: Replace 0xffffffda
+			compile_push_number(0xffffffda, 4);
+		}
 
 		compile_push_byte(RET);
 
@@ -3663,14 +3673,13 @@ static void compile() {
 
 // TODO: Stop having these hardcoded!
 #define PLT_OFFSET 0x1000
-#define TEXT_OFFSET 0x1020
 #define EH_FRAME_OFFSET 0x2000
 #define DYNAMIC_OFFSET (on_fns_size > 0 ? 0x2ee0 : 0x2f10) // TODO: Unhardcode!
 #define GOT_PLT_OFFSET 0x3000
-#define DATA_OFFSET 0x3020
 
 #define RELA_ENTRY_SIZE 24
 #define SYMTAB_ENTRY_SIZE 24
+#define PLT_ENTRY_SIZE 24
 
 // The array element specifies the location and size of a segment
 // which may be made read-only after relocations have been processed
@@ -3733,11 +3742,14 @@ static size_t text_starting_offset;
 
 static size_t symtab_index_first_global;
 
+static size_t plt_entry_count;
+
 static size_t text_size;
 static size_t data_size;
 static size_t hash_offset;
 static size_t hash_size;
 static size_t dynsym_offset;
+static size_t dynsym_placeholders_offset;
 static size_t dynsym_size;
 static size_t dynstr_offset;
 static size_t dynstr_size;
@@ -3747,8 +3759,10 @@ static size_t rela_plt_offset;
 static size_t rela_plt_size;
 static size_t plt_offset;
 static size_t plt_size;
+static size_t text_offset;
 static size_t dynamic_size;
 static size_t got_plt_size;
+static size_t data_offset;
 static size_t segment_0_size;
 static size_t symtab_offset;
 static size_t symtab_size;
@@ -3776,6 +3790,7 @@ static size_t shstrtab_shstrtab_offset;
 static void reset_generate_shared_object(void) {
 	symbols_size = 0;
 	data_symbols_size = 0;
+	extern_symbols_size = 0;
 	shuffled_symbols_size = 0;
 	bytes_size = 0;
 }
@@ -3789,6 +3804,10 @@ static void overwrite(u64 n, size_t bytes_offset, size_t overwrite_count) {
 	}
 }
 
+static void overwrite_16(u64 n, size_t bytes_offset) {
+	overwrite(n, bytes_offset, 2);
+}
+
 static void overwrite_32(u64 n, size_t bytes_offset) {
 	overwrite(n, bytes_offset, 4);
 }
@@ -3797,7 +3816,122 @@ static void overwrite_64(u64 n, size_t bytes_offset) {
 	overwrite(n, bytes_offset, 8);
 }
 
-static void patch_bytes() {
+static struct on_fn *get_on_fn(char *name) {
+	u32 i = buckets_on_fns[elf_hash(name) % on_fns_size];
+
+	while (1) {
+		if (i == UINT32_MAX) {
+			return NULL;
+		}
+
+		if (streq(name, on_fns[i].fn_name)) {
+			break;
+		}
+
+		i = chains_on_fns[i];
+	}
+
+	return on_fns + i;
+}
+
+static void hash_on_fns(void) {
+	memset(buckets_on_fns, UINT32_MAX, on_fns_size * sizeof(u32));
+
+	for (size_t i = 0; i < on_fns_size; i++) {
+		char *name = on_fns[i].fn_name;
+
+		if (get_on_fn(name)) {
+			GRUG_ERROR("The function '%s' was defined several times in the same file", name);
+		}
+
+		u32 bucket_index = elf_hash(name) % on_fns_size;
+
+		chains_on_fns[i] = buckets_on_fns[bucket_index];
+
+		buckets_on_fns[bucket_index] = i;
+	}
+}
+
+// Needed future text_offset
+static void patch_rela_dyn(void) {
+	size_t return_type_data_size = strlen(define_fn.return_type) + 1;
+	size_t globals_size_data_size = sizeof(uint64_t);
+	size_t on_fn_data_offset = return_type_data_size + globals_size_data_size;
+
+	size_t excess = on_fn_data_offset % sizeof(uint64_t); // Alignment
+	if (excess > 0) {
+		on_fn_data_offset += sizeof(uint64_t) - excess;
+	}
+
+	size_t bytes_offset = rela_dyn_offset;
+	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
+		struct on_fn *on_fn = on_fns_size > 0 ? get_on_fn(grug_define_entity->on_functions[i].name) : NULL;
+		if (on_fn) {
+			size_t on_fn_index = on_fn - on_fns;
+			size_t symbol_index = on_fns_symbol_offset + on_fn_index;
+			size_t text_index = symbol_index - data_symbols_size - extern_symbols_size;
+
+			overwrite_64(GOT_PLT_OFFSET + got_plt_size + on_fn_data_offset, bytes_offset);
+			bytes_offset += sizeof(u64);
+			overwrite_64(R_X86_64_RELATIVE, bytes_offset);
+			bytes_offset += sizeof(u64);
+			overwrite_64(text_offset + text_offsets[text_index], bytes_offset);
+			bytes_offset += sizeof(u64);
+		}
+		on_fn_data_offset += sizeof(size_t);
+	}
+}
+
+// Needed future data_offset and text_offset
+static void patch_dynsym(void) {
+	// The symbols are pushed in shuffled_symbols order
+	size_t bytes_offset = dynsym_placeholders_offset;
+	for (size_t i = 0; i < symbols_size; i++) {
+		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
+
+		bool is_data = symbol_index < data_symbols_size;
+		bool is_extern = symbol_index < data_symbols_size + extern_symbols_size;
+
+		u16 shndx = is_data ? shindex_data : is_extern ? SHN_UNDEF : shindex_text;
+		u32 offset = is_data ? data_offset + data_offsets[symbol_index] : is_extern ? 0 : text_offset + text_offsets[symbol_index - data_symbols_size - extern_symbols_size];
+
+		overwrite_32(symbol_name_dynstr_offsets[symbol_index], bytes_offset);
+		bytes_offset += sizeof(u32);
+		overwrite_16(ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), bytes_offset);
+		bytes_offset += sizeof(u16);
+		overwrite_16(shndx, bytes_offset);
+		bytes_offset += sizeof(u16);
+		overwrite_32(offset, bytes_offset);
+		bytes_offset += sizeof(u32);
+
+		bytes_offset += SYMTAB_ENTRY_SIZE - sizeof(u32) - sizeof(u16) - sizeof(u16) - sizeof(u32);
+	}
+}
+
+// Needed future data_offset
+static void patch_text(void) {
+	for (size_t i = 0; i < data_string_codes_size; i++) {
+		struct data_string_code dsc = data_string_codes[i];
+		char *string = dsc.string;
+		size_t code_offset = dsc.code_offset;
+
+		size_t string_index = get_data_string_index(string);
+		assert(string_index != UINT32_MAX);
+
+		size_t string_address = data_offset + data_string_offsets[string_index];
+
+		// rip/PC (program counter) has +4,
+		// because that's the address of the next instruction,
+		// which is used for RIP-relative addressing
+		size_t next_instruction_address = text_offset + code_offset + 4;
+
+		size_t string_offset = string_address - next_instruction_address;
+
+		overwrite_32(string_offset, text_starting_offset + code_offset);
+	}
+}
+
+static void patch_bytes(void) {
 	// ELF section header table offset
 	overwrite_64(section_headers_offset, 0x28);
 
@@ -3826,26 +3960,9 @@ static void patch_bytes() {
 	// Segment 5 its mem_size
 	overwrite_64(dynamic_size, 0x180);
 
-	for (size_t i = 0; i < data_string_codes_size; i++) {
-		struct data_string_code dsc = data_string_codes[i];
-		char *string = dsc.string;
-		size_t code_offset = dsc.code_offset;
-
-		// rip/PC (program counter) has +4,
-		// because that's the address of the next instruction,
-		// which is used for RIP-relative addressing
-		size_t next_instruction_address = TEXT_OFFSET + code_offset + 4;
-
-		size_t string_index = get_data_string_index(string);
-		assert(string_index != UINT32_MAX);
-
-		size_t string_address = DATA_OFFSET + data_string_offsets[string_index];
-		size_t string_offset = string_address - next_instruction_address;
-
-		size_t text_offset = text_starting_offset + code_offset;
-
-		overwrite_32(string_offset, text_offset);
-	}
+	patch_text();
+	patch_dynsym();
+	patch_rela_dyn();
 }
 
 static void push_byte(u8 byte) {
@@ -3997,16 +4114,12 @@ static void push_number(u64 n, size_t byte_count) {
 // See https://docs.oracle.com/cd/E19683-01/816-1386/chapter6-79797/index.html
 // See https://docs.oracle.com/cd/E19683-01/816-1386/6m7qcoblj/index.html#chapter6-tbl-21
 static void push_symbol_entry(u32 name, u16 info, u16 shndx, u32 offset) {
-	push_number(name, 4); // Indexed into .strtab, because .symtab its "link" points to it
-	push_number(info, 2);
-	push_number(shndx, 2);
-	push_number(offset, 4); // In executable and shared object files, st_value holds a virtual address
+	push_number(name, sizeof(u32)); // Indexed into .strtab, because .symtab its "link" points to it
+	push_number(info, sizeof(u16));
+	push_number(shndx, sizeof(u16));
+	push_number(offset, sizeof(u32)); // In executable and shared object files, st_value holds a virtual address
 
-	// TODO: I'm confused by why we don't seem to need these
-	// push_number(size, 4);
-	// push_number(other, 4);
-
-	push_zeros(SYMTAB_ENTRY_SIZE - 12);
+	push_zeros(SYMTAB_ENTRY_SIZE - sizeof(u32) - sizeof(u16) - sizeof(u16) - sizeof(u32));
 }
 
 static void push_symtab(char *grug_path) {
@@ -4043,7 +4156,7 @@ static void push_symtab(char *grug_path) {
 		bool is_extern = symbol_index < data_symbols_size + extern_symbols_size;
 
 		u16 shndx = is_data ? shindex_data : is_extern ? SHN_UNDEF : shindex_text;
-		u32 offset = is_data ? DATA_OFFSET + data_offsets[symbol_index] : is_extern ? 0 : TEXT_OFFSET + text_offsets[symbol_index - data_symbols_size - extern_symbols_size];
+		u32 offset = is_data ? data_offset + data_offsets[symbol_index] : is_extern ? 0 : text_offset + text_offsets[symbol_index - data_symbols_size - extern_symbols_size];
 
 		push_symbol_entry(name_offset + symbol_name_strtab_offsets[symbol_index], ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), shndx, offset);
 	}
@@ -4051,43 +4164,9 @@ static void push_symtab(char *grug_path) {
 	symtab_size = bytes_size - symtab_offset;
 }
 
-static struct on_fn *get_on_fn(char *name) {
-	u32 i = buckets_on_fns[elf_hash(name) % on_fns_size];
-
-	while (1) {
-		if (i == UINT32_MAX) {
-			return NULL;
-		}
-
-		if (streq(name, on_fns[i].fn_name)) {
-			break;
-		}
-
-		i = chains_on_fns[i];
-	}
-
-	return on_fns + i;
-}
-
-static void hash_on_fns(void) {
-	memset(buckets_on_fns, UINT32_MAX, on_fns_size * sizeof(u32));
-
-	for (size_t i = 0; i < on_fns_size; i++) {
-		char *name = on_fns[i].fn_name;
-
-		if (get_on_fn(name)) {
-			GRUG_ERROR("The function '%s' was defined several times in the same file", name);
-		}
-
-		u32 bucket_index = elf_hash(name) % on_fns_size;
-
-		chains_on_fns[i] = buckets_on_fns[bucket_index];
-
-		buckets_on_fns[bucket_index] = i;
-	}
-}
-
 static void push_data(void) {
+	data_offset = bytes_size;
+
 	// "define_type" symbol
 	push_string_bytes(define_fn.return_type);
 
@@ -4113,7 +4192,7 @@ static void push_data(void) {
 
 			size_t symbol_index = on_fns_symbol_offset + on_fn_index;
 			size_t text_index = symbol_index - data_symbols_size - extern_symbols_size;
-			push_number(TEXT_OFFSET + text_offsets[text_index], 8);
+			push_number(text_offset + text_offsets[text_index], 8);
 		} else {
 			push_number(0x0, 8);
 		}
@@ -4134,8 +4213,13 @@ static void push_got_plt(void) {
 	push_number(DYNAMIC_OFFSET, 8);
 	push_zeros(8);
 	push_zeros(8);
-	size_t push_zero_address = PLT_OFFSET + 0x16;
-	push_number(push_zero_address, 8);
+
+	// TODO: Replace 0x16
+	push_number(PLT_OFFSET + 0x16, 8); // text section address of push 0 instruction
+	if (on_fns_size > 0 && on_fns[0].body_statement_count > 0) {
+		// TODO: Replace 0x26
+		push_number(PLT_OFFSET + 0x26, 8); // text section address of push 1 instruction
+	}
 
 	got_plt_size = bytes_size - got_plt_offset;
 }
@@ -4155,7 +4239,7 @@ static void push_dynamic() {
 	push_dynamic_entry(DT_STRSZ, dynstr_size);
 	push_dynamic_entry(DT_SYMENT, SYMTAB_ENTRY_SIZE);
 	push_dynamic_entry(DT_PLTGOT, GOT_PLT_OFFSET);
-	push_dynamic_entry(DT_PLTRELSZ, 24);
+	push_dynamic_entry(DT_PLTRELSZ, PLT_ENTRY_SIZE * plt_entry_count);
 	push_dynamic_entry(DT_PLTREL, DT_RELA);
 	push_dynamic_entry(DT_JMPREL, rela_dyn_offset + ((on_fns_size > 0) ? RELA_ENTRY_SIZE * on_fns_size : 0));
 	if (on_fns_size > 0) {
@@ -4172,6 +4256,8 @@ static void push_dynamic() {
 }
 
 static void push_text(void) {
+	text_offset = bytes_size;
+
 	if (bytes_size + codes_size >= MAX_BYTES) {
 		GRUG_ERROR("There are more than %d bytes, exceeding MAX_BYTES", MAX_BYTES);
 	}
@@ -4187,22 +4273,27 @@ static void push_text(void) {
 static void push_plt(void) {
 	plt_offset = bytes_size;
 
+	// define_entity()
 	push_number(PUSH_REL, 2);
 	push_number(0x2002, 4);
-
 	push_number(JMP_REL, 2);
 	push_number(0x2004, 4);
-
 	push_number(NOP, 4);
-
 	push_number(JMP_REL, 2);
 	push_number(0x2002, 4);
-
 	push_byte(PUSH_BYTE);
-	push_zeros(4);
-
+	push_number(0, 4);
 	push_byte(JMP_ABS);
 	push_number(0xffffffe0, 4);
+
+	if (on_fns_size > 0 && on_fns[0].body_statement_count > 0) {
+		push_number(JMP_REL, 2);
+		push_number(0x1ffa, 4);
+		push_byte(PUSH_BYTE);
+		push_number(1, 4);
+		push_byte(JMP_ABS);
+		push_number(0xffffffd0, 4);
+	}
 
 	plt_size = bytes_size - plt_offset;
 }
@@ -4222,10 +4313,16 @@ static void push_rela_plt(void) {
 	 // `1 +` skips the first symbol, which is always undefined
 	size_t define_entity_dynsym_index = 1 + symbol_index_to_shuffled_symbol_index[define_fn_name_symbol_index];
 
-	size_t define_entity_symtab_index = 7;
-
 	// TODO: Turn 0x18 into a descriptive variable
-	push_rela(GOT_PLT_OFFSET + 0x18, ELF64_R_INFO(define_entity_dynsym_index, define_entity_symtab_index), 0);
+	push_rela(GOT_PLT_OFFSET + 0x18, ELF64_R_INFO(define_entity_dynsym_index, R_X86_64_JUMP_SLOT), 0);
+	plt_entry_count++;
+
+	if (on_fns_size > 0 && on_fns[0].body_statement_count > 0) {
+		size_t on_fn_dynsym_index = 4;
+		// TODO: Turn 0x20 into a descriptive variable
+		push_rela(GOT_PLT_OFFSET + 0x20, ELF64_R_INFO(on_fn_dynsym_index, R_X86_64_JUMP_SLOT), 0);
+		plt_entry_count++;
+	}
 
 	segment_0_size = bytes_size;
 
@@ -4236,28 +4333,11 @@ static void push_rela_plt(void) {
 static void push_rela_dyn(void) {
 	rela_dyn_offset = bytes_size;
 
-	size_t return_type_data_size = strlen(define_fn.return_type) + 1;
-	size_t globals_size_data_size = sizeof(uint64_t);
-	size_t on_fn_data_offset = return_type_data_size + globals_size_data_size;
-
-	size_t excess = on_fn_data_offset % sizeof(uint64_t); // Alignment
-	if (excess > 0) {
-		on_fn_data_offset += sizeof(uint64_t) - excess;
-	}
-
 	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
 		struct on_fn *on_fn = on_fns_size > 0 ? get_on_fn(grug_define_entity->on_functions[i].name) : NULL;
 		if (on_fn) {
-			size_t on_fn_index = on_fn - on_fns;
-			size_t symbol_index = on_fns_symbol_offset + on_fn_index;
-			size_t text_index = symbol_index - data_symbols_size - extern_symbols_size;
-
-			size_t future_got_plt_size = 0x20;
-
-			push_rela(GOT_PLT_OFFSET + future_got_plt_size + on_fn_data_offset, 8, TEXT_OFFSET + text_offsets[text_index]);
+			push_rela(PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64);
 		}
-
-		on_fn_data_offset += sizeof(size_t);
 	}
 
 	rela_dyn_size = bytes_size - rela_dyn_offset;
@@ -4385,7 +4465,7 @@ static void push_section_headers(void) {
 	push_section_header(plt_shstrtab_offset, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, plt_offset, plt_offset, plt_size, SHN_UNDEF, 0, 16, 16);
 
 	// .text: Code section
-	push_section_header(text_shstrtab_offset, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, TEXT_OFFSET, TEXT_OFFSET, text_size, SHN_UNDEF, 0, 16, 0);
+	push_section_header(text_shstrtab_offset, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, text_offset, text_offset, text_size, SHN_UNDEF, 0, 16, 0);
 
 	// .eh_frame: Exception stack unwinding section
 	push_section_header(eh_frame_shstrtab_offset, SHT_PROGBITS, SHF_ALLOC, EH_FRAME_OFFSET, EH_FRAME_OFFSET, 0, SHN_UNDEF, 0, 8, 0);
@@ -4397,7 +4477,7 @@ static void push_section_headers(void) {
 	push_section_header(got_plt_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, GOT_PLT_OFFSET, GOT_PLT_OFFSET, got_plt_size, SHN_UNDEF, 0, 8, 8);
 
 	// .data: Data section
-	push_section_header(data_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, DATA_OFFSET, DATA_OFFSET, data_size, SHN_UNDEF, 0, 8, 0);
+	push_section_header(data_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, data_offset, data_offset, data_size, SHN_UNDEF, 0, 8, 0);
 
 	// .symtab: Symbol table section
 	// The "link" argument is the section header index of the associated string table
@@ -4416,17 +4496,9 @@ static void push_dynsym(void) {
 	// Null entry
 	push_symbol_entry(0, ELF32_ST_INFO(STB_LOCAL, STT_NOTYPE), SHN_UNDEF, 0);
 
-	// The symbols are pushed in shuffled_symbols order
+	dynsym_placeholders_offset = bytes_size;
 	for (size_t i = 0; i < symbols_size; i++) {
-		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
-
-		bool is_data = symbol_index < data_symbols_size;
-		bool is_extern = symbol_index < data_symbols_size + extern_symbols_size;
-
-		u16 shndx = is_data ? shindex_data : is_extern ? SHN_UNDEF : shindex_text;
-		u32 offset = is_data ? DATA_OFFSET + data_offsets[symbol_index] : is_extern ? 0 : TEXT_OFFSET + text_offsets[symbol_index - data_symbols_size - extern_symbols_size];
-
-		push_symbol_entry(symbol_name_dynstr_offsets[symbol_index], ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), shndx, offset);
+		push_symbol_entry(PLACEHOLDER_32, PLACEHOLDER_16, PLACEHOLDER_16, PLACEHOLDER_32);
 	}
 
 	dynsym_size = bytes_size - dynsym_offset;
@@ -4580,7 +4652,6 @@ static void push_bytes(char *grug_path) {
 	push_zeros(PLT_OFFSET - bytes_size);
 	push_plt();
 
-	push_zeros(TEXT_OFFSET - bytes_size);
 	push_text();
 
 	push_zeros(DYNAMIC_OFFSET - bytes_size);
@@ -4897,9 +4968,14 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 	}
 
 	define_fn_name_symbol_index = data_symbols_size;
-	push_symbol(define_fn_name);
 	// TODO: Only push the grug_game_function symbols that are called
-	extern_symbols_size = 1;
+	push_symbol(define_fn_name);
+	extern_symbols_size++;
+
+	if (on_fns_size > 0 && on_fns[0].body_statement_count > 0) {
+		push_symbol("nothing");
+		extern_symbols_size++;
+	}
 
 	push_symbol("define");
 	push_symbol("init_globals");
