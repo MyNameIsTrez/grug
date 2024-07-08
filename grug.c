@@ -2790,8 +2790,8 @@ static void print_global_variables(void) {
 	grug_log("}");
 }
 
-static void print_returned_compound_literal(struct compound_literal compound_literal) {
-	grug_log("\"returned_compound_literal\":[");
+static void print_fields(struct compound_literal compound_literal) {
+	grug_log("\"fields\":[");
 
 	for (size_t field_index = 0; field_index < compound_literal.field_count; field_index++) {
 		if (field_index > 0) {
@@ -2815,11 +2815,11 @@ static void print_returned_compound_literal(struct compound_literal compound_lit
 }
 
 static void print_define_fn(void) {
-	grug_log("\"define_fn\":{");
+	grug_log("\"entity\":{");
 
-	grug_log("\"return_type\":\"%s\",", define_fn.return_type);
+	grug_log("\"name\":\"%s\",", define_fn.return_type);
 
-	print_returned_compound_literal(define_fn.returned_compound_literal);
+	print_fields(define_fn.returned_compound_literal);
 
 	grug_log("}");
 }
