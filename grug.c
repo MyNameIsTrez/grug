@@ -54,7 +54,7 @@
 #ifdef LOGGING
 #define grug_log(...) printf(__VA_ARGS__)
 #else
-#define grug_log(...){\
+#define grug_log(...) {\
 	_Pragma("GCC diagnostic push")\
 	_Pragma("GCC diagnostic ignored \"-Wunused-value\"")\
 	__VA_ARGS__;\
@@ -1232,8 +1232,6 @@ static void print_tokens(void) {
 			grug_log("| '%s'\n", token.str);
 		}
 	}
-
-	grug_log("\n");
 }
 
 static char *get_escaped_char(char *str) {
@@ -3686,6 +3684,14 @@ static void compile() {
 // From https://refspecs.linuxfoundation.org/LSB_5.0.0/LSB-Core-generic/LSB-Core-generic/progheader.html
 #define PT_GNU_RELRO 0x6474e552
 
+#ifdef LOGGING
+#define grug_log_section(section_name) {\
+	grug_log("%s: 0x%lx\n", section_name, bytes_size);\
+}
+#else
+#define grug_log_section(section_name)
+#endif
+
 enum opcodes {
 	PUSH_BYTE = 0x68,
 	JMP_ABS = 0xe9,
@@ -4004,6 +4010,8 @@ static void push_string_bytes(char *str) {
 }
 
 static void push_shstrtab(void) {
+	grug_log_section(".shstrtab");
+
 	shstrtab_offset = bytes_size;
 
 	size_t offset = 0;
@@ -4074,6 +4082,8 @@ static void push_shstrtab(void) {
 }
 
 static void push_strtab(char *grug_path) {
+	grug_log_section(".strtab");
+
 	strtab_offset = bytes_size;
 
 	push_byte(0);
@@ -4123,6 +4133,8 @@ static void push_symbol_entry(u32 name, u16 info, u16 shndx, u32 offset) {
 }
 
 static void push_symtab(char *grug_path) {
+	grug_log_section(".symtab");
+
 	symtab_offset = bytes_size;
 
 	// Null entry
@@ -4165,6 +4177,8 @@ static void push_symtab(char *grug_path) {
 }
 
 static void push_data(void) {
+	grug_log_section(".data");
+
 	data_offset = bytes_size;
 
 	// "define_type" symbol
@@ -4208,6 +4222,8 @@ static void push_data(void) {
 }
 
 static void push_got_plt(void) {
+	grug_log_section(".got.plt");
+
 	size_t got_plt_offset = bytes_size;
 
 	push_number(DYNAMIC_OFFSET, 8);
@@ -4231,6 +4247,8 @@ static void push_dynamic_entry(u64 tag, u64 value) {
 }
 
 static void push_dynamic() {
+	grug_log_section(".dynamic");
+
 	size_t dynamic_offset = bytes_size;
 
 	push_dynamic_entry(DT_HASH, hash_offset);
@@ -4256,6 +4274,8 @@ static void push_dynamic() {
 }
 
 static void push_text(void) {
+	grug_log_section(".text");
+
 	text_offset = bytes_size;
 
 	if (bytes_size + codes_size >= MAX_BYTES) {
@@ -4271,6 +4291,8 @@ static void push_text(void) {
 }
 
 static void push_plt(void) {
+	grug_log_section(".plt");
+
 	plt_offset = bytes_size;
 
 	// define_entity()
@@ -4308,6 +4330,8 @@ static void push_rela(u64 offset, u64 info, u64 addend) {
 // https://docs.oracle.com/cd/E19683-01/816-1386/6m7qcoblk/index.html#chapter6-1235
 // https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-54839.html
 static void push_rela_plt(void) {
+	grug_log_section(".rela.plt");
+
 	rela_plt_offset = bytes_size;
 
 	 // `1 +` skips the first symbol, which is always undefined
@@ -4331,6 +4355,8 @@ static void push_rela_plt(void) {
 
 // Source: https://stevens.netmeister.org/631/elf.html
 static void push_rela_dyn(void) {
+	grug_log_section(".rela.dyn");
+
 	rela_dyn_offset = bytes_size;
 
 	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
@@ -4344,6 +4370,8 @@ static void push_rela_dyn(void) {
 }
 
 static void push_dynstr(void) {
+	grug_log_section(".dynstr");
+
 	dynstr_offset = bytes_size;
 
 	// .dynstr always starts with a '\0'
@@ -4387,6 +4415,8 @@ static u32 get_nbucket(void) {
 
 // See my blog post: https://mynameistrez.github.io/2024/06/19/array-based-hash-table-in-c.html
 static void push_hash(void) {
+	grug_log_section(".hash");
+
 	hash_offset = bytes_size;
 
 	u32 nbucket = get_nbucket();
@@ -4439,6 +4469,8 @@ static void push_section_header(u32 name_offset, u32 type, u64 flags, u64 addres
 }
 
 static void push_section_headers(void) {
+	grug_log_section("Section headers");
+
 	section_headers_offset = bytes_size;
 
 	// Null section
@@ -4491,6 +4523,8 @@ static void push_section_headers(void) {
 }
 
 static void push_dynsym(void) {
+	grug_log_section(".dynsym");
+
 	dynsym_offset = bytes_size;
 
 	// Null entry
@@ -4516,6 +4550,8 @@ static void push_program_header(u32 type, u32 flags, u64 offset, u64 virtual_add
 }
 
 static void push_program_headers(void) {
+	grug_log_section("Program headers");
+
 	// .hash, .dynsym, .dynstr, .rela.dyn, .rela.plt segment
 	// 0x40 to 0x78
 	push_program_header(PT_LOAD, PF_R, 0, 0, 0, PLACEHOLDER_64, PLACEHOLDER_64, 0x1000);
@@ -4542,6 +4578,8 @@ static void push_program_headers(void) {
 }
 
 static void push_elf_header(void) {
+	grug_log_section("ELF header");
+
 	// Magic number
 	// 0x0 to 0x4
 	push_byte(0x7f);
@@ -5016,7 +5054,7 @@ size_t grug_reloads_size;
 static size_t reloads_capacity;
 
 static void regenerate_dll(char *grug_path, char *dll_path) {
-	grug_log("Regenerating %s\n", dll_path);
+	grug_log("# Regenerating %s\n", dll_path);
 
 	static bool parsed_mod_api_json = false;
 	if (!parsed_mod_api_json) {
@@ -5027,10 +5065,10 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 	reset_utils();
 
 	char *grug_text = read_file(grug_path);
-	grug_log("grug_text:\n%s\n", grug_text);
+	grug_log("\n# Read text\n%s", grug_text);
 
 	tokenize(grug_text);
-	grug_log("After tokenize():\n");
+	grug_log("\n# Tokens\n");
 #ifdef LOGGING
 	print_tokens();
 #else
@@ -5038,13 +5076,13 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 #endif
 
 	verify_and_trim_spaces();
-	grug_log("After verify_and_trim_spaces():\n");
+	grug_log("\n# Tokens after verify_and_trim_spaces()\n");
 #ifdef LOGGING
 	print_tokens();
 #endif
 
 	parse();
-	grug_log("AST (throw this into a JSON formatter):\n");
+	grug_log("\n# AST (throw this into a JSON formatter)\n");
 #ifdef LOGGING
 	print_ast();
 #else
@@ -5053,6 +5091,7 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 
 	compile();
 
+	grug_log("\n# Section offsets\n");
 	generate_shared_object(grug_path, dll_path);
 }
 
