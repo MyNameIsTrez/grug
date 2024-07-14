@@ -2896,6 +2896,8 @@ static u32 chains_data_strings[MAX_DATA_STRINGS];
 static struct data_string_code data_string_codes[MAX_DATA_STRING_CODES];
 static size_t data_string_codes_size;
 
+static size_t define_entity_call_address_offset;
+
 static void reset_compiling(void) {
 	codes_size = 0;
 	data_strings_size = 0;
@@ -3072,7 +3074,6 @@ static void compile() {
 	size_t text_offset = 0;
 
 	// define()
-	size_t start_codes_size = codes_size;
 	size_t field_count = define_fn.returned_compound_literal.field_count;
 	assert(field_count <= 6); // TODO: Support more arguments
 	for (size_t field_index = 0; field_index < field_count; field_index++) {
@@ -3116,17 +3117,15 @@ static void compile() {
 			assert(false);
 		}
 	}
-	size_t define_field_bytes = codes_size - start_codes_size;
 	compile_push_byte(CALL);
-	// TODO: Replace 0xffffffeb
-	// TODO: Replace `((on_fns_size > 0 && on_fns[0].body_statement_count > 0) ? 0x10 : 0)` here
-	compile_push_number(0xffffffeb - define_field_bytes - ((on_fns_size > 0 && on_fns[0].body_statement_count > 0) ? 0x10 : 0), 4);
+	define_entity_call_address_offset = codes_size;
+	compile_push_number(PLACEHOLDER_32, 4);
 	compile_push_byte(RET);
 	text_offsets[text_offset_index++] = text_offset;
-	text_offset += codes_size - start_codes_size;
+	text_offset += codes_size;
 
 	// init_globals()
-	start_codes_size = codes_size;
+	size_t start_codes_size = codes_size;
 	size_t ptr_offset = 0;
 	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
 		struct global_variable global_variable = global_variables[global_variable_index];
@@ -3155,8 +3154,10 @@ static void compile() {
 
 		if (on_fn.body_statement_count > 0) {
 			compile_push_byte(CALL);
-			// TODO: Replace 0xffffffda
-			compile_push_number(0xffffffda, 4);
+			// TODO: Replace -26
+			compile_push_number(-26, 4);
+			// TODO: Replace -21
+			// compile_push_number(-21 - (future_addr_of_this_line - future_text_offset), 4);
 		}
 
 		compile_push_byte(RET);
@@ -3916,6 +3917,11 @@ static void patch_dynsym(void) {
 
 // Needed future data_offset
 static void patch_text(void) {
+	size_t define_entity_plt_offset = PLT_OFFSET + 0x10;
+	size_t next_instruction_offset = 4;
+	size_t address_after_call_instruction = text_offset + define_entity_call_address_offset + next_instruction_offset;
+	overwrite_32(define_entity_plt_offset - address_after_call_instruction, text_offset + define_entity_call_address_offset);
+
 	for (size_t i = 0; i < data_string_codes_size; i++) {
 		struct data_string_code dsc = data_string_codes[i];
 		char *string = dsc.string;
@@ -4306,7 +4312,8 @@ static void push_plt(void) {
 	push_byte(PUSH_BYTE);
 	push_number(0, 4);
 	push_byte(JMP_ABS);
-	push_number(0xffffffe0, 4);
+	size_t offset_to_start_of_plt = -0x20;
+	push_number(offset_to_start_of_plt, 4);
 
 	if (on_fns_size > 0 && on_fns[0].body_statement_count > 0) {
 		push_number(JMP_REL, 2);
@@ -4314,7 +4321,8 @@ static void push_plt(void) {
 		push_byte(PUSH_BYTE);
 		push_number(1, 4);
 		push_byte(JMP_ABS);
-		push_number(0xffffffd0, 4);
+		offset_to_start_of_plt = -0x30;
+		push_number(offset_to_start_of_plt, 4);
 	}
 
 	plt_size = bytes_size - plt_offset;
