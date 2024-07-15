@@ -3153,7 +3153,7 @@ static void compile() {
 		// TODO: Add a grug test for this, cause I want it to be able to handle when ptr_offset is >= 256
 		assert(ptr_offset < 256);
 		compile_push_byte(ptr_offset);
-		ptr_offset += 4;
+		ptr_offset += sizeof(u32);
 
 		// TODO: Make it possible to retrieve .string_literal_expr here
 		// TODO: Add test that only literals can initialize global variables, so no equations
@@ -3174,6 +3174,12 @@ static void compile() {
 			compile_push_byte(CALL);
 			push_fn_call(on_fn.fn_name, codes_size);
 			compile_push_number(PLACEHOLDER_32, 4);
+
+			if (on_fn.body_statement_count > 1) {
+				compile_push_byte(CALL);
+				push_fn_call(on_fn.fn_name, codes_size);
+				compile_push_number(PLACEHOLDER_32, 4);
+			}
 		}
 
 		compile_push_byte(RET);
