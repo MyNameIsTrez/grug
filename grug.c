@@ -74,6 +74,7 @@ static jmp_buf error_jmp_buffer;
 //// UTILS
 
 #define TEMP_MAX_STRINGS_CHARACTERS 420420
+#define BFD_HASH_BUCKET_SIZE 4051 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l345
 
 static char temp_strings[TEMP_MAX_STRINGS_CHARACTERS];
 static size_t temp_strings_size;
@@ -120,7 +121,7 @@ static u32 elf_hash(const char *namearg) {
 
 // This is solely here to put the symbols in the same weird order as ld does
 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l508
-static unsigned long bfd_hash_hash(const char *string) {
+static unsigned long bfd_hash(const char *string) {
 	const unsigned char *s;
 	unsigned long hash;
 	unsigned int len;
@@ -2937,7 +2938,7 @@ static u32 chains_game_fns[MAX_GRUG_FUNCTIONS];
 
 static char *used_game_fns[MAX_USED_GAME_FNS];
 static size_t used_game_fns_size;
-static u32 buckets_used_game_fns[MAX_USED_GAME_FNS];
+static u32 buckets_used_game_fns[BFD_HASH_BUCKET_SIZE];
 static u32 chains_used_game_fns[MAX_USED_GAME_FNS];
 
 struct fn_offset {
@@ -3002,7 +3003,7 @@ static void push_helper_fn_offset(char *fn_name, size_t offset) {
 }
 
 static bool has_used_game_fn(char *name) {
-	u32 i = buckets_used_game_fns[bfd_hash_hash(name) % game_fn_calls_size];
+	u32 i = buckets_used_game_fns[bfd_hash(name) % BFD_HASH_BUCKET_SIZE];
 
 	while (1) {
 		if (i == UINT32_MAX) {
@@ -3020,7 +3021,7 @@ static bool has_used_game_fn(char *name) {
 }
 
 static void hash_used_game_fns(void) {
-	memset(buckets_used_game_fns, UINT32_MAX, game_fn_calls_size * sizeof(u32));
+	memset(buckets_used_game_fns, UINT32_MAX, BFD_HASH_BUCKET_SIZE * sizeof(u32));
 
 	for (size_t i = 0; i < game_fn_calls_size; i++) {
 		char *name = game_fn_calls[i].fn_name;
@@ -3031,7 +3032,7 @@ static void hash_used_game_fns(void) {
 
 		used_game_fns[used_game_fns_size] = name;
 
-		u32 bucket_index = bfd_hash_hash(name) % game_fn_calls_size;
+		u32 bucket_index = bfd_hash(name) % BFD_HASH_BUCKET_SIZE;
 
 		chains_used_game_fns[used_game_fns_size] = buckets_used_game_fns[bucket_index];
 
@@ -4198,14 +4199,14 @@ static void patch_text(void) {
 		struct fn_call fn_call = game_fn_calls[i];
 		size_t offset = text_offset + fn_call.codes_offset;
 		size_t address_after_call_instruction = offset + next_instruction_offset;
-		overwrite_32(get_game_fn_offset(fn_call.fn_name) - address_after_call_instruction, offset);
+		overwrite_32((PLT_OFFSET + get_game_fn_offset(fn_call.fn_name)) - address_after_call_instruction, offset);
 	}
 
 	for (size_t i = 0; i < helper_fn_calls_size; i++) {
 		struct fn_call fn_call = helper_fn_calls[i];
 		size_t offset = text_offset + fn_call.codes_offset;
 		size_t address_after_call_instruction = offset + next_instruction_offset;
-		overwrite_32(get_helper_fn_offset(fn_call.fn_name) - address_after_call_instruction, offset);
+		overwrite_32((text_offset + get_helper_fn_offset(fn_call.fn_name)) - address_after_call_instruction, offset);
 	}
 
 	for (size_t i = 0; i < data_string_codes_size; i++) {
@@ -4597,7 +4598,7 @@ static void push_plt(void) {
 	// The 0x18 here is from the first three addresses push_got_plt() pushes 
 	size_t got_plt_fn_address = GOT_PLT_OFFSET + 0x18;
 
-	for (size_t i = 0; i < game_fn_calls_size; i++) {
+	for (size_t i = 0; i < BFD_HASH_BUCKET_SIZE; i++) {
 		u32 chain_index = buckets_used_game_fns[i];
 		if (chain_index == UINT32_MAX) {
 			continue;
@@ -4613,7 +4614,7 @@ static void push_plt(void) {
 			push_byte(PUSH_BYTE);
 			push_number(pushed_plt_entries++, 4);
 			push_byte(JMP_ABS);
-			push_game_fn_offset(name, PLT_OFFSET + offset);
+			push_game_fn_offset(name, offset);
 			size_t offset_to_start_of_plt = -offset - 0x10;
 			push_number(offset_to_start_of_plt, 4);
 			offset += 0x10;
@@ -5149,11 +5150,9 @@ static void push_shuffled_symbol(char *shuffled_symbol) {
 // See my blog post: https://mynameistrez.github.io/2024/06/19/array-based-hash-table-in-c.html
 // See https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l618)
 static void generate_shuffled_symbols(void) {
-	#define DEFAULT_SIZE 4051 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l345
+	static u32 buckets[BFD_HASH_BUCKET_SIZE];
 
-	static u32 buckets[DEFAULT_SIZE];
-
-	memset(buckets, 0, DEFAULT_SIZE * sizeof(u32));
+	memset(buckets, 0, BFD_HASH_BUCKET_SIZE * sizeof(u32));
 
 	static u32 chains[MAX_SYMBOLS + 1]; // +1, because [0] is STN_UNDEF
 
@@ -5162,15 +5161,15 @@ static void generate_shuffled_symbols(void) {
 	chains[chains_size++] = 0; // The first entry in the chain is always STN_UNDEF
 
 	for (size_t i = 0; i < symbols_size; i++) {
-		u32 hash = bfd_hash_hash(symbols[i]);
-		u32 bucket_index = hash % DEFAULT_SIZE;
+		u32 hash = bfd_hash(symbols[i]);
+		u32 bucket_index = hash % BFD_HASH_BUCKET_SIZE;
 
 		chains[chains_size] = buckets[bucket_index];
 
 		buckets[bucket_index] = chains_size++;
 	}
 
-	for (size_t i = 0; i < DEFAULT_SIZE; i++) {
+	for (size_t i = 0; i < BFD_HASH_BUCKET_SIZE; i++) {
 		u32 chain_index = buckets[i];
 		if (chain_index == 0) {
 			continue;
@@ -5310,6 +5309,10 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 	on_fns_symbol_offset = symbols_size;
 	for (size_t i = 0; i < on_fns_size; i++) {
 		push_symbol(on_fns[i].fn_name);
+	}
+
+	for (size_t i = 0; i < helper_fns_size; i++) {
+		push_symbol(helper_fns[i].fn_name);
 	}
 
 	init_symbol_name_dynstr_offsets();
