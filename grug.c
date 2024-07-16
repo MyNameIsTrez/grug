@@ -3132,6 +3132,138 @@ static void compile_push_number(u64 n, size_t byte_count) {
 	compile_push_zeros(byte_count);
 }
 
+static void compile_argument(struct expr expr_value, size_t argument_index) {
+	if (expr_value.type == NUMBER_EXPR) {
+		static enum code arg_index_to_code[] = {
+			MOVABS_TO_RDI,
+			MOVABS_TO_RSI,
+			MOVABS_TO_RDX,
+			MOVABS_TO_RCX,
+			MOVABS_TO_R8,
+			MOVABS_TO_R9,
+		};
+		compile_push_number(arg_index_to_code[argument_index], 2);
+
+		compile_push_number(expr_value.literal.number, 8);
+	} else if (expr_value.type == STRING_EXPR) {
+		static enum code arg_index_to_code[] = {
+			LEA_TO_RDI,
+			LEA_TO_RSI,
+			LEA_TO_RDX,
+			LEA_TO_RCX,
+			LEA_TO_R8,
+			LEA_TO_R9,
+		};
+		compile_push_number(arg_index_to_code[argument_index], 3);
+
+		// RIP-relative address of data string
+		push_data_string_code(expr_value.literal.string, codes_size);
+		compile_push_number(PLACEHOLDER_32, 4);
+	} else {
+		abort(); // TODO: Can modders somehow reach this?
+	}
+}
+
+static void compile_call_expr(struct call_expr call_expr) {
+	for (size_t argument_index = 0; argument_index < call_expr.argument_count; argument_index++) {
+		struct expr argument = exprs[call_expr.arguments_exprs_offset + argument_index];
+
+		// TODO: Support passing exprs, like `identity(1 + 1)`: 
+		// serialize_expr(exprs[call_expr.arguments_exprs_offset + argument_index]);
+
+		// TODO: Verify that the argument has the same type as the one in grug_define_entity
+
+		compile_argument(argument, argument_index);
+	}
+
+	compile_push_byte(CALL);
+	if (is_game_fn(call_expr.fn_name)) {
+		push_game_fn_call(call_expr.fn_name, codes_size);
+	} else {
+		push_helper_fn_call(call_expr.fn_name, codes_size);
+	}
+	compile_push_number(PLACEHOLDER_32, 4);
+}
+
+static void compile_statements(size_t statements_offset, size_t statement_count) {
+	for (size_t statement_index = 0; statement_index < statement_count; statement_index++) {
+		struct statement statement = statements[statements_offset + statement_index];
+
+		switch (statement.type) {
+			case VARIABLE_STATEMENT:
+				abort();
+// 				if (statement.variable_statement.has_type) {
+// 					serialize_append_slice(statement.variable_statement.type, statement.variable_statement.type_len);
+// 					serialize_append(" ");
+// 				}
+
+// 				if (is_identifier_global(statement.variable_statement.name, statement.variable_statement.name_len)) {
+// 					serialize_append("globals->");
+// 				}
+// 				serialize_append_slice(statement.variable_statement.name, statement.variable_statement.name_len);
+
+// 				if (statement.variable_statement.has_assignment) {
+// 					serialize_append(" = ");
+// 					serialize_expr(exprs[statement.variable_statement.assignment_expr_index]);
+// 				}
+
+// 				serialize_append(";");
+
+// 				break;
+			case CALL_STATEMENT:
+				compile_call_expr(exprs[statement.call_statement.expr_index].call);
+				break;
+			case IF_STATEMENT:
+				abort();
+// 				serialize_append("if (");
+// 				serialize_expr(statement.if_statement.condition);
+// 				serialize_append(") {\n");
+// 				serialize_statements(statement.if_statement.if_body_statements_offset, statement.if_statement.if_body_statement_count, depth + 1);
+				
+// 				if (statement.if_statement.else_body_statement_count > 0) {
+// 					serialize_append_indents(depth);
+// 					serialize_append("} else {\n");
+// 					serialize_statements(statement.if_statement.else_body_statements_offset, statement.if_statement.else_body_statement_count, depth + 1);
+// 				}
+
+// 				serialize_append_indents(depth);
+// 				serialize_append("}");
+
+// 				break;
+			case RETURN_STATEMENT:
+				abort();
+// 				serialize_append("return");
+// 				if (statement.return_statement.has_value) {
+// 					serialize_append(" ");
+// 					struct expr return_expr = exprs[statement.return_statement.value_expr_index];
+// 					serialize_expr(return_expr);
+// 				}
+// 				serialize_append(";");
+// 				break;
+			case LOOP_STATEMENT:
+				abort();
+// 				serialize_append("while (true) {\n");
+// 				serialize_statements(statement.loop_statement.body_statements_offset, statement.loop_statement.body_statement_count, depth + 1);
+// 				serialize_append_indents(depth);
+// 				serialize_append("}");
+// 				break;
+			case BREAK_STATEMENT:
+				abort();
+// 				serialize_append("break;");
+// 				break;
+			case CONTINUE_STATEMENT:
+				abort();
+// 				serialize_append("continue;");
+// 				break;
+		}
+	}
+}
+
+static void compile_on_fn(struct on_fn fn) {
+	compile_statements(fn.body_statements_offset, fn.body_statement_count);
+	compile_push_byte(RET);
+}
+
 static void push_data_string(char *string) {
 	if (data_strings_size >= MAX_DATA_STRINGS) {
 		GRUG_ERROR("There are more than %d data strings, exceeding MAX_DATA_STRINGS", MAX_DATA_STRINGS);
@@ -3278,36 +3410,7 @@ static void compile() {
 
 		// TODO: Verify that the argument has the same type as the one in grug_define_entity
 
-		if (field.expr_value.type == NUMBER_EXPR) {
-			static enum code arg_index_to_code[] = {
-				MOVABS_TO_RDI,
-				MOVABS_TO_RSI,
-				MOVABS_TO_RDX,
-				MOVABS_TO_RCX,
-				MOVABS_TO_R8,
-				MOVABS_TO_R9,
-			};
-			compile_push_number(arg_index_to_code[field_index], 2);
-
-			compile_push_number(field.expr_value.literal.number, 8);
-		} else if (field.expr_value.type == STRING_EXPR) {
-			static enum code arg_index_to_code[] = {
-				LEA_TO_RDI,
-				LEA_TO_RSI,
-				LEA_TO_RDX,
-				LEA_TO_RCX,
-				LEA_TO_R8,
-				LEA_TO_R9,
-			};
-			compile_push_number(arg_index_to_code[field_index], 3);
-
-			push_data_string_code(field.expr_value.literal.string, codes_size);
-
-			// RIP-relative address of data string
-			compile_push_number(PLACEHOLDER_32, 4);
-		} else {
-			assert(false);
-		}
+		compile_argument(field.expr_value, field_index);
 	}
 	compile_push_byte(CALL);
 	push_game_fn_call(define_fn_name, codes_size);
@@ -3342,29 +3445,7 @@ static void compile() {
 	for (size_t on_fn_index = 0; on_fn_index < on_fns_size; on_fn_index++) {
 		start_codes_size = codes_size;
 
-		struct on_fn on_fn = on_fns[on_fn_index];
-
-		if (on_fn.body_statement_count > 0) {
-			compile_push_byte(CALL);
-			if (is_game_fn(exprs[statements[on_fn.body_statements_offset].call_statement.expr_index].call.fn_name)) {
-				push_game_fn_call(exprs[statements[on_fn.body_statements_offset].call_statement.expr_index].call.fn_name, codes_size);
-			} else {
-				push_helper_fn_call(exprs[statements[on_fn.body_statements_offset].call_statement.expr_index].call.fn_name, codes_size);
-			}
-			compile_push_number(PLACEHOLDER_32, 4);
-
-			if (on_fn.body_statement_count > 1) {
-				compile_push_byte(CALL);
-				if (is_game_fn(exprs[statements[on_fn.body_statements_offset + 1].call_statement.expr_index].call.fn_name)) {
-					push_game_fn_call(exprs[statements[on_fn.body_statements_offset + 1].call_statement.expr_index].call.fn_name, codes_size);
-				} else {
-					push_helper_fn_call(exprs[statements[on_fn.body_statements_offset + 1].call_statement.expr_index].call.fn_name, codes_size);
-				}
-				compile_push_number(PLACEHOLDER_32, 4);
-			}
-		}
-
-		compile_push_byte(RET);
+		compile_on_fn(on_fns[on_fn_index]);
 
 		text_offsets[text_offset_index++] = text_offset;
 		text_offset += codes_size - start_codes_size;
@@ -3429,36 +3510,6 @@ static void compile() {
 // static void serialize_parenthesized_expr(struct parenthesized_expr parenthesized_expr) {
 // 	serialize_append("(");
 // 	serialize_expr(exprs[parenthesized_expr.expr_index]);
-// 	serialize_append(")");
-// }
-
-// static bool is_helper_function(char *name, size_t len) {
-// 	for (size_t i = 0; i < helper_fns_size; i++) {
-// 		struct helper_fn fn = helper_fns[i];
-// 		if (fn.fn_name_len == len && memcmp(fn.fn_name, name, len) == 0) {
-// 			return true;
-// 		}
-// 	}
-// 	return false;
-// }
-
-// static void serialize_call_expr(struct call_expr call_expr) {
-// 	serialize_append_slice(call_expr.fn_name, call_expr.fn_name_len);
-
-// 	serialize_append("(");
-// 	if (is_helper_function(call_expr.fn_name, call_expr.fn_name_len)) {
-// 		serialize_append("globals_void");
-// 		if (call_expr.argument_count > 0) {
-// 			serialize_append(", ");
-// 		}
-// 	}
-// 	for (size_t argument_index = 0; argument_index < call_expr.argument_count; argument_index++) {
-// 		if (argument_index > 0) {
-// 			serialize_append(", ");
-// 		}
-
-// 		serialize_expr(exprs[call_expr.arguments_exprs_offset + argument_index]);
-// 	}
 // 	serialize_append(")");
 // }
 
@@ -3569,79 +3620,6 @@ static void compile() {
 // 		case PARENTHESIZED_EXPR:
 // 			serialize_parenthesized_expr(expr.parenthesized_expr);
 // 			break;
-// 	}
-// }
-
-// static void serialize_statements(size_t statements_offset, size_t statement_count, size_t depth) {
-// 	for (size_t statement_index = 0; statement_index < statement_count; statement_index++) {
-// 		struct statement statement = statements[statements_offset + statement_index];
-
-// 		serialize_append_indents(depth);
-
-// 		switch (statement.type) {
-// 			case VARIABLE_STATEMENT:
-// 				if (statement.variable_statement.has_type) {
-// 					serialize_append_slice(statement.variable_statement.type, statement.variable_statement.type_len);
-// 					serialize_append(" ");
-// 				}
-
-// 				if (is_identifier_global(statement.variable_statement.name, statement.variable_statement.name_len)) {
-// 					serialize_append("globals->");
-// 				}
-// 				serialize_append_slice(statement.variable_statement.name, statement.variable_statement.name_len);
-
-// 				if (statement.variable_statement.has_assignment) {
-// 					serialize_append(" = ");
-// 					serialize_expr(exprs[statement.variable_statement.assignment_expr_index]);
-// 				}
-
-// 				serialize_append(";");
-
-// 				break;
-// 			case CALL_STATEMENT:
-// 				serialize_call_expr(exprs[statement.call_statement.expr_index].call_expr);
-// 				serialize_append(";");
-// 				break;
-// 			case IF_STATEMENT:
-// 				serialize_append("if (");
-// 				serialize_expr(statement.if_statement.condition);
-// 				serialize_append(") {\n");
-// 				serialize_statements(statement.if_statement.if_body_statements_offset, statement.if_statement.if_body_statement_count, depth + 1);
-				
-// 				if (statement.if_statement.else_body_statement_count > 0) {
-// 					serialize_append_indents(depth);
-// 					serialize_append("} else {\n");
-// 					serialize_statements(statement.if_statement.else_body_statements_offset, statement.if_statement.else_body_statement_count, depth + 1);
-// 				}
-
-// 				serialize_append_indents(depth);
-// 				serialize_append("}");
-
-// 				break;
-// 			case RETURN_STATEMENT:
-// 				serialize_append("return");
-// 				if (statement.return_statement.has_value) {
-// 					serialize_append(" ");
-// 					struct expr return_expr = exprs[statement.return_statement.value_expr_index];
-// 					serialize_expr(return_expr);
-// 				}
-// 				serialize_append(";");
-// 				break;
-// 			case LOOP_STATEMENT:
-// 				serialize_append("while (true) {\n");
-// 				serialize_statements(statement.loop_statement.body_statements_offset, statement.loop_statement.body_statement_count, depth + 1);
-// 				serialize_append_indents(depth);
-// 				serialize_append("}");
-// 				break;
-// 			case BREAK_STATEMENT:
-// 				serialize_append("break;");
-// 				break;
-// 			case CONTINUE_STATEMENT:
-// 				serialize_append("continue;");
-// 				break;
-// 		}
-
-// 		serialize_append("\n");
 // 	}
 // }
 
@@ -3967,7 +3945,7 @@ static size_t shuffled_symbols_size;
 static size_t shuffled_symbol_index_to_symbol_index[MAX_SYMBOLS];
 static size_t symbol_index_to_shuffled_symbol_index[MAX_SYMBOLS];
 
-static size_t define_fn_name_symbol_index;
+static size_t first_used_game_fn_symbol_index;
 
 static size_t data_offsets[MAX_SYMBOLS];
 static size_t data_string_offsets[MAX_SYMBOLS];
@@ -3976,8 +3954,6 @@ static u8 bytes[MAX_BYTES];
 static size_t bytes_size;
 
 static size_t symtab_index_first_global;
-
-static size_t plt_entry_count;
 
 static size_t text_size;
 static size_t data_size;
@@ -4521,10 +4497,13 @@ static void push_got_plt(void) {
 	push_zeros(8); // TODO: What is this for?
 	push_zeros(8); // TODO: What is this for?
 
-	size_t offset = PLT_OFFSET + 0x16; // 0x16 is the size of the first, special .plt entry
+	// 0x10 is the size of the first, special .plt entry
+	// 0x6 is the offset every .plt entry has to their push instruction
+	size_t offset = PLT_OFFSET + 0x10 + 0x6;
+
 	for (size_t i = 0; i < used_game_fns_size; i++) {
 		push_number(offset, 8); // text section address of push <i> instruction
-		offset += 0x10;
+		offset += 0x10; // 0x10 is the size of a .plt entry
 	}
 
 	got_plt_size = bytes_size - got_plt_offset;
@@ -4547,7 +4526,7 @@ static void push_dynamic() {
 	push_dynamic_entry(DT_STRSZ, dynstr_size);
 	push_dynamic_entry(DT_SYMENT, SYMTAB_ENTRY_SIZE);
 	push_dynamic_entry(DT_PLTGOT, GOT_PLT_OFFSET);
-	push_dynamic_entry(DT_PLTRELSZ, PLT_ENTRY_SIZE * plt_entry_count);
+	push_dynamic_entry(DT_PLTRELSZ, PLT_ENTRY_SIZE * used_game_fns_size);
 	push_dynamic_entry(DT_PLTREL, DT_RELA);
 	push_dynamic_entry(DT_JMPREL, rela_dyn_offset + ((on_fns_size > 0) ? RELA_ENTRY_SIZE * on_fns_size : 0));
 	if (on_fns_size > 0) {
@@ -4643,18 +4622,19 @@ static void push_rela_plt(void) {
 
 	rela_plt_offset = bytes_size;
 
-	 // `1 +` skips the first symbol, which is always undefined
-	size_t define_entity_dynsym_index = 1 + symbol_index_to_shuffled_symbol_index[define_fn_name_symbol_index];
+	size_t offset = GOT_PLT_OFFSET + 0x18; // +0x18 skips three special addresses that are always at the start
+	for (size_t shuffled_symbol_index = 0; shuffled_symbol_index < symbols_size; shuffled_symbol_index++) {
+		size_t symbol_index = shuffled_symbol_index_to_symbol_index[shuffled_symbol_index];
 
-	// TODO: Turn 0x18 into a descriptive variable
-	push_rela(GOT_PLT_OFFSET + 0x18, ELF64_R_INFO(define_entity_dynsym_index, R_X86_64_JUMP_SLOT), 0);
-	plt_entry_count++;
+		if (symbol_index < first_used_game_fn_symbol_index || symbol_index >= first_used_game_fn_symbol_index + used_game_fns_size) {
+			continue;
+		}
 
-	if (on_fns_size > 0 && on_fns[0].body_statement_count > 0) {
-		size_t on_fn_dynsym_index = 4;
-		// TODO: Turn 0x20 into a descriptive variable
-		push_rela(GOT_PLT_OFFSET + 0x20, ELF64_R_INFO(on_fn_dynsym_index, R_X86_64_JUMP_SLOT), 0);
-		plt_entry_count++;
+		// `1 +` skips the first symbol, which is always undefined
+		size_t dynsym_index = 1 + shuffled_symbol_index;
+
+		push_rela(offset, ELF64_R_INFO(dynsym_index, R_X86_64_JUMP_SLOT), 0);
+		offset += sizeof(u64);
 	}
 
 	segment_0_size = bytes_size;
@@ -5114,7 +5094,7 @@ static void init_symbol_name_strtab_offsets(void) {
 			}
 		}
 
-		// If symbol wasn't in the end of another symbol
+		// If symbol wasn't at the end of another symbol
 		bool is_substr = parent_index != symbols_size;
 
 		if (is_substr) {
@@ -5214,7 +5194,7 @@ static void init_symbol_name_dynstr_offsets(void) {
 			}
 		}
 
-		// If symbol wasn't in the end of another symbol
+		// If symbol wasn't at the end of another symbol
 		bool is_substr = parent_index != symbols_size;
 
 		if (is_substr) {
@@ -5291,10 +5271,8 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 		data_symbols_size++;
 	}
 
-	define_fn_name_symbol_index = data_symbols_size;
-
+	first_used_game_fn_symbol_index = data_symbols_size;
 	for (size_t i = 0; i < used_game_fns_size; i++) {
-		fprintf(stderr, "Pushing game fn symbol %s\n", used_game_fns[i]);
 		push_symbol(used_game_fns[i]);
 	}
 
