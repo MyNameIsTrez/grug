@@ -2700,7 +2700,7 @@ static void print_arguments(size_t arguments_offset, size_t argument_count) {
 		struct argument arg = arguments[arguments_offset + argument_index];
 
 		grug_log("\"name\":\"%s\",", arg.name);
-		grug_log("\"type\":\"%s\",", arg.type);
+		grug_log("\"type\":\"%s\"", arg.type);
 
 		grug_log("}");
 	}
@@ -2724,6 +2724,7 @@ static void print_helper_fns(void) {
 
 		print_arguments(fn.arguments_offset, fn.argument_count);
 
+		grug_log(",");
 		if (fn.return_type) {
 			grug_log("\"return_type\":\"%s\",", fn.return_type);
 		}
@@ -2754,6 +2755,7 @@ static void print_on_fns(void) {
 
 		print_arguments(fn.arguments_offset, fn.argument_count);
 
+		grug_log(",");
 		grug_log("\"statements\":[");
 		print_statements(fn.body_statements_offset, fn.body_statement_count);
 		grug_log("]");
