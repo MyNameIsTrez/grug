@@ -3952,7 +3952,6 @@ static size_t symbols_size;
 static size_t on_fns_symbol_offset;
 
 static size_t data_symbols_size;
-static size_t extern_symbols_size;
 
 static bool is_substrs[MAX_SYMBOLS];
 
@@ -4031,7 +4030,6 @@ static u32 chains_game_fn_offsets[MAX_GAME_FN_OFFSETS];
 static void reset_generate_shared_object(void) {
 	symbols_size = 0;
 	data_symbols_size = 0;
-	extern_symbols_size = 0;
 	shuffled_symbols_size = 0;
 	bytes_size = 0;
 	game_fn_offsets_size = 0;
@@ -4111,7 +4109,7 @@ static void patch_rela_dyn(void) {
 		if (on_fn) {
 			size_t on_fn_index = on_fn - on_fns;
 			size_t symbol_index = on_fns_symbol_offset + on_fn_index;
-			size_t text_index = symbol_index - data_symbols_size - extern_symbols_size;
+			size_t text_index = symbol_index - data_symbols_size - used_game_fns_size;
 
 			overwrite_64(GOT_PLT_OFFSET + got_plt_size + on_fn_data_offset, bytes_offset);
 			bytes_offset += sizeof(u64);
@@ -4132,10 +4130,10 @@ static void patch_dynsym(void) {
 		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
 
 		bool is_data = symbol_index < data_symbols_size;
-		bool is_extern = symbol_index < data_symbols_size + extern_symbols_size;
+		bool is_extern = symbol_index < data_symbols_size + used_game_fns_size;
 
 		u16 shndx = is_data ? shindex_data : is_extern ? SHN_UNDEF : shindex_text;
-		u32 offset = is_data ? data_offset + data_offsets[symbol_index] : is_extern ? 0 : text_offset + text_offsets[symbol_index - data_symbols_size - extern_symbols_size];
+		u32 offset = is_data ? data_offset + data_offsets[symbol_index] : is_extern ? 0 : text_offset + text_offsets[symbol_index - data_symbols_size - used_game_fns_size];
 
 		overwrite_32(symbol_name_dynstr_offsets[symbol_index], bytes_offset);
 		bytes_offset += sizeof(u32);
@@ -4458,10 +4456,10 @@ static void push_symtab(char *grug_path) {
 		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
 
 		bool is_data = symbol_index < data_symbols_size;
-		bool is_extern = symbol_index < data_symbols_size + extern_symbols_size;
+		bool is_extern = symbol_index < data_symbols_size + used_game_fns_size;
 
 		u16 shndx = is_data ? shindex_data : is_extern ? SHN_UNDEF : shindex_text;
-		u32 offset = is_data ? data_offset + data_offsets[symbol_index] : is_extern ? 0 : text_offset + text_offsets[symbol_index - data_symbols_size - extern_symbols_size];
+		u32 offset = is_data ? data_offset + data_offsets[symbol_index] : is_extern ? 0 : text_offset + text_offsets[symbol_index - data_symbols_size - used_game_fns_size];
 
 		push_symbol_entry(name_offset + symbol_name_strtab_offsets[symbol_index], ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), shndx, offset);
 	}
@@ -4498,7 +4496,7 @@ static void push_data(void) {
 			previous_on_fn_index = on_fn_index;
 
 			size_t symbol_index = on_fns_symbol_offset + on_fn_index;
-			size_t text_index = symbol_index - data_symbols_size - extern_symbols_size;
+			size_t text_index = symbol_index - data_symbols_size - used_game_fns_size;
 			push_number(text_offset + text_offsets[text_index], 8);
 		} else {
 			push_number(0x0, 8);
@@ -5294,13 +5292,10 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 	}
 
 	define_fn_name_symbol_index = data_symbols_size;
-	// TODO: Only push the grug_game_function symbols that are called
-	push_symbol(define_fn_name);
-	extern_symbols_size++;
 
-	if (on_fns_size > 0 && on_fns[0].body_statement_count > 0) {
-		push_symbol("nothing");
-		extern_symbols_size++;
+	for (size_t i = 0; i < used_game_fns_size; i++) {
+		fprintf(stderr, "Pushing game fn symbol %s\n", used_game_fns[i]);
+		push_symbol(used_game_fns[i]);
 	}
 
 	push_symbol("define");
