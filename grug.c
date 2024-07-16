@@ -2842,7 +2842,10 @@ static void print_ast(void) {
 #define MAX_CODES 420420
 #define MAX_DATA_STRINGS 420420
 #define MAX_DATA_STRING_CODES 420420
-#define MAX_FN_CALLS 420420
+#define MAX_GAME_FN_CALLS 420420
+#define MAX_HELPER_FN_CALLS 420420
+#define MAX_USED_GAME_FNS 420
+#define MAX_HELPER_FN_OFFSETS 420420
 
 // 0xDEADBEEF in little-endian
 #define PLACEHOLDER_16 0xADDE
@@ -2901,22 +2904,171 @@ struct fn_call {
 	char *fn_name;
 	size_t codes_offset;
 };
-static struct fn_call fn_calls[MAX_FN_CALLS];
-static size_t fn_calls_size;
+static struct fn_call game_fn_calls[MAX_GAME_FN_CALLS];
+static size_t game_fn_calls_size;
+static struct fn_call helper_fn_calls[MAX_HELPER_FN_CALLS];
+static size_t helper_fn_calls_size;
+
+static u32 buckets_game_fns[MAX_GRUG_FUNCTIONS];
+static u32 chains_game_fns[MAX_GRUG_FUNCTIONS];
+
+static char *used_game_fns[MAX_USED_GAME_FNS];
+static size_t used_game_fns_size;
+static u32 buckets_used_game_fns[MAX_USED_GAME_FNS];
+static u32 chains_used_game_fns[MAX_USED_GAME_FNS];
+
+struct fn_offset {
+	char *fn_name;
+	size_t offset;
+};
+
+static struct fn_offset helper_fn_offsets[MAX_HELPER_FN_OFFSETS];
+static size_t helper_fn_offsets_size;
+static u32 buckets_helper_fn_offsets[MAX_HELPER_FN_OFFSETS];
+static u32 chains_helper_fn_offsets[MAX_HELPER_FN_OFFSETS];
 
 static void reset_compiling(void) {
 	codes_size = 0;
 	data_strings_size = 0;
 	data_string_codes_size = 0;
-	fn_calls_size = 0;
+	game_fn_calls_size = 0;
+	helper_fn_calls_size = 0;
+	used_game_fns_size = 0;
+	helper_fn_offsets_size = 0;
 }
 
-static void push_fn_call(char *fn_name, size_t codes_offset) {
-	if (fn_calls_size >= MAX_FN_CALLS) {
-		GRUG_ERROR("There are more than %d function calls, exceeding MAX_FN_CALLS", MAX_FN_CALLS);
+static size_t get_helper_fn_offset(char *name) {
+	u32 i = buckets_helper_fn_offsets[elf_hash(name) % helper_fn_offsets_size];
+
+	while (1) {
+		assert(i != UINT32_MAX && "get_helper_fn_offset() isn't supposed to ever fail");
+
+		if (streq(name, helper_fn_offsets[i].fn_name)) {
+			break;
+		}
+
+		i = chains_helper_fn_offsets[i];
 	}
 
-	fn_calls[fn_calls_size++] = (struct fn_call){
+	return helper_fn_offsets[i].offset;
+}
+
+static void hash_helper_fn_offsets(void) {
+	memset(buckets_helper_fn_offsets, UINT32_MAX, helper_fn_offsets_size * sizeof(u32));
+
+	for (size_t i = 0; i < helper_fn_offsets_size; i++) {
+		char *name = helper_fn_offsets[i].fn_name;
+
+		u32 bucket_index = elf_hash(name) % helper_fn_offsets_size;
+
+		chains_helper_fn_offsets[i] = buckets_helper_fn_offsets[bucket_index];
+
+		buckets_helper_fn_offsets[bucket_index] = i;
+	}
+}
+
+static void push_helper_fn_offset(char *fn_name, size_t offset) {
+	if (helper_fn_offsets_size >= MAX_HELPER_FN_OFFSETS) {
+		GRUG_ERROR("There are more than %d helper functions, exceeding MAX_HELPER_FN_OFFSETS", MAX_HELPER_FN_OFFSETS);
+	}
+
+	helper_fn_offsets[helper_fn_offsets_size++] = (struct fn_offset){
+		.fn_name = fn_name,
+		.offset = offset,
+	};
+}
+
+static bool has_used_game_fn(char *name) {
+	u32 i = buckets_used_game_fns[elf_hash(name) % used_game_fns_size];
+
+	while (1) {
+		if (i == UINT32_MAX) {
+			return false;
+		}
+
+		if (streq(name, used_game_fns[i])) {
+			break;
+		}
+
+		i = chains_used_game_fns[i];
+	}
+
+	return true;
+}
+
+static void hash_used_game_fns(void) {
+	memset(buckets_used_game_fns, UINT32_MAX, used_game_fns_size * sizeof(u32));
+
+	for (size_t i = 0; i < used_game_fns_size; i++) {
+		char *name = used_game_fns[i];
+
+		u32 bucket_index = elf_hash(name) % used_game_fns_size;
+
+		chains_used_game_fns[i] = buckets_used_game_fns[bucket_index];
+
+		buckets_used_game_fns[bucket_index] = i;
+	}
+}
+
+static void add_used_game_fn(char *fn_name) {
+	if (used_game_fns_size >= MAX_USED_GAME_FNS) {
+		GRUG_ERROR("There are more than %d game functions, exceeding MAX_USED_GAME_FNS", MAX_USED_GAME_FNS);
+	}
+
+	if (used_game_fns_size == 0 || !has_used_game_fn(fn_name)) {
+		used_game_fns[used_game_fns_size++] = fn_name;
+	}
+}
+
+static bool is_game_fn(char *name) {
+	u32 i = buckets_game_fns[elf_hash(name) % grug_game_functions_size];
+
+	while (1) {
+		if (i == UINT32_MAX) {
+			return false;
+		}
+
+		if (streq(name, grug_game_functions[i].name)) {
+			break;
+		}
+
+		i = chains_game_fns[i];
+	}
+
+	return true;
+}
+
+static void hash_game_fns(void) {
+	memset(buckets_game_fns, UINT32_MAX, grug_game_functions_size * sizeof(u32));
+
+	for (size_t i = 0; i < grug_game_functions_size; i++) {
+		char *name = grug_game_functions[i].name;
+
+		u32 bucket_index = elf_hash(name) % grug_game_functions_size;
+
+		chains_game_fns[i] = buckets_game_fns[bucket_index];
+
+		buckets_game_fns[bucket_index] = i;
+	}
+}
+
+static void push_helper_fn_call(char *fn_name, size_t codes_offset) {
+	if (helper_fn_calls_size >= MAX_HELPER_FN_CALLS) {
+		GRUG_ERROR("There are more than %d helper function calls, exceeding MAX_HELPER_FN_CALLS", MAX_HELPER_FN_CALLS);
+	}
+
+	helper_fn_calls[helper_fn_calls_size++] = (struct fn_call){
+		.fn_name = fn_name,
+		.codes_offset = codes_offset,
+	};
+}
+
+static void push_game_fn_call(char *fn_name, size_t codes_offset) {
+	if (game_fn_calls_size >= MAX_GAME_FN_CALLS) {
+		GRUG_ERROR("There are more than %d game function calls, exceeding MAX_GAME_FN_CALLS", MAX_GAME_FN_CALLS);
+	}
+
+	game_fn_calls[game_fn_calls_size++] = (struct fn_call){
 		.fn_name = fn_name,
 		.codes_offset = codes_offset,
 	};
@@ -3088,6 +3240,8 @@ static void compile() {
 
 	init_data_strings();
 
+	hash_game_fns();
+
 	size_t text_offset_index = 0;
 	size_t text_offset = 0;
 
@@ -3136,7 +3290,8 @@ static void compile() {
 		}
 	}
 	compile_push_byte(CALL);
-	push_fn_call(define_fn_name, codes_size);
+	add_used_game_fn(define_fn_name);
+	push_game_fn_call(define_fn_name, codes_size);
 	compile_push_number(PLACEHOLDER_32, 4);
 	compile_push_byte(RET);
 	text_offsets[text_offset_index++] = text_offset;
@@ -3172,12 +3327,22 @@ static void compile() {
 
 		if (on_fn.body_statement_count > 0) {
 			compile_push_byte(CALL);
-			push_fn_call(on_fn.fn_name, codes_size);
+			if (is_game_fn(on_fn.fn_name)) {
+				add_used_game_fn(on_fn.fn_name);
+				push_game_fn_call(on_fn.fn_name, codes_size);
+			} else {
+				push_helper_fn_call(on_fn.fn_name, codes_size);
+			}
 			compile_push_number(PLACEHOLDER_32, 4);
 
 			if (on_fn.body_statement_count > 1) {
 				compile_push_byte(CALL);
-				push_fn_call(on_fn.fn_name, codes_size);
+				if (is_game_fn(on_fn.fn_name)) {
+					add_used_game_fn(on_fn.fn_name);
+					push_game_fn_call(on_fn.fn_name, codes_size);
+				} else {
+					push_helper_fn_call(on_fn.fn_name, codes_size);
+				}
 				compile_push_number(PLACEHOLDER_32, 4);
 			}
 		}
@@ -3187,6 +3352,33 @@ static void compile() {
 		text_offsets[text_offset_index++] = text_offset;
 		text_offset += codes_size - start_codes_size;
 	}
+
+	for (size_t helper_fn_index = 0; helper_fn_index < helper_fns_size; helper_fn_index++) {
+		start_codes_size = codes_size;
+
+		struct helper_fn helper_fn = helper_fns[helper_fn_index];
+
+		push_helper_fn_offset(helper_fn.fn_name, codes_size);
+
+		if (helper_fn.body_statement_count > 0) {
+			compile_push_byte(CALL);
+			if (is_game_fn(helper_fn.fn_name)) {
+				add_used_game_fn(helper_fn.fn_name);
+				push_game_fn_call(helper_fn.fn_name, codes_size);
+			} else {
+				push_helper_fn_call(helper_fn.fn_name, codes_size);
+			}
+			compile_push_number(PLACEHOLDER_32, 4);
+		}
+
+		compile_push_byte(RET);
+
+		text_offsets[text_offset_index++] = text_offset;
+		text_offset += codes_size - start_codes_size;
+	}
+
+	hash_used_game_fns();
+	hash_helper_fn_offsets();
 }
 
 // static char serialized[MAX_SERIALIZED_TO_C_CHARS + 1];
@@ -3689,7 +3881,7 @@ static void compile() {
 //// LINKING
 
 #define MAX_BYTES 420420
-#define MAX_FN_OFFSETS 420420
+#define MAX_GAME_FN_OFFSETS 420420
 #define MAX_HASH_BUCKETS 32771 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/elflink.c;h=6db6a9c0b4702c66d73edba87294e2a59ffafcf5;hb=refs/heads/master#l6560
 
 // TODO: Stop having these hardcoded!
@@ -3816,14 +4008,10 @@ static size_t symtab_shstrtab_offset;
 static size_t strtab_shstrtab_offset;
 static size_t shstrtab_shstrtab_offset;
 
-struct fn_offset {
-	char *fn_name;
-	size_t offset;
-};
-static struct fn_offset fn_offsets[MAX_FN_OFFSETS];
-static size_t fn_offsets_size;
-static u32 buckets_fn_offsets[MAX_FN_OFFSETS];
-static u32 chains_fn_offsets[MAX_FN_OFFSETS];
+static struct fn_offset game_fn_offsets[MAX_GAME_FN_OFFSETS];
+static size_t game_fn_offsets_size;
+static u32 buckets_game_fn_offsets[MAX_GAME_FN_OFFSETS];
+static u32 chains_game_fn_offsets[MAX_GAME_FN_OFFSETS];
 
 static void reset_generate_shared_object(void) {
 	symbols_size = 0;
@@ -3831,7 +4019,7 @@ static void reset_generate_shared_object(void) {
 	extern_symbols_size = 0;
 	shuffled_symbols_size = 0;
 	bytes_size = 0;
-	fn_offsets_size = 0;
+	game_fn_offsets_size = 0;
 }
 
 static void overwrite(u64 n, size_t bytes_offset, size_t overwrite_count) {
@@ -3947,29 +4135,63 @@ static void patch_dynsym(void) {
 	}
 }
 
-static size_t get_fn_offset(char *name) {
-	u32 i = buckets_fn_offsets[elf_hash(name) % fn_offsets_size];
+static size_t get_game_fn_offset(char *name) {
+	u32 i = buckets_game_fn_offsets[elf_hash(name) % game_fn_offsets_size];
 
 	while (1) {
-		assert(i != UINT32_MAX && "get_fn_offset() isn't supposed to ever fail");
+		assert(i != UINT32_MAX && "get_game_fn_offset() isn't supposed to ever fail");
 
-		if (streq(name, fn_offsets[i].fn_name)) {
+		if (streq(name, game_fn_offsets[i].fn_name)) {
 			break;
 		}
 
-		i = chains_fn_offsets[i];
+		i = chains_game_fn_offsets[i];
 	}
 
-	return fn_offsets[i].offset;
+	return game_fn_offsets[i].offset;
+}
+
+static void hash_game_fn_offsets(void) {
+	memset(buckets_game_fn_offsets, UINT32_MAX, game_fn_offsets_size * sizeof(u32));
+
+	for (size_t i = 0; i < game_fn_offsets_size; i++) {
+		char *name = game_fn_offsets[i].fn_name;
+
+		u32 bucket_index = elf_hash(name) % game_fn_offsets_size;
+
+		chains_game_fn_offsets[i] = buckets_game_fn_offsets[bucket_index];
+
+		buckets_game_fn_offsets[bucket_index] = i;
+	}
+}
+
+static void push_game_fn_offset(char *fn_name, size_t offset) {
+	if (game_fn_offsets_size >= MAX_GAME_FN_OFFSETS) {
+		GRUG_ERROR("There are more than %d game functions, exceeding MAX_GAME_FN_OFFSETS", MAX_GAME_FN_OFFSETS);
+	}
+
+	game_fn_offsets[game_fn_offsets_size++] = (struct fn_offset){
+		.fn_name = fn_name,
+		.offset = offset,
+	};
 }
 
 // Needed future fn offsets and data_offset
 static void patch_text(void) {
-	for (size_t i = 0; i < fn_calls_size; i++) {
-		struct fn_call fn_call = fn_calls[i];
-		size_t next_instruction_offset = 4;
-		size_t address_after_call_instruction = text_offset + fn_call.codes_offset + next_instruction_offset;
-		overwrite_32(get_fn_offset(fn_call.fn_name) - address_after_call_instruction, text_offset + fn_call.codes_offset);
+	size_t next_instruction_offset = 4;
+
+	for (size_t i = 0; i < game_fn_calls_size; i++) {
+		struct fn_call fn_call = game_fn_calls[i];
+		size_t offset = text_offset + fn_call.codes_offset;
+		size_t address_after_call_instruction = offset + next_instruction_offset;
+		overwrite_32(get_game_fn_offset(fn_call.fn_name) - address_after_call_instruction, offset);
+	}
+
+	for (size_t i = 0; i < helper_fn_calls_size; i++) {
+		struct fn_call fn_call = helper_fn_calls[i];
+		size_t offset = text_offset + fn_call.codes_offset;
+		size_t address_after_call_instruction = offset + next_instruction_offset;
+		overwrite_32(get_helper_fn_offset(fn_call.fn_name) - address_after_call_instruction, offset);
 	}
 
 	for (size_t i = 0; i < data_string_codes_size; i++) {
@@ -4329,31 +4551,6 @@ static void push_dynamic() {
 	dynamic_size = bytes_size - dynamic_offset;
 }
 
-static void hash_fn_offsets(void) {
-	memset(buckets_fn_offsets, UINT32_MAX, fn_offsets_size * sizeof(u32));
-
-	for (size_t i = 0; i < fn_offsets_size; i++) {
-		char *name = fn_offsets[i].fn_name;
-
-		u32 bucket_index = elf_hash(name) % fn_offsets_size;
-
-		chains_fn_offsets[i] = buckets_fn_offsets[bucket_index];
-
-		buckets_fn_offsets[bucket_index] = i;
-	}
-}
-
-static void push_fn_offset(char *fn_name, size_t offset) {
-	if (fn_offsets_size >= MAX_FN_OFFSETS) {
-		GRUG_ERROR("There are more than %d functions, exceeding MAX_FN_OFFSETS", MAX_FN_OFFSETS);
-	}
-
-	fn_offsets[fn_offsets_size++] = (struct fn_offset){
-		.fn_name = fn_name,
-		.offset = offset,
-	};
-}
-
 static void push_text(void) {
 	grug_log_section(".text");
 
@@ -4367,8 +4564,6 @@ static void push_text(void) {
 	for (size_t i = 0; i < codes_size; i++) {
 		bytes[bytes_size++] = codes[i];
 	}
-
-	hash_fn_offsets();
 
 	push_alignment(8);
 }
@@ -4385,26 +4580,36 @@ static void push_plt(void) {
 	push_number(0x2004, 4);
 	push_number(NOP, 4);
 
-	// define_entity()
-	push_fn_offset(define_fn_name, bytes_size);
-	push_number(JMP_REL, 2);
-	push_number(0x2002, 4);
-	push_byte(PUSH_BYTE);
-	push_number(0, 4);
-	push_byte(JMP_ABS);
-	size_t offset_to_start_of_plt = -0x20;
-	push_number(offset_to_start_of_plt, 4);
+	size_t pushed_plt_entries = 0;
+	size_t offset = 0x10;
 
-	if (on_fns_size > 0 && on_fns[0].body_statement_count > 0) {
-		push_fn_offset(on_fns[0].fn_name, bytes_size);
-		push_number(JMP_REL, 2);
-		push_number(0x1ffa, 4);
-		push_byte(PUSH_BYTE);
-		push_number(1, 4);
-		push_byte(JMP_ABS);
-		offset_to_start_of_plt = -0x30;
-		push_number(offset_to_start_of_plt, 4);
+	for (size_t i = 0; i < used_game_fns_size; i++) {
+		u32 chain_index = buckets_used_game_fns[i];
+		if (chain_index == UINT32_MAX) {
+			continue;
+		}
+
+		while (true) {
+			char *name = used_game_fns[chain_index];
+
+			push_number(JMP_REL, 2);
+			push_number(0x1ffa, 4); // Jumps to .got.plt
+			push_byte(PUSH_BYTE);
+			push_number(pushed_plt_entries++, 4);
+			push_byte(JMP_ABS);
+			push_game_fn_offset(name, offset);
+			size_t offset_to_start_of_plt = -offset - 0x10;
+			push_number(offset_to_start_of_plt, 4);
+			offset += 0x10;
+
+			chain_index = chains_used_game_fns[chain_index];
+			if (chain_index == UINT32_MAX) {
+				break;
+			}
+		}
 	}
+
+	hash_game_fn_offsets();
 
 	plt_size = bytes_size - plt_offset;
 }
