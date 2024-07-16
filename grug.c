@@ -2979,14 +2979,14 @@ static void push_helper_fn_offset(char *fn_name, size_t offset) {
 }
 
 static bool has_used_game_fn(char *name) {
-	u32 i = buckets_used_game_fns[elf_hash(name) % used_game_fns_size];
+	u32 i = buckets_used_game_fns[elf_hash(name) % game_fn_calls_size];
 
 	while (1) {
 		if (i == UINT32_MAX) {
 			return false;
 		}
 
-		if (streq(name, used_game_fns[i])) {
+		if (streq(name, game_fn_calls[i].fn_name)) {
 			break;
 		}
 
@@ -2997,26 +2997,22 @@ static bool has_used_game_fn(char *name) {
 }
 
 static void hash_used_game_fns(void) {
-	memset(buckets_used_game_fns, UINT32_MAX, used_game_fns_size * sizeof(u32));
+	memset(buckets_used_game_fns, UINT32_MAX, game_fn_calls_size * sizeof(u32));
 
-	for (size_t i = 0; i < used_game_fns_size; i++) {
-		char *name = used_game_fns[i];
+	for (size_t i = 0; i < game_fn_calls_size; i++) {
+		char *name = game_fn_calls[i].fn_name;
 
-		u32 bucket_index = elf_hash(name) % used_game_fns_size;
+		if (has_used_game_fn(name)) {
+			continue;
+		}
 
-		chains_used_game_fns[i] = buckets_used_game_fns[bucket_index];
+		used_game_fns[used_game_fns_size] = name;
 
-		buckets_used_game_fns[bucket_index] = i;
-	}
-}
+		u32 bucket_index = elf_hash(name) % game_fn_calls_size;
 
-static void add_used_game_fn(char *fn_name) {
-	if (used_game_fns_size >= MAX_USED_GAME_FNS) {
-		GRUG_ERROR("There are more than %d game functions, exceeding MAX_USED_GAME_FNS", MAX_USED_GAME_FNS);
-	}
+		chains_used_game_fns[used_game_fns_size] = buckets_used_game_fns[bucket_index];
 
-	if (used_game_fns_size == 0 || !has_used_game_fn(fn_name)) {
-		used_game_fns[used_game_fns_size++] = fn_name;
+		buckets_used_game_fns[bucket_index] = used_game_fns_size++;
 	}
 }
 
@@ -3290,7 +3286,6 @@ static void compile() {
 		}
 	}
 	compile_push_byte(CALL);
-	add_used_game_fn(define_fn_name);
 	push_game_fn_call(define_fn_name, codes_size);
 	compile_push_number(PLACEHOLDER_32, 4);
 	compile_push_byte(RET);
@@ -3327,21 +3322,19 @@ static void compile() {
 
 		if (on_fn.body_statement_count > 0) {
 			compile_push_byte(CALL);
-			if (is_game_fn(on_fn.fn_name)) {
-				add_used_game_fn(on_fn.fn_name);
-				push_game_fn_call(on_fn.fn_name, codes_size);
+			if (is_game_fn(exprs[statements[on_fn.body_statements_offset].call_statement.expr_index].call.fn_name)) {
+				push_game_fn_call(exprs[statements[on_fn.body_statements_offset].call_statement.expr_index].call.fn_name, codes_size);
 			} else {
-				push_helper_fn_call(on_fn.fn_name, codes_size);
+				push_helper_fn_call(exprs[statements[on_fn.body_statements_offset].call_statement.expr_index].call.fn_name, codes_size);
 			}
 			compile_push_number(PLACEHOLDER_32, 4);
 
 			if (on_fn.body_statement_count > 1) {
 				compile_push_byte(CALL);
-				if (is_game_fn(on_fn.fn_name)) {
-					add_used_game_fn(on_fn.fn_name);
-					push_game_fn_call(on_fn.fn_name, codes_size);
+				if (is_game_fn(exprs[statements[on_fn.body_statements_offset + 1].call_statement.expr_index].call.fn_name)) {
+					push_game_fn_call(exprs[statements[on_fn.body_statements_offset + 1].call_statement.expr_index].call.fn_name, codes_size);
 				} else {
-					push_helper_fn_call(on_fn.fn_name, codes_size);
+					push_helper_fn_call(exprs[statements[on_fn.body_statements_offset + 1].call_statement.expr_index].call.fn_name, codes_size);
 				}
 				compile_push_number(PLACEHOLDER_32, 4);
 			}
@@ -3362,11 +3355,10 @@ static void compile() {
 
 		if (helper_fn.body_statement_count > 0) {
 			compile_push_byte(CALL);
-			if (is_game_fn(helper_fn.fn_name)) {
-				add_used_game_fn(helper_fn.fn_name);
-				push_game_fn_call(helper_fn.fn_name, codes_size);
+			if (is_game_fn(exprs[statements[helper_fn.body_statements_offset].call_statement.expr_index].call.fn_name)) {
+				push_game_fn_call(exprs[statements[helper_fn.body_statements_offset].call_statement.expr_index].call.fn_name, codes_size);
 			} else {
-				push_helper_fn_call(helper_fn.fn_name, codes_size);
+				push_helper_fn_call(exprs[statements[helper_fn.body_statements_offset].call_statement.expr_index].call.fn_name, codes_size);
 			}
 			compile_push_number(PLACEHOLDER_32, 4);
 		}
@@ -4215,6 +4207,14 @@ static void patch_text(void) {
 	}
 }
 
+// Needed future .got.plt offsets
+static void patch_plt(void) {
+	// TODO: Finish
+	// for () {
+	// 	overwrite_32(get_got_plt_offset(name), );
+	// }
+}
+
 static void patch_bytes(void) {
 	// ELF section header table offset
 	overwrite_64(section_headers_offset, 0x28);
@@ -4244,9 +4244,10 @@ static void patch_bytes(void) {
 	// Segment 5 its mem_size
 	overwrite_64(dynamic_size, 0x180);
 
-	patch_text();
 	patch_dynsym();
 	patch_rela_dyn();
+	patch_plt();
+	patch_text();
 }
 
 static void push_byte(u8 byte) {
@@ -4593,7 +4594,7 @@ static void push_plt(void) {
 			char *name = used_game_fns[chain_index];
 
 			push_number(JMP_REL, 2);
-			push_number(0x1ffa, 4); // Jumps to .got.plt
+			push_number(PLACEHOLDER_32, 4); // Jumps to .got.plt
 			push_byte(PUSH_BYTE);
 			push_number(pushed_plt_entries++, 4);
 			push_byte(JMP_ABS);
