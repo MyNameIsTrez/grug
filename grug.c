@@ -118,6 +118,27 @@ static u32 elf_hash(const char *namearg) {
 	return h & 0x0fffffff;
 }
 
+// This is solely here to put the symbols in the same weird order as ld does
+// From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l508
+static unsigned long bfd_hash_hash(const char *string) {
+	const unsigned char *s;
+	unsigned long hash;
+	unsigned int len;
+	unsigned int c;
+
+	hash = 0;
+	len = 0;
+	s = (const unsigned char *) string;
+	while ((c = *s++) != '\0') {
+		hash += c + (c << 17);
+		hash ^= hash >> 2;
+	}
+	len = (s - (const unsigned char *) string) - 1;
+	hash += len + (len << 17);
+	hash ^= hash >> 2;
+	return hash;
+}
+
 static char *get_file_extension(char *filename) {
 	char *ext = strrchr(filename, '.');
 	if (ext) {
@@ -2981,7 +3002,7 @@ static void push_helper_fn_offset(char *fn_name, size_t offset) {
 }
 
 static bool has_used_game_fn(char *name) {
-	u32 i = buckets_used_game_fns[elf_hash(name) % game_fn_calls_size];
+	u32 i = buckets_used_game_fns[bfd_hash_hash(name) % game_fn_calls_size];
 
 	while (1) {
 		if (i == UINT32_MAX) {
@@ -3010,7 +3031,7 @@ static void hash_used_game_fns(void) {
 
 		used_game_fns[used_game_fns_size] = name;
 
-		u32 bucket_index = elf_hash(name) % game_fn_calls_size;
+		u32 bucket_index = bfd_hash_hash(name) % game_fn_calls_size;
 
 		chains_used_game_fns[used_game_fns_size] = buckets_used_game_fns[bucket_index];
 
@@ -3953,7 +3974,6 @@ static size_t data_string_offsets[MAX_SYMBOLS];
 
 static u8 bytes[MAX_BYTES];
 static size_t bytes_size;
-static size_t text_starting_offset;
 
 static size_t symtab_index_first_global;
 
@@ -4205,16 +4225,8 @@ static void patch_text(void) {
 
 		size_t string_offset = string_address - next_instruction_address;
 
-		overwrite_32(string_offset, text_starting_offset + code_offset);
+		overwrite_32(string_offset, text_offset + code_offset);
 	}
-}
-
-// Needed future .got.plt offsets
-static void patch_plt(void) {
-	// TODO: Finish
-	// for () {
-	// 	overwrite_32(get_got_plt_offset(name), );
-	// }
 }
 
 static void patch_bytes(void) {
@@ -4248,7 +4260,6 @@ static void patch_bytes(void) {
 
 	patch_dynsym();
 	patch_rela_dyn();
-	patch_plt();
 	patch_text();
 }
 
@@ -4508,14 +4519,13 @@ static void push_got_plt(void) {
 	size_t got_plt_offset = bytes_size;
 
 	push_number(DYNAMIC_OFFSET, 8);
-	push_zeros(8);
-	push_zeros(8);
+	push_zeros(8); // TODO: What is this for?
+	push_zeros(8); // TODO: What is this for?
 
-	// TODO: Replace 0x16
-	push_number(PLT_OFFSET + 0x16, 8); // text section address of push 0 instruction
-	if (on_fns_size > 0 && on_fns[0].body_statement_count > 0) {
-		// TODO: Replace 0x26
-		push_number(PLT_OFFSET + 0x26, 8); // text section address of push 1 instruction
+	size_t offset = PLT_OFFSET + 0x16; // 0x16 is the size of the first, special .plt entry
+	for (size_t i = 0; i < used_game_fns_size; i++) {
+		push_number(offset, 8); // text section address of push <i> instruction
+		offset += 0x10;
 	}
 
 	got_plt_size = bytes_size - got_plt_offset;
@@ -4563,7 +4573,6 @@ static void push_text(void) {
 		GRUG_ERROR("There are more than %d bytes, exceeding MAX_BYTES", MAX_BYTES);
 	}
 
-	text_starting_offset = bytes_size;
 	for (size_t i = 0; i < codes_size; i++) {
 		bytes[bytes_size++] = codes[i];
 	}
@@ -4585,8 +4594,10 @@ static void push_plt(void) {
 
 	size_t pushed_plt_entries = 0;
 	size_t offset = 0x10;
+	// The 0x18 here is from the first three addresses push_got_plt() pushes 
+	size_t got_plt_fn_address = GOT_PLT_OFFSET + 0x18;
 
-	for (size_t i = 0; i < used_game_fns_size; i++) {
+	for (size_t i = 0; i < game_fn_calls_size; i++) {
 		u32 chain_index = buckets_used_game_fns[i];
 		if (chain_index == UINT32_MAX) {
 			continue;
@@ -4596,11 +4607,13 @@ static void push_plt(void) {
 			char *name = used_game_fns[chain_index];
 
 			push_number(JMP_REL, 2);
-			push_number(PLACEHOLDER_32, 4); // Jumps to .got.plt
+			size_t next_instruction_offset = 4;
+			push_number(got_plt_fn_address - (bytes_size + next_instruction_offset), 4);
+			got_plt_fn_address += 0x8;
 			push_byte(PUSH_BYTE);
 			push_number(pushed_plt_entries++, 4);
 			push_byte(JMP_ABS);
-			push_game_fn_offset(name, offset);
+			push_game_fn_offset(name, PLT_OFFSET + offset);
 			size_t offset_to_start_of_plt = -offset - 0x10;
 			push_number(offset_to_start_of_plt, 4);
 			offset += 0x10;
@@ -5131,27 +5144,6 @@ static void push_shuffled_symbol(char *shuffled_symbol) {
 	}
 
 	shuffled_symbols[shuffled_symbols_size++] = shuffled_symbol;
-}
-
-// This is solely here to put the symbols in the same weird order as ld does
-// From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l508
-static unsigned long bfd_hash_hash(const char *string) {
-	const unsigned char *s;
-	unsigned long hash;
-	unsigned int len;
-	unsigned int c;
-
-	hash = 0;
-	len = 0;
-	s = (const unsigned char *) string;
-	while ((c = *s++) != '\0') {
-		hash += c + (c << 17);
-		hash ^= hash >> 2;
-	}
-	len = (s - (const unsigned char *) string) - 1;
-	hash += len + (len << 17);
-	hash ^= hash >> 2;
-	return hash;
 }
 
 // See my blog post: https://mynameistrez.github.io/2024/06/19/array-based-hash-table-in-c.html
