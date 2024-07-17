@@ -52,7 +52,7 @@
 }
 
 #ifdef LOGGING
-#define grug_log(...) printf(__VA_ARGS__)
+#define grug_log(...) fprintf(stderr, __VA_ARGS__)
 #else
 #define grug_log(...) {\
 	_Pragma("GCC diagnostic push")\
@@ -2870,17 +2870,43 @@ static void print_ast(void) {
 #define MAX_HELPER_FN_CALLS 420420
 #define MAX_USED_GAME_FNS 420
 #define MAX_HELPER_FN_OFFSETS 420420
+#define MAX_STACK_SIZE 420420
 
 // 0xDEADBEEF in little-endian
 #define PLACEHOLDER_16 0xADDE
 #define PLACEHOLDER_32 0xEFBEADDE
 #define PLACEHOLDER_64 0xEFBEADDEEFBEADDE
 
+#ifdef LOGGING
+#define grug_log_stack() {\
+	grug_log("Stack:\n");\
+	for (size_t i = 0; i < stack_size; i++) {\
+		grug_log("stack[%zu]: 0x%x\n", i, stack[i]);\
+	}\
+}
+#else
+#define grug_log_stack()
+#endif
+
 enum code {
-	MOV_TO_EAX = 0xb8,
 	CALL = 0xe8,
 	RET = 0xc3,
 	MOV_TO_RDI_PTR = 0x47c7,
+
+	PUSH_RAX = 0x50,
+
+	ADD_RBX_TO_RAX = 0xd80148,
+
+	POP_RBX = 0x5b,
+
+	POP_RDI = 0x5f,
+	POP_RSI = 0x5e,
+	POP_RDX = 0x5a,
+	POP_RCX = 0x59,
+	POP_R8 = 0x5841,
+	POP_R9 = 0x5941,
+
+	MOVABS_TO_RAX = 0xb848,
 
 	MOVABS_TO_RDI = 0xbf48,
 	MOVABS_TO_RSI = 0xbe48,
@@ -2950,6 +2976,8 @@ static struct fn_offset helper_fn_offsets[MAX_HELPER_FN_OFFSETS];
 static size_t helper_fn_offsets_size;
 static u32 buckets_helper_fn_offsets[MAX_HELPER_FN_OFFSETS];
 static u32 chains_helper_fn_offsets[MAX_HELPER_FN_OFFSETS];
+
+static size_t stack_size;
 
 static void reset_compiling(void) {
 	codes_size = 0;
@@ -3132,50 +3160,133 @@ static void compile_push_number(u64 n, size_t byte_count) {
 	compile_push_zeros(byte_count);
 }
 
-static void compile_argument(struct expr expr_value, size_t argument_index) {
-	if (expr_value.type == NUMBER_EXPR) {
-		static enum code arg_index_to_code[] = {
-			MOVABS_TO_RDI,
-			MOVABS_TO_RSI,
-			MOVABS_TO_RDX,
-			MOVABS_TO_RCX,
-			MOVABS_TO_R8,
-			MOVABS_TO_R9,
-		};
-		compile_push_number(arg_index_to_code[argument_index], 2);
+static void stack_pop_arguments(size_t argument_count) {
+	grug_log_stack();
 
-		compile_push_number(expr_value.literal.number, 8);
-	} else if (expr_value.type == STRING_EXPR) {
-		static enum code arg_index_to_code[] = {
-			LEA_TO_RDI,
-			LEA_TO_RSI,
-			LEA_TO_RDX,
-			LEA_TO_RCX,
-			LEA_TO_R8,
-			LEA_TO_R9,
-		};
-		compile_push_number(arg_index_to_code[argument_index], 3);
+	if (argument_count == 0) {
+		return;
+	}
 
-		// RIP-relative address of data string
-		push_data_string_code(expr_value.literal.string, codes_size);
-		compile_push_number(PLACEHOLDER_32, 4);
-	} else {
-		// TODO: Can modders somehow reach this?
-		assert(false && "Only number and string arguments are supported right now");
+	assert(argument_count <= 6 && "Currently grug only supports up to 6 function arguments"); // TODO: Support more arguments
+
+	assert(stack_size >= argument_count);
+	stack_size -= argument_count;
+
+	switch (argument_count) {
+		case 6:
+			compile_push_number(POP_R9, 2);
+			__attribute__((__fallthrough__));
+		case 5:
+			compile_push_number(POP_R8, 2);
+			__attribute__((__fallthrough__));
+		case 4:
+			compile_push_byte(POP_RCX);
+			__attribute__((__fallthrough__));
+		case 3:
+			compile_push_byte(POP_RDX);
+			__attribute__((__fallthrough__));
+		case 2:
+			compile_push_byte(POP_RSI);
+			__attribute__((__fallthrough__));
+		case 1:
+			compile_push_byte(POP_RDI);
+			return;
+		default:
+			GRUG_ERROR(UNREACHABLE_STR);
+	}
+}
+
+static void stack_pop_rbx(void) {
+	grug_log_stack();
+
+	assert(stack_size > 0);
+	--stack_size;
+
+	compile_push_byte(POP_RBX);
+}
+
+static void stack_push_rax(void) {
+	grug_log_stack();
+
+	if (stack_size >= MAX_STACK_SIZE) {
+		GRUG_ERROR("There are more than %d stack values, exceeding MAX_STACK_SIZE", MAX_STACK_SIZE);
+	}
+	stack_size++;
+
+	compile_push_byte(PUSH_RAX);
+}
+
+static void compile_expr(struct expr expr);
+
+static void compile_binary_expr(struct binary_expr binary_expr) {
+	switch (binary_expr.operator) {
+		case PLUS_TOKEN:
+			compile_expr(exprs[binary_expr.left_expr_index]);
+			stack_push_rax();
+			compile_expr(exprs[binary_expr.right_expr_index]);
+			stack_pop_rbx();
+			compile_push_number(ADD_RBX_TO_RAX, 3);
+			break;
+		default:
+			GRUG_ERROR(UNREACHABLE_STR);
+	}
+}
+
+static void compile_expr(struct expr expr) {
+	switch (expr.type) {
+		case TRUE_EXPR:
+			assert(false);
+			// serialize_append("true");
+			// break;
+		case FALSE_EXPR:
+			assert(false);
+			// serialize_append("false");
+			// break;
+		case STRING_EXPR:
+			assert(false);
+			// serialize_append_slice(expr.string_literal_expr.str, expr.string_literal_expr.len);
+			// break;
+		case IDENTIFIER_EXPR:
+			assert(false);
+			// if (is_identifier_global(expr.string_literal_expr.str, expr.string_literal_expr.len)) {
+			// 	serialize_append("globals->");
+			// }
+			// serialize_append_slice(expr.string_literal_expr.str, expr.string_literal_expr.len);
+			// break;
+		case NUMBER_EXPR:
+			compile_push_number(MOVABS_TO_RAX, 2);
+			compile_push_number(expr.literal.number, 8);
+			break;
+		case UNARY_EXPR:
+			assert(false);
+			// serialize_operator(expr.unary_expr.operator);
+			// serialize_expr(exprs[expr.unary_expr.expr_index]);
+			// break;
+		case BINARY_EXPR:
+			compile_binary_expr(expr.binary);
+			break;
+		case CALL_EXPR:
+			assert(false);
+			// serialize_call_expr(expr.call_expr);
+			// break;
+		case PARENTHESIZED_EXPR:
+			assert(false);
+			// serialize_parenthesized_expr(expr.parenthesized_expr);
+			// break;
 	}
 }
 
 static void compile_call_expr(struct call_expr call_expr) {
-	for (size_t argument_index = 0; argument_index < call_expr.argument_count; argument_index++) {
-		struct expr argument = exprs[call_expr.arguments_exprs_offset + argument_index];
-
-		// TODO: Support passing exprs, like `identity(1 + 1)`: 
-		// serialize_expr(exprs[call_expr.arguments_exprs_offset + argument_index]);
+	for (size_t i = 0; i < call_expr.argument_count; i++) {
+		struct expr argument = exprs[call_expr.arguments_exprs_offset + i];
 
 		// TODO: Verify that the argument has the same type as the one in grug_define_entity
 
-		compile_argument(argument, argument_index);
+		compile_expr(argument);
+		stack_push_rax();
 	}
+
+	stack_pop_arguments(call_expr.argument_count);
 
 	compile_push_byte(CALL);
 	if (is_game_fn(call_expr.fn_name)) {
@@ -3263,6 +3374,37 @@ static void compile_statements(size_t statements_offset, size_t statement_count)
 static void compile_on_fn(struct on_fn fn) {
 	compile_statements(fn.body_statements_offset, fn.body_statement_count);
 	compile_push_byte(RET);
+}
+
+static void compile_returned_field(struct expr expr_value, size_t argument_index) {
+	if (expr_value.type == NUMBER_EXPR) {
+		compile_push_number((enum code []){
+			MOVABS_TO_RDI,
+			MOVABS_TO_RSI,
+			MOVABS_TO_RDX,
+			MOVABS_TO_RCX,
+			MOVABS_TO_R8,
+			MOVABS_TO_R9,
+		}[argument_index], 2);
+
+		compile_push_number(expr_value.literal.number, 8);
+	} else if (expr_value.type == STRING_EXPR) {
+		compile_push_number((enum code []){
+			LEA_TO_RDI,
+			LEA_TO_RSI,
+			LEA_TO_RDX,
+			LEA_TO_RCX,
+			LEA_TO_R8,
+			LEA_TO_R9,
+		}[argument_index], 3);
+
+		// RIP-relative address of data string
+		push_data_string_code(expr_value.literal.string, codes_size);
+		compile_push_number(PLACEHOLDER_32, 4);
+	} else {
+		// TODO: Can modders somehow reach this?
+		assert(false && "Only number and string arguments are supported right now");
+	}
 }
 
 static void push_data_string(char *string) {
@@ -3411,7 +3553,7 @@ static void compile(void) {
 
 		// TODO: Verify that the argument has the same type as the one in grug_define_entity
 
-		compile_argument(field.expr_value, field_index);
+		compile_returned_field(field.expr_value, field_index);
 	}
 	compile_push_byte(CALL);
 	push_game_fn_call(define_fn_name, codes_size);
@@ -3516,22 +3658,6 @@ static void compile(void) {
 
 // static void serialize_operator(enum token_type operator);
 
-// static void serialize_binary_expr(struct binary_expr binary_expr) {
-// 	serialize_expr(exprs[binary_expr.left_expr_index]);
-
-// 	if (binary_expr.operator != PERIOD_TOKEN) {
-// 		serialize_append(" ");
-// 	}
-
-// 	serialize_operator(binary_expr.operator);
-
-// 	if (binary_expr.operator != PERIOD_TOKEN) {
-// 		serialize_append(" ");
-// 	}
-
-// 	serialize_expr(exprs[binary_expr.right_expr_index]);
-// }
-
 // static void serialize_operator(enum token_type operator) {
 // 	switch (operator) {
 // 		case PLUS_TOKEN:
@@ -3586,42 +3712,6 @@ static void compile(void) {
 // 		}
 // 	}
 // 	return false;
-// }
-
-// static void serialize_expr(struct expr expr) {
-// 	switch (expr.type) {
-// 		case TRUE_EXPR:
-// 			serialize_append("true");
-// 			break;
-// 		case FALSE_EXPR:
-// 			serialize_append("false");
-// 			break;
-// 		case STRING_EXPR:
-// 			serialize_append_slice(expr.string_literal_expr.str, expr.string_literal_expr.len);
-// 			break;
-// 		case IDENTIFIER_EXPR:
-// 			if (is_identifier_global(expr.string_literal_expr.str, expr.string_literal_expr.len)) {
-// 				serialize_append("globals->");
-// 			}
-// 			serialize_append_slice(expr.string_literal_expr.str, expr.string_literal_expr.len);
-// 			break;
-// 		case NUMBER_EXPR:
-// 			serialize_append_number(expr.number_expr);
-// 			break;
-// 		case UNARY_EXPR:
-// 			serialize_operator(expr.unary_expr.operator);
-// 			serialize_expr(exprs[expr.unary_expr.expr_index]);
-// 			break;
-// 		case BINARY_EXPR:
-// 			serialize_binary_expr(expr.binary_expr);
-// 			break;
-// 		case CALL_EXPR:
-// 			serialize_call_expr(expr.call_expr);
-// 			break;
-// 		case PARENTHESIZED_EXPR:
-// 			serialize_parenthesized_expr(expr.parenthesized_expr);
-// 			break;
-// 	}
 // }
 
 // static void serialize_arguments(size_t arguments_offset, size_t argument_count) {
