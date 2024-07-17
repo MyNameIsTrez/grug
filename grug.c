@@ -3371,7 +3371,7 @@ static struct grug_entity *compile_get_entity(char *return_type) {
 	return NULL;
 }
 
-static void compile() {
+static void compile(void) {
 	reset_compiling();
 
 	// Getting the used define fn's grug_entity
@@ -3887,11 +3887,6 @@ static void compile() {
 #define RELA_ENTRY_SIZE 24
 #define SYMTAB_ENTRY_SIZE 24
 #define PLT_ENTRY_SIZE 24
-
-// The array element specifies the location and size of a segment
-// which may be made read-only after relocations have been processed
-// From https://refspecs.linuxfoundation.org/LSB_5.0.0/LSB-Core-generic/LSB-Core-generic/progheader.html
-#define PT_GNU_RELRO 0x6474e552
 
 #ifdef LOGGING
 #define grug_log_section(section_name) {\
@@ -4515,7 +4510,7 @@ static void push_dynamic_entry(u64 tag, u64 value) {
 	push_number(value, 8);
 }
 
-static void push_dynamic() {
+static void push_dynamic(void) {
 	grug_log_section(".dynamic");
 
 	size_t dynamic_offset = bytes_size;
