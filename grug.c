@@ -3153,8 +3153,6 @@ static void compile_push_number(u64 n, size_t byte_count) {
 }
 
 static void stack_pop_arguments(size_t argument_count) {
-	grug_log("Stack size before stack_pop_arguments(): %zu", stack_size);
-
 	if (argument_count == 0) {
 		return;
 	}
@@ -3189,8 +3187,6 @@ static void stack_pop_arguments(size_t argument_count) {
 }
 
 static void stack_pop_rbx(void) {
-	grug_log("Stack size before stack_pop_rbx(): %zu", stack_size);
-
 	assert(stack_size > 0);
 	--stack_size;
 
@@ -3198,8 +3194,6 @@ static void stack_pop_rbx(void) {
 }
 
 static void stack_push_rax(void) {
-	grug_log("Stack size before stack_push_rax(): %zu", stack_size);
-
 	if (stack_size >= MAX_STACK_SIZE) {
 		GRUG_ERROR("There are more than %d stack values, exceeding MAX_STACK_SIZE", MAX_STACK_SIZE);
 	}
