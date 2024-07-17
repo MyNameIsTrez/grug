@@ -3160,7 +3160,8 @@ static void compile_argument(struct expr expr_value, size_t argument_index) {
 		push_data_string_code(expr_value.literal.string, codes_size);
 		compile_push_number(PLACEHOLDER_32, 4);
 	} else {
-		abort(); // TODO: Can modders somehow reach this?
+		// TODO: Can modders somehow reach this?
+		assert(false && "Only number and string arguments are supported right now");
 	}
 }
 
@@ -3191,7 +3192,7 @@ static void compile_statements(size_t statements_offset, size_t statement_count)
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
-				abort();
+				assert(false);
 // 				if (statement.variable_statement.has_type) {
 // 					serialize_append_slice(statement.variable_statement.type, statement.variable_statement.type_len);
 // 					serialize_append(" ");
@@ -3214,7 +3215,7 @@ static void compile_statements(size_t statements_offset, size_t statement_count)
 				compile_call_expr(exprs[statement.call_statement.expr_index].call);
 				break;
 			case IF_STATEMENT:
-				abort();
+				assert(false);
 // 				serialize_append("if (");
 // 				serialize_expr(statement.if_statement.condition);
 // 				serialize_append(") {\n");
@@ -3231,7 +3232,7 @@ static void compile_statements(size_t statements_offset, size_t statement_count)
 
 // 				break;
 			case RETURN_STATEMENT:
-				abort();
+				assert(false);
 // 				serialize_append("return");
 // 				if (statement.return_statement.has_value) {
 // 					serialize_append(" ");
@@ -3241,18 +3242,18 @@ static void compile_statements(size_t statements_offset, size_t statement_count)
 // 				serialize_append(";");
 // 				break;
 			case LOOP_STATEMENT:
-				abort();
+				assert(false);
 // 				serialize_append("while (true) {\n");
 // 				serialize_statements(statement.loop_statement.body_statements_offset, statement.loop_statement.body_statement_count, depth + 1);
 // 				serialize_append_indents(depth);
 // 				serialize_append("}");
 // 				break;
 			case BREAK_STATEMENT:
-				abort();
+				assert(false);
 // 				serialize_append("break;");
 // 				break;
 			case CONTINUE_STATEMENT:
-				abort();
+				assert(false);
 // 				serialize_append("continue;");
 // 				break;
 		}
