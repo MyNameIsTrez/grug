@@ -2877,17 +2877,6 @@ static void print_ast(void) {
 #define PLACEHOLDER_32 0xEFBEADDE
 #define PLACEHOLDER_64 0xEFBEADDEEFBEADDE
 
-#ifdef LOGGING
-#define grug_log_stack() {\
-	grug_log("Stack:\n");\
-	for (size_t i = 0; i < stack_size; i++) {\
-		grug_log("stack[%zu]: 0x%x\n", i, stack[i]);\
-	}\
-}
-#else
-#define grug_log_stack()
-#endif
-
 // code enums (some don't fit in an enum's max value, which is a signed int)
 
 #define CALL 0xe8
@@ -3164,7 +3153,7 @@ static void compile_push_number(u64 n, size_t byte_count) {
 }
 
 static void stack_pop_arguments(size_t argument_count) {
-	grug_log_stack();
+	grug_log("Stack size before stack_pop_arguments(): %zu", stack_size);
 
 	if (argument_count == 0) {
 		return;
@@ -3200,7 +3189,7 @@ static void stack_pop_arguments(size_t argument_count) {
 }
 
 static void stack_pop_rbx(void) {
-	grug_log_stack();
+	grug_log("Stack size before stack_pop_rbx(): %zu", stack_size);
 
 	assert(stack_size > 0);
 	--stack_size;
@@ -3209,7 +3198,7 @@ static void stack_pop_rbx(void) {
 }
 
 static void stack_push_rax(void) {
-	grug_log_stack();
+	grug_log("Stack size before stack_push_rax(): %zu", stack_size);
 
 	if (stack_size >= MAX_STACK_SIZE) {
 		GRUG_ERROR("There are more than %d stack values, exceeding MAX_STACK_SIZE", MAX_STACK_SIZE);
