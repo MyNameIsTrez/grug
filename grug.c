@@ -2888,40 +2888,43 @@ static void print_ast(void) {
 #define grug_log_stack()
 #endif
 
-enum code {
-	CALL = 0xe8,
-	RET = 0xc3,
-	MOV_TO_RDI_PTR = 0x47c7,
+// code enums (some don't fit in an enum's max value, which is a signed int)
 
-	PUSH_RAX = 0x50,
+#define CALL 0xe8
+#define RET 0xc3
+#define MOV_TO_RDI_PTR 0x47c7
 
-	ADD_RBX_TO_RAX = 0xd80148,
+#define PUSH_RAX 0x50
 
-	POP_RBX = 0x5b,
+#define ADD_RBX_TO_RAX 0xd80148
+#define MULTIPLY_RAX_BY_RBX 0xc3af0f48
 
-	POP_RDI = 0x5f,
-	POP_RSI = 0x5e,
-	POP_RDX = 0x5a,
-	POP_RCX = 0x59,
-	POP_R8 = 0x5841,
-	POP_R9 = 0x5941,
+#define POP_RBX 0x5b
 
-	MOVABS_TO_RAX = 0xb848,
+#define POP_RDI 0x5f
+#define POP_RSI 0x5e
+#define POP_RDX 0x5a
+#define POP_RCX 0x59
+#define POP_R8 0x5841
+#define POP_R9 0x5941
 
-	MOVABS_TO_RDI = 0xbf48,
-	MOVABS_TO_RSI = 0xbe48,
-	MOVABS_TO_RDX = 0xba48,
-	MOVABS_TO_RCX = 0xb948,
-	MOVABS_TO_R8 = 0xb849,
-	MOVABS_TO_R9 = 0xb949,
+#define MOVABS_TO_RAX 0xb848
 
-	LEA_TO_RDI = 0x3d8d48,
-	LEA_TO_RSI = 0x358d48,
-	LEA_TO_RDX = 0x158d48,
-	LEA_TO_RCX = 0x0d8d48,
-	LEA_TO_R8 = 0x058d4c,
-	LEA_TO_R9 = 0x0d8d4c,
-};
+#define MOVABS_TO_RDI 0xbf48
+#define MOVABS_TO_RSI 0xbe48
+#define MOVABS_TO_RDX 0xba48
+#define MOVABS_TO_RCX 0xb948
+#define MOVABS_TO_R8 0xb849
+#define MOVABS_TO_R9 0xb949
+
+#define LEA_TO_RDI 0x3d8d48
+#define LEA_TO_RSI 0x358d48
+#define LEA_TO_RDX 0x158d48
+#define LEA_TO_RCX 0x0d8d48
+#define LEA_TO_R8 0x058d4c
+#define LEA_TO_R9 0x0d8d4c
+
+// end of code enums
 
 struct data_string_code {
 	char *string;
@@ -3227,6 +3230,13 @@ static void compile_binary_expr(struct binary_expr binary_expr) {
 			stack_pop_rbx();
 			compile_push_number(ADD_RBX_TO_RAX, 3);
 			break;
+		case MULTIPLICATION_TOKEN:
+			compile_expr(exprs[binary_expr.left_expr_index]);
+			stack_push_rax();
+			compile_expr(exprs[binary_expr.right_expr_index]);
+			stack_pop_rbx();
+			compile_push_number(MULTIPLY_RAX_BY_RBX, 4);
+			break;
 		default:
 			GRUG_ERROR(UNREACHABLE_STR);
 	}
@@ -3378,7 +3388,7 @@ static void compile_on_fn(struct on_fn fn) {
 
 static void compile_returned_field(struct expr expr_value, size_t argument_index) {
 	if (expr_value.type == NUMBER_EXPR) {
-		compile_push_number((enum code []){
+		compile_push_number((uint64_t[]){
 			MOVABS_TO_RDI,
 			MOVABS_TO_RSI,
 			MOVABS_TO_RDX,
@@ -3389,7 +3399,7 @@ static void compile_returned_field(struct expr expr_value, size_t argument_index
 
 		compile_push_number(expr_value.literal.number, 8);
 	} else if (expr_value.type == STRING_EXPR) {
-		compile_push_number((enum code []){
+		compile_push_number((uint64_t[]){
 			LEA_TO_RDI,
 			LEA_TO_RSI,
 			LEA_TO_RDX,
