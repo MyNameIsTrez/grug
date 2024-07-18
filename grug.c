@@ -211,6 +211,12 @@ static void open_resources(void) {
 	grug_error("JSON error: %s", json_error_messages[error]);\
 }
 
+#define json_assert(condition, error) {\
+	if (!(condition)) {\
+		json_error(error);\
+	}\
+}
+
 struct json_array {
 	struct json_node *values;
 	size_t value_count;
@@ -337,16 +343,12 @@ static struct json_node json_parse_string(size_t *i);
 static struct json_node json_parse_array(size_t *i);
 
 static void json_push_node(struct json_node node) {
-	if (json_nodes_size >= JSON_MAX_NODES) {
-		json_error(JSON_ERROR_TOO_MANY_NODES);
-	}
+	json_assert(json_nodes_size < JSON_MAX_NODES, JSON_ERROR_TOO_MANY_NODES);
 	json_nodes[json_nodes_size++] = node;
 }
 
 static void json_push_field(struct json_field field) {
-	if (json_fields_size >= JSON_MAX_FIELDS) {
-		json_error(JSON_ERROR_TOO_MANY_FIELDS);
-	}
+	json_assert(json_fields_size < JSON_MAX_FIELDS, JSON_ERROR_TOO_MANY_FIELDS);
 	json_fields[json_fields_size++] = field;
 }
 
@@ -374,9 +376,7 @@ static void check_duplicate_keys(struct json_field *child_fields, size_t field_c
 	for (size_t i = 0; i < field_count; i++) {
 		char *key = child_fields[i].key;
 
-		if (is_duplicate_key(child_fields, field_count, key)) {
-			json_error(JSON_ERROR_DUPLICATE_KEY);
-		}
+		json_assert(!is_duplicate_key(child_fields, field_count, key), JSON_ERROR_DUPLICATE_KEY);
 
 		u32 bucket_index = elf_hash(key) % field_count;
 
@@ -393,9 +393,7 @@ static struct json_node json_parse_object(size_t *i) {
 	(*i)++;
 
 	json_recursion_depth++;
-	if (json_recursion_depth > JSON_MAX_RECURSION_DEPTH) {
-		json_error(JSON_ERROR_MAX_RECURSION_DEPTH_EXCEEDED);
-	}
+	json_assert(json_recursion_depth <= JSON_MAX_RECURSION_DEPTH, JSON_ERROR_MAX_RECURSION_DEPTH_EXCEEDED);
 
 	node.data.object.field_count = 0;
 
@@ -427,9 +425,7 @@ static struct json_node json_parse_object(size_t *i) {
 				string = json_parse_string(i);
 				field.value = json_nodes + json_nodes_size;
 				json_push_node(string);
-				if (node.data.object.field_count >= JSON_MAX_CHILD_NODES) {
-					json_error(JSON_ERROR_TOO_MANY_CHILD_NODES);
-				}
+				json_assert(node.data.object.field_count < JSON_MAX_CHILD_NODES, JSON_ERROR_TOO_MANY_CHILD_NODES);
 				child_fields[node.data.object.field_count++] = field;
 			} else {
 				json_error(JSON_ERROR_UNEXPECTED_STRING);
@@ -442,9 +438,7 @@ static struct json_node json_parse_object(size_t *i) {
 				array = json_parse_array(i);
 				field.value = json_nodes + json_nodes_size;
 				json_push_node(array);
-				if (node.data.object.field_count >= JSON_MAX_CHILD_NODES) {
-					json_error(JSON_ERROR_TOO_MANY_CHILD_NODES);
-				}
+				json_assert(node.data.object.field_count < JSON_MAX_CHILD_NODES, JSON_ERROR_TOO_MANY_CHILD_NODES);
 				child_fields[node.data.object.field_count++] = field;
 			} else {
 				json_error(JSON_ERROR_UNEXPECTED_ARRAY_OPEN);
@@ -459,9 +453,7 @@ static struct json_node json_parse_object(size_t *i) {
 				object = json_parse_object(i);
 				field.value = json_nodes + json_nodes_size;
 				json_push_node(object);
-				if (node.data.object.field_count >= JSON_MAX_CHILD_NODES) {
-					json_error(JSON_ERROR_TOO_MANY_CHILD_NODES);
-				}
+				json_assert(node.data.object.field_count < JSON_MAX_CHILD_NODES, JSON_ERROR_TOO_MANY_CHILD_NODES);
 				child_fields[node.data.object.field_count++] = field;
 			} else {
 				json_error(JSON_ERROR_UNEXPECTED_OBJECT_OPEN);
@@ -484,9 +476,7 @@ static struct json_node json_parse_object(size_t *i) {
 			json_recursion_depth--;
 			return node;
 		case TOKEN_TYPE_COMMA:
-			if (!seen_value) {
-				json_error(JSON_ERROR_UNEXPECTED_COMMA);
-			}
+			json_assert(seen_value, JSON_ERROR_UNEXPECTED_COMMA);
 			seen_key = false;
 			seen_colon = false;
 			seen_value = false;
@@ -494,9 +484,7 @@ static struct json_node json_parse_object(size_t *i) {
 			(*i)++;
 			break;
 		case TOKEN_TYPE_COLON:
-			if (!seen_key) {
-				json_error(JSON_ERROR_UNEXPECTED_COLON);
-			}
+			json_assert(seen_key, JSON_ERROR_UNEXPECTED_COLON);
 			seen_colon = true;
 			(*i)++;
 			break;
@@ -513,9 +501,7 @@ static struct json_node json_parse_array(size_t *i) {
 	(*i)++;
 
 	json_recursion_depth++;
-	if (json_recursion_depth > JSON_MAX_RECURSION_DEPTH) {
-		json_error(JSON_ERROR_MAX_RECURSION_DEPTH_EXCEEDED);
-	}
+	json_assert(json_recursion_depth <= JSON_MAX_RECURSION_DEPTH, JSON_ERROR_MAX_RECURSION_DEPTH_EXCEEDED);
 
 	node.data.array.value_count = 0;
 
@@ -529,31 +515,21 @@ static struct json_node json_parse_array(size_t *i) {
 
 		switch (token->type) {
 		case TOKEN_TYPE_STRING:
-			if (seen_value) {
-				json_error(JSON_ERROR_UNEXPECTED_STRING);
-			}
+			json_assert(!seen_value, JSON_ERROR_UNEXPECTED_STRING);
 			seen_value = true;
 			seen_comma = false;
-			if (node.data.array.value_count >= JSON_MAX_CHILD_NODES) {
-				json_error(JSON_ERROR_TOO_MANY_CHILD_NODES);
-			}
+			json_assert(node.data.array.value_count < JSON_MAX_CHILD_NODES, JSON_ERROR_TOO_MANY_CHILD_NODES);
 			child_nodes[node.data.array.value_count++] = json_parse_string(i);
 			break;
 		case TOKEN_TYPE_ARRAY_OPEN:
-			if (seen_value) {
-				json_error(JSON_ERROR_UNEXPECTED_ARRAY_OPEN);
-			}
+			json_assert(!seen_value, JSON_ERROR_UNEXPECTED_ARRAY_OPEN);
 			seen_value = true;
 			seen_comma = false;
-			if (node.data.array.value_count >= JSON_MAX_CHILD_NODES) {
-				json_error(JSON_ERROR_TOO_MANY_CHILD_NODES);
-			}
+			json_assert(node.data.array.value_count < JSON_MAX_CHILD_NODES, JSON_ERROR_TOO_MANY_CHILD_NODES);
 			child_nodes[node.data.array.value_count++] = json_parse_array(i);
 			break;
 		case TOKEN_TYPE_ARRAY_CLOSE:
-			if (seen_comma) {
-				json_error(JSON_ERROR_TRAILING_COMMA);
-			}
+			json_assert(!seen_comma, JSON_ERROR_TRAILING_COMMA);
 			node.data.array.values = json_nodes + json_nodes_size;
 			for (size_t value_index = 0; value_index < node.data.array.value_count; value_index++) {
 				json_push_node(child_nodes[value_index]);
@@ -562,22 +538,16 @@ static struct json_node json_parse_array(size_t *i) {
 			json_recursion_depth--;
 			return node;
 		case TOKEN_TYPE_OBJECT_OPEN:
-			if (seen_value) {
-				json_error(JSON_ERROR_UNEXPECTED_OBJECT_OPEN);
-			}
+			json_assert(!seen_value, JSON_ERROR_UNEXPECTED_OBJECT_OPEN);
 			seen_value = true;
 			seen_comma = false;
-			if (node.data.array.value_count >= JSON_MAX_CHILD_NODES) {
-				json_error(JSON_ERROR_TOO_MANY_CHILD_NODES);
-			}
+			json_assert(node.data.array.value_count < JSON_MAX_CHILD_NODES, JSON_ERROR_TOO_MANY_CHILD_NODES);
 			child_nodes[node.data.array.value_count++] = json_parse_object(i);
 			break;
 		case TOKEN_TYPE_OBJECT_CLOSE:
 			json_error(JSON_ERROR_UNEXPECTED_OBJECT_CLOSE);
 		case TOKEN_TYPE_COMMA:
-			if (!seen_value) {
-				json_error(JSON_ERROR_UNEXPECTED_COMMA);
-			}
+			json_assert(seen_value, JSON_ERROR_UNEXPECTED_COMMA);
 			seen_value = false;
 			seen_comma = true;
 			(*i)++;
@@ -627,9 +597,7 @@ static struct json_node json_parse(size_t *i) {
 		json_error(JSON_ERROR_UNEXPECTED_COLON);
 	}
 
-	if (*i < json_tokens_size) {
-		json_error(JSON_ERROR_UNEXPECTED_EXTRA_CHARACTER);
-	}
+	json_assert(*i >= json_tokens_size, JSON_ERROR_UNEXPECTED_EXTRA_CHARACTER);
 
 	return node;
 }
@@ -650,9 +618,7 @@ static char *json_push_string(char *slice_start, size_t length) {
 }
 
 static void json_push_token(enum json_token_type type, size_t offset, size_t length) {
-	if (json_tokens_size >= JSON_MAX_TOKENS) {
-		json_error(JSON_ERROR_TOO_MANY_TOKENS);
-	}
+	json_assert(json_tokens_size < JSON_MAX_TOKENS, JSON_ERROR_TOO_MANY_TOKENS);
 	json_tokens[json_tokens_size++] = (struct json_token){
 		.type = type,
 		.str = json_push_string(json_text + offset, length),
@@ -694,16 +660,12 @@ static void json_tokenize(void) {
 		i++;
 	}
 
-	if (in_string) {
-		json_error(JSON_ERROR_UNCLOSED_STRING);
-	}
+	json_assert(!in_string, JSON_ERROR_UNCLOSED_STRING);
 }
 
 static void json_read_text(char *json_file_path) {
 	FILE *f = fopen(json_file_path, "r");
-	if (!f) {
-		json_error(JSON_ERROR_FAILED_TO_OPEN_FILE);
-	}
+	json_assert(f, JSON_ERROR_FAILED_TO_OPEN_FILE);
 
 	json_text_size = fread(
 		json_text,
@@ -715,19 +677,11 @@ static void json_read_text(char *json_file_path) {
 	int is_eof = feof(f);
 	int err = ferror(f);
 
-    if (fclose(f)) {
-		json_error(JSON_ERROR_FAILED_TO_CLOSE_FILE);
-    }
+	json_assert(fclose(f) == 0, JSON_ERROR_FAILED_TO_CLOSE_FILE);
 
-	if (json_text_size == 0) {
-		json_error(JSON_ERROR_FILE_EMPTY);
-	}
-	if (!is_eof || json_text_size == JSON_MAX_CHARACTERS_IN_FILE) {
-		json_error(JSON_ERROR_FILE_TOO_BIG);
-	}
-	if (err) {
-		json_error(JSON_ERROR_FILE_READING_ERROR);
-	}
+	json_assert(json_text_size != 0, JSON_ERROR_FILE_EMPTY);
+	json_assert(is_eof && json_text_size != JSON_MAX_CHARACTERS_IN_FILE, JSON_ERROR_FILE_TOO_BIG);
+	json_assert(err == 0, JSON_ERROR_FILE_READING_ERROR);
 
 	json_text[json_text_size] = '\0';
 }
