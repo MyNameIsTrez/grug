@@ -1670,23 +1670,19 @@ struct literal_expr {
 
 struct unary_expr {
 	enum token_type operator;
-	size_t expr_index;
+	struct expr *expr;
 };
 
 struct binary_expr {
-	size_t left_expr_index;
+	struct expr *left_expr;
 	enum token_type operator;
-	size_t right_expr_index;
+	struct expr *right_expr;
 };
 
 struct call_expr {
 	char *fn_name;
 	struct expr *arguments;
 	size_t argument_count;
-};
-
-struct parenthesized_expr {
-	size_t expr_index;
 };
 
 struct expr {
@@ -1706,7 +1702,7 @@ struct expr {
 		struct unary_expr unary;
 		struct binary_expr binary;
 		struct call_expr call;
-		struct parenthesized_expr parenthesized;
+		struct expr *parenthesized;
 	};
 };
 static char *get_expr_type_str[] = {
@@ -1739,12 +1735,12 @@ struct variable_statement {
 	char *name;
 	char *type;
 	bool has_type;
-	size_t assignment_expr_index;
+	struct expr *assignment_expr;
 	bool has_assignment;
 };
 
 struct call_statement {
-	size_t expr_index;
+	struct expr *expr;
 };
 
 struct if_statement {
@@ -1756,7 +1752,7 @@ struct if_statement {
 };
 
 struct return_statement {
-	size_t value_expr_index;
+	struct expr *value;
 	bool has_value;
 };
 
@@ -1810,7 +1806,7 @@ static struct parsed_define_fn define_fn;
 
 struct on_fn {
 	char *fn_name;
-	size_t arguments_offset;
+	struct argument *arguments;
 	size_t argument_count;
 	struct statement *body_statements;
 	size_t body_statement_count;
@@ -1820,7 +1816,7 @@ static size_t on_fns_size;
 
 struct helper_fn {
 	char *fn_name;
-	size_t arguments_offset;
+	struct argument *arguments;
 	size_t argument_count;
 	char *return_type;
 	struct statement *body_statements;
@@ -1869,12 +1865,12 @@ static struct statement *push_statement(struct statement statement) {
 	return statements + statements_size++;
 }
 
-static size_t push_expr(struct expr expr) {
+static struct expr *push_expr(struct expr expr) {
 	if (exprs_size >= MAX_EXPRS_IN_FILE) {
 		GRUG_ERROR("There are more than %d exprs in the grug file, exceeding MAX_EXPRS_IN_FILE", MAX_EXPRS_IN_FILE);
 	}
 	exprs[exprs_size] = expr;
-	return exprs_size++;
+	return exprs + exprs_size++;
 }
 
 static void potentially_skip_comment(size_t *i) {
@@ -1955,7 +1951,7 @@ static struct expr parse_primary(size_t *i) {
 		case OPEN_PARENTHESIS_TOKEN:
 			(*i)++;
 			expr.type = PARENTHESIZED_EXPR;
-			expr.parenthesized.expr_index = push_expr(parse_expression(i));
+			expr.parenthesized = push_expr(parse_expression(i));
 			consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
 			return expr;
 		case TRUE_TOKEN:
@@ -2044,9 +2040,9 @@ static struct expr parse_member(size_t *i) {
 			break;
 		}
 		(*i)++;
-		expr.binary.left_expr_index = push_expr(expr);
+		expr.binary.left_expr = push_expr(expr);
 		expr.binary.operator = PERIOD_TOKEN;
-		expr.binary.right_expr_index = push_expr(parse_call(i));
+		expr.binary.right_expr = push_expr(parse_call(i));
 		expr.type = BINARY_EXPR;
 	}
 
@@ -2061,9 +2057,9 @@ static struct expr parse_unary(size_t *i) {
 		struct expr expr = {0};
 
 		expr.unary.operator = token.type;
-		expr.unary.expr_index = push_expr(parse_unary(i));
+		expr.unary.expr = push_expr(parse_unary(i));
 		expr.type = UNARY_EXPR;
-		
+
 		return expr;
 	}
 
@@ -2081,9 +2077,9 @@ static struct expr parse_factor(size_t *i) {
 			break;
 		}
 		(*i)++;
-		expr.binary.left_expr_index = push_expr(expr);
+		expr.binary.left_expr = push_expr(expr);
 		expr.binary.operator = token.type;
-		expr.binary.right_expr_index = push_expr(parse_unary(i));
+		expr.binary.right_expr = push_expr(parse_unary(i));
 		expr.type = BINARY_EXPR;
 	}
 
@@ -2100,9 +2096,9 @@ static struct expr parse_term(size_t *i) {
 			break;
 		}
 		(*i)++;
-		expr.binary.left_expr_index = push_expr(expr);
+		expr.binary.left_expr = push_expr(expr);
 		expr.binary.operator = token.type;
-		expr.binary.right_expr_index = push_expr(parse_factor(i));
+		expr.binary.right_expr = push_expr(parse_factor(i));
 		expr.type = BINARY_EXPR;
 	}
 
@@ -2121,9 +2117,9 @@ static struct expr parse_comparison(size_t *i) {
 			break;
 		}
 		(*i)++;
-		expr.binary.left_expr_index = push_expr(expr);
+		expr.binary.left_expr = push_expr(expr);
 		expr.binary.operator = token.type;
-		expr.binary.right_expr_index = push_expr(parse_term(i));
+		expr.binary.right_expr = push_expr(parse_term(i));
 		expr.type = BINARY_EXPR;
 	}
 
@@ -2140,9 +2136,9 @@ static struct expr parse_equality(size_t *i) {
 			break;
 		}
 		(*i)++;
-		expr.binary.left_expr_index = push_expr(expr);
+		expr.binary.left_expr = push_expr(expr);
 		expr.binary.operator = token.type;
-		expr.binary.right_expr_index = push_expr(parse_comparison(i));
+		expr.binary.right_expr = push_expr(parse_comparison(i));
 		expr.type = BINARY_EXPR;
 	}
 
@@ -2205,7 +2201,7 @@ static struct variable_statement parse_variable_statement(size_t *i) {
 	if (token.type == ASSIGNMENT_TOKEN) {
 		(*i)++;
 		variable_statement.has_assignment = true;
-		variable_statement.assignment_expr_index = push_expr(parse_expression(i));
+		variable_statement.assignment_expr = push_expr(parse_expression(i));
 	}
 
 	return variable_statement;
@@ -2249,7 +2245,7 @@ static struct statement parse_statement(size_t *i) {
 			if (token.type == OPEN_PARENTHESIS_TOKEN) {
 				statement.type = CALL_STATEMENT;
 				struct expr expr = parse_call(i);
-				statement.call_statement.expr_index = push_expr(expr);
+				statement.call_statement.expr = push_expr(expr);
 			} else if (token.type == COLON_TOKEN || token.type == ASSIGNMENT_TOKEN) {
 				statement.type = VARIABLE_STATEMENT;
 				statement.variable_statement = parse_variable_statement(i);
@@ -2272,7 +2268,7 @@ static struct statement parse_statement(size_t *i) {
 				statement.return_statement.has_value = false;
 			} else {
 				statement.return_statement.has_value = true;
-				statement.return_statement.value_expr_index = push_expr(parse_expression(i));
+				statement.return_statement.value = push_expr(parse_expression(i));
 			}
 
 			break;
@@ -2326,7 +2322,7 @@ static struct statement *parse_statements(size_t *i, size_t *body_statement_coun
 		consume_token_type(i, NEWLINES_TOKEN);
 	}
 
-	size_t body_statements_offset = statements_size;
+	struct statement *first_statement = statements + statements_size;
 	for (size_t statement_index = 0; statement_index < *body_statement_count; statement_index++) {
 		push_statement(local_statements[statement_index]);
 	}
@@ -2337,18 +2333,18 @@ static struct statement *parse_statements(size_t *i, size_t *body_statement_coun
 		potentially_skip_comment(i);
 	}
 
-	return statements + body_statements_offset;
+	return first_statement;
 }
 
-static size_t push_argument(struct argument argument) {
+static struct argument *push_argument(struct argument argument) {
 	if (arguments_size >= MAX_ARGUMENTS_IN_FILE) {
 		GRUG_ERROR("There are more than %d arguments in the grug file, exceeding MAX_ARGUMENTS_IN_FILE", MAX_ARGUMENTS_IN_FILE);
 	}
 	arguments[arguments_size] = argument;
-	return arguments_size++;
+	return arguments + arguments_size++;
 }
 
-static void parse_arguments(size_t *i, size_t *arguments_offset, size_t *argument_count) {
+static struct argument *parse_arguments(size_t *i, size_t *argument_count) {
 	struct token token = consume_token(i);
 	struct argument argument = {.name = token.str};
 
@@ -2358,7 +2354,7 @@ static void parse_arguments(size_t *i, size_t *arguments_offset, size_t *argumen
 	token = consume_token(i);
 
 	argument.type = token.str;
-	*arguments_offset = push_argument(argument);
+	struct argument *first_argument = push_argument(argument);
 	(*argument_count)++;
 
 	// Every argument after the first one starts with a comma
@@ -2381,6 +2377,8 @@ static void parse_arguments(size_t *i, size_t *arguments_offset, size_t *argumen
 		push_argument(argument);
 		(*argument_count)++;
 	}
+
+	return first_argument;
 }
 
 static void parse_helper_fn(size_t *i) {
@@ -2393,7 +2391,7 @@ static void parse_helper_fn(size_t *i) {
 
 	token = peek_token(*i);
 	if (token.type == WORD_TOKEN) {
-		parse_arguments(i, &fn.arguments_offset, &fn.argument_count);
+		fn.arguments = parse_arguments(i, &fn.argument_count);
 	}
 
 	consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
@@ -2419,7 +2417,7 @@ static void parse_on_fn(size_t *i) {
 
 	token = peek_token(*i);
 	if (token.type == WORD_TOKEN) {
-		parse_arguments(i, &fn.arguments_offset, &fn.argument_count);
+		fn.arguments = parse_arguments(i, &fn.argument_count);
 	}
 
 	consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
@@ -2578,9 +2576,9 @@ static void parse(void) {
 
 static void print_expr(struct expr expr);
 
-static void print_parenthesized_expr(struct parenthesized_expr parenthesized_expr) {
+static void print_parenthesized_expr(struct expr *parenthesized_expr) {
 	grug_log("\"expr\":{");
-	print_expr(exprs[parenthesized_expr.expr_index]);
+	print_expr(*parenthesized_expr);
 	grug_log("}");
 }
 
@@ -2601,11 +2599,11 @@ static void print_call_expr(struct call_expr call_expr) {
 
 static void print_binary_expr(struct binary_expr binary_expr) {
 	grug_log("\"left_expr\":{");
-	print_expr(exprs[binary_expr.left_expr_index]);
+	print_expr(*binary_expr.left_expr);
 	grug_log("},");
 	grug_log("\"operator\":\"%s\",", get_token_type_str[binary_expr.operator]);
 	grug_log("\"right_expr\":{");
-	print_expr(exprs[binary_expr.right_expr_index]);
+	print_expr(*binary_expr.right_expr);
 	grug_log("}");
 }
 
@@ -2629,7 +2627,7 @@ static void print_expr(struct expr expr) {
 			grug_log(",");
 			grug_log("\"operator\":\"%s\",", get_token_type_str[expr.unary.operator]);
 			grug_log("\"expr\":{");
-			print_expr(exprs[expr.unary.expr_index]);
+			print_expr(*expr.unary.expr);
 			grug_log("}");
 			break;
 		case BINARY_EXPR:
@@ -2670,14 +2668,14 @@ static void print_statements(struct statement *statements_offset, size_t stateme
 
 				if (statement.variable_statement.has_assignment) {
 					grug_log("\"assignment\":{");
-					print_expr(exprs[statement.variable_statement.assignment_expr_index]);
+					print_expr(*statement.variable_statement.assignment_expr);
 					grug_log("}");
 				}
 
 				break;
 			case CALL_STATEMENT:
 				grug_log(",");
-				print_call_expr(exprs[statement.call_statement.expr_index].call);
+				print_call_expr(statement.call_statement.expr->call);
 				break;
 			case IF_STATEMENT:
 				grug_log(",");
@@ -2698,7 +2696,7 @@ static void print_statements(struct statement *statements_offset, size_t stateme
 				break;
 			case RETURN_STATEMENT:
 				if (statement.return_statement.has_value) {
-					struct expr return_expr = exprs[statement.return_statement.value_expr_index];
+					struct expr return_expr = *statement.return_statement.value;
 					grug_log(",");
 					grug_log("\"expr\":{");
 					print_expr(return_expr);
@@ -2721,7 +2719,7 @@ static void print_statements(struct statement *statements_offset, size_t stateme
 	}
 }
 
-static void print_arguments(size_t arguments_offset, size_t argument_count) {
+static void print_arguments(struct argument *arguments_offset, size_t argument_count) {
 	grug_log("\"arguments\":[");
 
 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
@@ -2731,7 +2729,7 @@ static void print_arguments(size_t arguments_offset, size_t argument_count) {
 
 		grug_log("{");
 
-		struct argument arg = arguments[arguments_offset + argument_index];
+		struct argument arg = arguments_offset[argument_index];
 
 		grug_log("\"name\":\"%s\",", arg.name);
 		grug_log("\"type\":\"%s\"", arg.type);
@@ -2756,7 +2754,7 @@ static void print_helper_fns(void) {
 
 		grug_log("\"fn_name\":\"%s\",", fn.fn_name);
 
-		print_arguments(fn.arguments_offset, fn.argument_count);
+		print_arguments(fn.arguments, fn.argument_count);
 
 		grug_log(",");
 		if (fn.return_type) {
@@ -2787,7 +2785,7 @@ static void print_on_fns(void) {
 
 		grug_log("\"fn_name\":\"%s\",", fn.fn_name);
 
-		print_arguments(fn.arguments_offset, fn.argument_count);
+		print_arguments(fn.arguments, fn.argument_count);
 
 		grug_log(",");
 		grug_log("\"statements\":[");
@@ -3229,23 +3227,23 @@ static void compile_binary_expr(struct binary_expr binary_expr) {
 	// - LESS_TOKEN
 	switch (binary_expr.operator) {
 		case PLUS_TOKEN:
-			compile_expr(exprs[binary_expr.left_expr_index]);
+			compile_expr(*binary_expr.left_expr);
 			stack_push_rax();
-			compile_expr(exprs[binary_expr.right_expr_index]);
+			compile_expr(*binary_expr.right_expr);
 			stack_pop_rbx();
 			compile_push_number(ADD_RBX_TO_RAX, 3);
 			break;
 		case MINUS_TOKEN:
-			compile_expr(exprs[binary_expr.right_expr_index]);
+			compile_expr(*binary_expr.right_expr);
 			stack_push_rax();
-			compile_expr(exprs[binary_expr.left_expr_index]);
+			compile_expr(*binary_expr.left_expr);
 			stack_pop_rbx();
 			compile_push_number(SUBTRACT_RBX_FROM_RAX, 3);
 			break;
 		case MULTIPLICATION_TOKEN:
-			compile_expr(exprs[binary_expr.left_expr_index]);
+			compile_expr(*binary_expr.left_expr);
 			stack_push_rax();
-			compile_expr(exprs[binary_expr.right_expr_index]);
+			compile_expr(*binary_expr.right_expr);
 			stack_pop_rbx();
 			compile_push_number(MULTIPLY_RAX_BY_RBX, 4);
 			break;
@@ -3258,7 +3256,7 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 	switch (unary_expr.operator) {
 		case MINUS_TOKEN:
 			compile_push_number(MOVABS_TO_RAX, 2);
-			i32 n = exprs[unary_expr.expr_index].literal.i32;
+			i32 n = unary_expr.expr->literal.i32;
 			compile_push_number(-n, 8);
 			break;
 		default:
@@ -3355,7 +3353,7 @@ static void compile_statements(struct statement *statements_offset, size_t state
 
 // 				break;
 			case CALL_STATEMENT:
-				compile_call_expr(exprs[statement.call_statement.expr_index].call);
+				compile_call_expr(statement.call_statement.expr->call);
 				break;
 			case IF_STATEMENT:
 				assert(false);
@@ -3634,10 +3632,10 @@ static void compile(void) {
 
 		if (helper_fn.body_statement_count > 0) {
 			compile_push_byte(CALL);
-			if (is_game_fn(exprs[helper_fn.body_statements[0].call_statement.expr_index].call.fn_name)) {
-				push_game_fn_call(exprs[helper_fn.body_statements[0].call_statement.expr_index].call.fn_name, codes_size);
+			if (is_game_fn(helper_fn.body_statements[0].call_statement.expr->call.fn_name)) {
+				push_game_fn_call(helper_fn.body_statements[0].call_statement.expr->call.fn_name, codes_size);
 			} else {
-				push_helper_fn_call(exprs[helper_fn.body_statements[0].call_statement.expr_index].call.fn_name, codes_size);
+				push_helper_fn_call(helper_fn.body_statements[0].call_statement.expr->call.fn_name, codes_size);
 			}
 			compile_push_number(PLACEHOLDER_32, 4);
 		}
