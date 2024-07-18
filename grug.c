@@ -1681,7 +1681,7 @@ struct binary_expr {
 
 struct call_expr {
 	char *fn_name;
-	size_t arguments_exprs_offset;
+	struct expr *arguments;
 	size_t argument_count;
 };
 
@@ -1731,7 +1731,7 @@ static struct field fields[MAX_FIELDS_IN_FILE];
 static size_t fields_size;
 
 struct compound_literal {
-	size_t fields_offset;
+	struct field *fields;
 	size_t field_count;
 };
 
@@ -1749,9 +1749,9 @@ struct call_statement {
 
 struct if_statement {
 	struct expr condition;
-	size_t if_body_statements_offset;
+	struct statement *if_body_statements;
 	size_t if_body_statement_count;
-	size_t else_body_statements_offset;
+	struct statement *else_body_statements;
 	size_t else_body_statement_count;
 };
 
@@ -1761,7 +1761,7 @@ struct return_statement {
 };
 
 struct loop_statement {
-	size_t body_statements_offset;
+	struct statement *body_statements;
 	size_t body_statement_count;
 };
 
@@ -1812,7 +1812,7 @@ struct on_fn {
 	char *fn_name;
 	size_t arguments_offset;
 	size_t argument_count;
-	size_t body_statements_offset;
+	struct statement *body_statements;
 	size_t body_statement_count;
 };
 static struct on_fn on_fns[MAX_ON_FNS_IN_FILE];
@@ -1823,7 +1823,7 @@ struct helper_fn {
 	size_t arguments_offset;
 	size_t argument_count;
 	char *return_type;
-	size_t body_statements_offset;
+	struct statement *body_statements;
 	size_t body_statement_count;
 };
 static struct helper_fn helper_fns[MAX_HELPER_FNS_IN_FILE];
@@ -1861,12 +1861,12 @@ static void push_on_fn(struct on_fn on_fn) {
 	on_fns[on_fns_size++] = on_fn;
 }
 
-static size_t push_statement(struct statement statement) {
+static struct statement *push_statement(struct statement statement) {
 	if (statements_size >= MAX_STATEMENTS_IN_FILE) {
 		GRUG_ERROR("There are more than %d statements in the grug file, exceeding MAX_STATEMENTS_IN_FILE", MAX_STATEMENTS_IN_FILE);
 	}
 	statements[statements_size] = statement;
-	return statements_size++;
+	return statements + statements_size++;
 }
 
 static size_t push_expr(struct expr expr) {
@@ -2025,7 +2025,7 @@ static struct expr parse_call(size_t *i) {
 				(*i)++;
 			}
 
-			expr.call.arguments_exprs_offset = exprs_size;
+			expr.call.arguments = exprs + exprs_size;
 			for (size_t argument_index = 0; argument_index < expr.call.argument_count; argument_index++) {
 				push_expr(local_call_arguments[argument_index]);
 			}
@@ -2155,14 +2155,14 @@ static struct expr parse_expression(size_t *i) {
 	return parse_equality(i);
 }
 
-static void parse_statements(size_t *i, size_t *body_statements_offset, size_t *body_statement_count);
+static struct statement *parse_statements(size_t *i, size_t *body_statement_count);
 
 static struct statement parse_if_statement(size_t *i) {
 	struct statement statement = {0};
 	statement.type = IF_STATEMENT;
 	statement.if_statement.condition = parse_expression(i);
 
-	parse_statements(i, &statement.if_statement.if_body_statements_offset, &statement.if_statement.if_body_statement_count);
+	statement.if_statement.if_body_statements = parse_statements(i, &statement.if_statement.if_body_statement_count);
 
 	if (peek_token(*i).type == ELSE_TOKEN) {
 		(*i)++;
@@ -2173,9 +2173,9 @@ static struct statement parse_if_statement(size_t *i) {
 			statement.if_statement.else_body_statement_count = 1;
 
 			struct statement else_if_statement = parse_if_statement(i);
-			statement.if_statement.else_body_statements_offset = push_statement(else_if_statement);
+			statement.if_statement.else_body_statements = push_statement(else_if_statement);
 		} else {
-			parse_statements(i, &statement.if_statement.else_body_statements_offset, &statement.if_statement.else_body_statement_count);
+			statement.if_statement.else_body_statements = parse_statements(i, &statement.if_statement.else_body_statement_count);
 		}
 	}
 
@@ -2280,7 +2280,7 @@ static struct statement parse_statement(size_t *i) {
 		case LOOP_TOKEN:
 			(*i)++;
 			statement.type = LOOP_STATEMENT;
-			parse_statements(i, &statement.loop_statement.body_statements_offset, &statement.loop_statement.body_statement_count);
+			statement.loop_statement.body_statements = parse_statements(i, &statement.loop_statement.body_statement_count);
 			break;
 		case BREAK_TOKEN:
 			(*i)++;
@@ -2297,7 +2297,7 @@ static struct statement parse_statement(size_t *i) {
 	return statement;
 }
 
-static void parse_statements(size_t *i, size_t *body_statements_offset, size_t *body_statement_count) {
+static struct statement *parse_statements(size_t *i, size_t *body_statement_count) {
 	consume_token_type(i, OPEN_BRACE_TOKEN);
 	potentially_skip_comment(i);
 
@@ -2326,7 +2326,7 @@ static void parse_statements(size_t *i, size_t *body_statements_offset, size_t *
 		consume_token_type(i, NEWLINES_TOKEN);
 	}
 
-	*body_statements_offset = statements_size;
+	size_t body_statements_offset = statements_size;
 	for (size_t statement_index = 0; statement_index < *body_statement_count; statement_index++) {
 		push_statement(local_statements[statement_index]);
 	}
@@ -2336,6 +2336,8 @@ static void parse_statements(size_t *i, size_t *body_statements_offset, size_t *
 	if (peek_token(*i).type != ELSE_TOKEN) {
 		potentially_skip_comment(i);
 	}
+
+	return statements + body_statements_offset;
 }
 
 static size_t push_argument(struct argument argument) {
@@ -2402,7 +2404,7 @@ static void parse_helper_fn(size_t *i) {
 		fn.return_type = token.str;
 	}
 
-	parse_statements(i, &fn.body_statements_offset, &fn.body_statement_count);
+	fn.body_statements = parse_statements(i, &fn.body_statement_count);
 
 	push_helper_fn(fn);
 }
@@ -2422,7 +2424,7 @@ static void parse_on_fn(size_t *i) {
 
 	consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
 
-	parse_statements(i, &fn.body_statements_offset, &fn.body_statement_count);
+	fn.body_statements = parse_statements(i, &fn.body_statement_count);
 
 	push_on_fn(fn);
 }
@@ -2438,7 +2440,7 @@ static struct compound_literal parse_compound_literal(size_t *i) {
 	(*i)++;
 	potentially_skip_comment(i);
 
-	struct compound_literal compound_literal = {.fields_offset = fields_size};
+	struct compound_literal compound_literal = {.fields = fields + fields_size};
 
 	consume_1_newline(i);
 
@@ -2591,7 +2593,7 @@ static void print_call_expr(struct call_expr call_expr) {
 			grug_log(",");
 		}
 		grug_log("{");
-		print_expr(exprs[call_expr.arguments_exprs_offset + argument_index]);
+		print_expr(call_expr.arguments[argument_index]);
 		grug_log("}");
 	}
 	grug_log("]");
@@ -2645,7 +2647,7 @@ static void print_expr(struct expr expr) {
 	}
 }
 
-static void print_statements(size_t statements_offset, size_t statement_count) {
+static void print_statements(struct statement *statements_offset, size_t statement_count) {
 	for (size_t statement_index = 0; statement_index < statement_count; statement_index++) {
 		if (statement_index > 0) {
 			grug_log(",");
@@ -2653,7 +2655,7 @@ static void print_statements(size_t statements_offset, size_t statement_count) {
 
 		grug_log("{");
 
-		struct statement statement = statements[statements_offset + statement_index];
+		struct statement statement = statements_offset[statement_index];
 
 		grug_log("\"type\":\"%s\"", get_statement_type_str[statement.type]);
 
@@ -2684,12 +2686,12 @@ static void print_statements(size_t statements_offset, size_t statement_count) {
 				grug_log("},");
 
 				grug_log("\"if_statements\":[");
-				print_statements(statement.if_statement.if_body_statements_offset, statement.if_statement.if_body_statement_count);
+				print_statements(statement.if_statement.if_body_statements, statement.if_statement.if_body_statement_count);
 				grug_log("],");
 
 				if (statement.if_statement.else_body_statement_count > 0) {
 					grug_log("\"else_statements\":[");
-					print_statements(statement.if_statement.else_body_statements_offset, statement.if_statement.else_body_statement_count);
+					print_statements(statement.if_statement.else_body_statements, statement.if_statement.else_body_statement_count);
 					grug_log("]");
 				}
 
@@ -2706,7 +2708,7 @@ static void print_statements(size_t statements_offset, size_t statement_count) {
 			case LOOP_STATEMENT:
 				grug_log(",");
 				grug_log("\"statements\":[");
-				print_statements(statement.loop_statement.body_statements_offset, statement.loop_statement.body_statement_count);
+				print_statements(statement.loop_statement.body_statements, statement.loop_statement.body_statement_count);
 				grug_log("]");
 				break;
 			case BREAK_STATEMENT:
@@ -2762,7 +2764,7 @@ static void print_helper_fns(void) {
 		}
 
 		grug_log("\"statements\":[");
-		print_statements(fn.body_statements_offset, fn.body_statement_count);
+		print_statements(fn.body_statements, fn.body_statement_count);
 		grug_log("]");
 
 		grug_log("}");
@@ -2789,7 +2791,7 @@ static void print_on_fns(void) {
 
 		grug_log(",");
 		grug_log("\"statements\":[");
-		print_statements(fn.body_statements_offset, fn.body_statement_count);
+		print_statements(fn.body_statements, fn.body_statement_count);
 		grug_log("]");
 
 		grug_log("}");
@@ -2832,7 +2834,7 @@ static void print_fields(struct compound_literal compound_literal) {
 
 		grug_log("{");
 
-		struct field field = fields[compound_literal.fields_offset + field_index];
+		struct field field = compound_literal.fields[field_index];
 
 		grug_log("\"name\":\"%s\",", field.key);
 
@@ -3308,7 +3310,7 @@ static void compile_expr(struct expr expr) {
 
 static void compile_call_expr(struct call_expr call_expr) {
 	for (size_t i = 0; i < call_expr.argument_count; i++) {
-		struct expr argument = exprs[call_expr.arguments_exprs_offset + i];
+		struct expr argument = call_expr.arguments[i];
 
 		// TODO: Verify that the argument has the same type as the one in grug_define_entity
 
@@ -3327,9 +3329,9 @@ static void compile_call_expr(struct call_expr call_expr) {
 	compile_push_number(PLACEHOLDER_32, 4);
 }
 
-static void compile_statements(size_t statements_offset, size_t statement_count) {
+static void compile_statements(struct statement *statements_offset, size_t statement_count) {
 	for (size_t statement_index = 0; statement_index < statement_count; statement_index++) {
-		struct statement statement = statements[statements_offset + statement_index];
+		struct statement statement = statements_offset[statement_index];
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
@@ -3402,7 +3404,7 @@ static void compile_statements(size_t statements_offset, size_t statement_count)
 }
 
 static void compile_on_fn(struct on_fn fn) {
-	compile_statements(fn.body_statements_offset, fn.body_statement_count);
+	compile_statements(fn.body_statements, fn.body_statement_count);
 	compile_push_byte(RET);
 }
 
@@ -3471,7 +3473,7 @@ static void init_data_strings(void) {
 	size_t chains_size = 0;
 
 	for (size_t field_index = 0; field_index < field_count; field_index++) {
-		struct field field = fields[define_fn.returned_compound_literal.fields_offset + field_index];
+		struct field field = define_fn.returned_compound_literal.fields[field_index];
 
 		if (field.expr_value.type == STRING_EXPR && get_data_string_index(field.expr_value.literal.string) == UINT32_MAX) {
 			char *string = field.expr_value.literal.string;
@@ -3574,8 +3576,7 @@ static void compile(void) {
 	size_t field_count = define_fn.returned_compound_literal.field_count;
 	assert(field_count <= 6); // TODO: Support more arguments
 	for (size_t field_index = 0; field_index < field_count; field_index++) {
-		// TODO: Replace .fields_offset with a simple pointer to the first field
-		struct field field = fields[define_fn.returned_compound_literal.fields_offset + field_index];
+		struct field field = define_fn.returned_compound_literal.fields[field_index];
 
 		if (!streq(field.key, grug_define_entity->arguments[field_index].name)) {
 			GRUG_ERROR("Field %zu named '%s' that you're returning from your define function must be renamed to '%s', according to the entity '%s' in mod_api.json", field_index + 1, field.key, grug_define_entity->arguments[field_index].name, grug_define_entity->name);
@@ -3633,10 +3634,10 @@ static void compile(void) {
 
 		if (helper_fn.body_statement_count > 0) {
 			compile_push_byte(CALL);
-			if (is_game_fn(exprs[statements[helper_fn.body_statements_offset].call_statement.expr_index].call.fn_name)) {
-				push_game_fn_call(exprs[statements[helper_fn.body_statements_offset].call_statement.expr_index].call.fn_name, codes_size);
+			if (is_game_fn(exprs[helper_fn.body_statements[0].call_statement.expr_index].call.fn_name)) {
+				push_game_fn_call(exprs[helper_fn.body_statements[0].call_statement.expr_index].call.fn_name, codes_size);
 			} else {
-				push_helper_fn_call(exprs[statements[helper_fn.body_statements_offset].call_statement.expr_index].call.fn_name, codes_size);
+				push_helper_fn_call(exprs[helper_fn.body_statements[0].call_statement.expr_index].call.fn_name, codes_size);
 			}
 			compile_push_number(PLACEHOLDER_32, 4);
 		}
