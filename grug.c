@@ -3231,6 +3231,17 @@ static void compile_binary_expr(struct binary_expr binary_expr) {
 	}
 }
 
+static void compile_unary_expr(struct unary_expr unary_expr) {
+	switch (unary_expr.operator) {
+		case MINUS_TOKEN:
+			compile_push_number(MOVABS_TO_RAX, 2);
+			compile_push_number(-exprs[unary_expr.expr_index].literal.number, 8);
+			break;
+		default:
+			GRUG_ERROR(UNREACHABLE_STR);
+	}
+}
+
 static void compile_expr(struct expr expr) {
 	switch (expr.type) {
 		case TRUE_EXPR:
@@ -3257,10 +3268,8 @@ static void compile_expr(struct expr expr) {
 			compile_push_number(expr.literal.number, 8);
 			break;
 		case UNARY_EXPR:
-			assert(false);
-			// serialize_operator(expr.unary_expr.operator);
-			// serialize_expr(exprs[expr.unary_expr.expr_index]);
-			// break;
+			compile_unary_expr(expr.unary);
+			break;
 		case BINARY_EXPR:
 			compile_binary_expr(expr.binary);
 			break;
