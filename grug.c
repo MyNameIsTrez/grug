@@ -3205,6 +3205,16 @@ static void stack_push_rax(void) {
 static void compile_expr(struct expr expr);
 
 static void compile_binary_expr(struct binary_expr binary_expr) {
+	// TODO: Support these:
+	// - MINUS_TOKEN
+	// - DIVISION_TOKEN
+	// - REMAINDER_TOKEN
+	// - EQUALS_TOKEN
+	// - NOT_EQUALS_TOKEN
+	// - GREATER_OR_EQUAL_TOKEN
+	// - GREATER_TOKEN
+	// - LESS_OR_EQUAL_TOKEN
+	// - LESS_TOKEN
 	switch (binary_expr.operator) {
 		case PLUS_TOKEN:
 			compile_expr(exprs[binary_expr.left_expr_index]);
@@ -5389,7 +5399,7 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 	fclose(f);
 }
 
-//// MISC
+//// HOT RELOADING
 
 struct grug_mod_dir grug_mods;
 

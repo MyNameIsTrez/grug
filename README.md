@@ -19,7 +19,7 @@ You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
 9. PRINTING AST
 10. COMPILING
 11. LINKING
-12. MISC
+12. HOT RELOADING
 
 ## Small example programs
 
