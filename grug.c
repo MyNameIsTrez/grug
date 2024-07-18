@@ -47,6 +47,12 @@
 	longjmp(error_jmp_buffer, 1);\
 }
 
+#define grug_assert(condition, ...) {\
+	if (!(condition)) {\
+		GRUG_ERROR(__VA_ARGS__);\
+	}\
+}
+
 #ifdef LOGGING
 #define grug_log(...) fprintf(stderr, __VA_ARGS__)
 #else
@@ -847,20 +853,20 @@ static void init_game_fns(struct json_object fns) {
 		struct grug_game_function grug_fn = {0};
 
 		grug_fn.name = fns.fields[fn_index].key;
-		assert(!streq(grug_fn.name, "") && "\"game_functions\" its function names must not be an empty string");
-		assert(!starts_with(grug_fn.name, "on_") && "\"game_functions\" its function names must not start with 'on_'");
+		grug_assert(!streq(grug_fn.name, ""), "\"game_functions\" its function names must not be an empty string");
+		grug_assert(!starts_with(grug_fn.name, "on_"), "\"game_functions\" its function names must not start with 'on_'");
 
-		assert(fns.fields[fn_index].value->type == JSON_NODE_OBJECT && "\"game_functions\" its array must only contain objects");
+		grug_assert(fns.fields[fn_index].value->type == JSON_NODE_OBJECT, "\"game_functions\" its array must only contain objects");
 		struct json_object fn = fns.fields[fn_index].value->data.object;
-		assert(fn.field_count >= 1 && "\"game_functions\" its objects must have at least a \"description\" field");
-		assert(fn.field_count <= 3 && "\"game_functions\" its objects must not have more than 3 fields");
+		grug_assert(fn.field_count >= 1, "\"game_functions\" its objects must have at least a \"description\" field");
+		grug_assert(fn.field_count <= 3, "\"game_functions\" its objects must not have more than 3 fields");
 
 		struct json_field *field = fn.fields;
 
-		assert(streq(field->key, "description") && "\"game_functions\" its functions must have \"description\" as the first field");
-		assert(field->value->type == JSON_NODE_STRING && "\"game_functions\" its function descriptions must be strings");
+		grug_assert(streq(field->key, "description"), "\"game_functions\" its functions must have \"description\" as the first field");
+		grug_assert(field->value->type == JSON_NODE_STRING, "\"game_functions\" its function descriptions must be strings");
 		char *description = field->value->data.string;
-		assert(!streq(description, "") && "\"game_functions\" its function descriptions must not be an empty string");
+		grug_assert(!streq(description, ""), "\"game_functions\" its function descriptions must not be an empty string");
 
 		bool seen_return_type = false;
 
@@ -868,41 +874,41 @@ static void init_game_fns(struct json_object fns) {
 			field++;
 
 			if (streq(field->key, "return_type")) {
-				assert(field->value->type == JSON_NODE_STRING && "\"game_functions\" its function return types must be strings");
+				grug_assert(field->value->type == JSON_NODE_STRING, "\"game_functions\" its function return types must be strings");
 				grug_fn.return_type = parse_type(field->value->data.string);
 				seen_return_type = true;
 				field++;
 			} else {
-				assert(streq(field->key, "arguments") && "\"game_functions\" its second field was something other than \"return_type\" and \"arguments\"");
+				grug_assert(streq(field->key, "arguments"), "\"game_functions\" its second field was something other than \"return_type\" and \"arguments\"");
 			}
 		}
 
 		if ((!seen_return_type && fn.field_count > 1) || fn.field_count > 2) {
-			assert(streq(field->key, "arguments") && "\"game_functions\" its second or third field was something other than \"arguments\"");
+			grug_assert(streq(field->key, "arguments"), "\"game_functions\" its second or third field was something other than \"arguments\"");
 
 			grug_fn.return_type = type_void;
 
-			assert(field->value->type == JSON_NODE_ARRAY && "\"game_functions\" its function arguments must be arrays");
+			grug_assert(field->value->type == JSON_NODE_ARRAY, "\"game_functions\" its function arguments must be arrays");
 			struct json_node *value = field->value->data.array.values;
 
 			grug_fn.arguments = grug_arguments + grug_arguments_size;
 			grug_fn.argument_count = field->value->data.array.value_count;
-			assert(grug_fn.argument_count > 0 && "\"game_functions\" its \"arguments\" array must not be empty (just remove the \"arguments\" key entirely)");
+			grug_assert(grug_fn.argument_count > 0, "\"game_functions\" its \"arguments\" array must not be empty (just remove the \"arguments\" key entirely)");
 
 			for (size_t argument_index = 0; argument_index < grug_fn.argument_count; argument_index++) {
 				struct grug_argument grug_arg;
 
-				assert(value->type == JSON_NODE_OBJECT && "\"game_functions\" its function arguments must only contain objects");
-				assert(value->data.object.field_count == 2 && "\"game_functions\" its function arguments must only contain a name and type field");
+				grug_assert(value->type == JSON_NODE_OBJECT, "\"game_functions\" its function arguments must only contain objects");
+				grug_assert(value->data.object.field_count == 2, "\"game_functions\" its function arguments must only contain a name and type field");
 				struct json_field *argument_field = value->data.object.fields;
 
-				assert(streq(argument_field->key, "name") && "\"game_functions\" its function arguments must always have \"name\" be their first field");
-				assert(argument_field->value->type == JSON_NODE_STRING && "\"game_functions\" its function arguments must always have string values");
+				grug_assert(streq(argument_field->key, "name"), "\"game_functions\" its function arguments must always have \"name\" be their first field");
+				grug_assert(argument_field->value->type == JSON_NODE_STRING, "\"game_functions\" its function arguments must always have string values");
 				grug_arg.name = argument_field->value->data.string;
 				argument_field++;
 
-				assert(streq(argument_field->key, "type") && "\"game_functions\" its function arguments must always have \"type\" be their second field");
-				assert(argument_field->value->type == JSON_NODE_STRING && "\"game_functions\" its function arguments must always have string values");
+				grug_assert(streq(argument_field->key, "type"), "\"game_functions\" its function arguments must always have \"type\" be their second field");
+				grug_assert(argument_field->value->type == JSON_NODE_STRING, "\"game_functions\" its function arguments must always have string values");
 				grug_arg.type = parse_type(argument_field->value->data.string);
 				argument_field++;
 
@@ -920,26 +926,26 @@ static void init_on_fns(struct json_object fns) {
 		struct grug_on_function grug_fn = {0};
 
 		grug_fn.name = fns.fields[fn_index].key;
-		assert(!streq(grug_fn.name, "") && "\"on_functions\" its function names must not be an empty string");
-		assert(starts_with(grug_fn.name, "on_") && "\"on_functions\" its function names must start with 'on_'");
+		grug_assert(!streq(grug_fn.name, ""), "\"on_functions\" its function names must not be an empty string");
+		grug_assert(starts_with(grug_fn.name, "on_"), "\"on_functions\" its function names must start with 'on_'");
 
-		assert(fns.fields[fn_index].value->type == JSON_NODE_OBJECT && "\"on_functions\" its array must only contain objects");
+		grug_assert(fns.fields[fn_index].value->type == JSON_NODE_OBJECT, "\"on_functions\" its array must only contain objects");
 		struct json_object fn = fns.fields[fn_index].value->data.object;
-		assert(fn.field_count >= 1 && "\"on_functions\" its objects must have at least a \"description\" field");
-		assert(fn.field_count <= 2 && "\"on_functions\" its objects must not have more than 2 fields");
+		grug_assert(fn.field_count >= 1, "\"on_functions\" its objects must have at least a \"description\" field");
+		grug_assert(fn.field_count <= 2, "\"on_functions\" its objects must not have more than 2 fields");
 
 		struct json_field *field = fn.fields;
 
-		assert(streq(field->key, "description") && "\"on_functions\" its functions must have \"description\" as the first field");
-		assert(field->value->type == JSON_NODE_STRING && "\"on_functions\" its function descriptions must be strings");
+		grug_assert(streq(field->key, "description"), "\"on_functions\" its functions must have \"description\" as the first field");
+		grug_assert(field->value->type == JSON_NODE_STRING, "\"on_functions\" its function descriptions must be strings");
 		char *description = field->value->data.string;
-		assert(!streq(description, "") && "\"on_functions\" its function descriptions must not be an empty string");
+		grug_assert(!streq(description, ""), "\"on_functions\" its function descriptions must not be an empty string");
 
 		if (fn.field_count > 1) {
 			field++;
 
-			assert(streq(field->key, "arguments") && "\"on_functions\" its functions must have \"arguments\" as the second field");
-			assert(field->value->type == JSON_NODE_ARRAY && "\"on_functions\" its function arguments must be arrays");
+			grug_assert(streq(field->key, "arguments"), "\"on_functions\" its functions must have \"arguments\" as the second field");
+			grug_assert(field->value->type == JSON_NODE_ARRAY, "\"on_functions\" its function arguments must be arrays");
 			struct json_node *value = field->value->data.array.values;
 
 			grug_fn.arguments = grug_arguments + grug_arguments_size;
@@ -948,17 +954,17 @@ static void init_on_fns(struct json_object fns) {
 			for (size_t argument_index = 0; argument_index < grug_fn.argument_count; argument_index++) {
 				struct grug_argument grug_arg;
 
-				assert(value->type == JSON_NODE_OBJECT && "\"on_functions\" its function arguments must only contain objects");
-				assert(value->data.object.field_count == 2 && "\"on_functions\" its function arguments must only contain a name and type field");
+				grug_assert(value->type == JSON_NODE_OBJECT, "\"on_functions\" its function arguments must only contain objects");
+				grug_assert(value->data.object.field_count == 2, "\"on_functions\" its function arguments must only contain a name and type field");
 				struct json_field *argument_field = value->data.object.fields;
 
-				assert(streq(argument_field->key, "name") && "\"on_functions\" its function arguments must always have \"name\" be their first field");
-				assert(argument_field->value->type == JSON_NODE_STRING && "\"on_functions\" its function arguments must always have string values");
+				grug_assert(streq(argument_field->key, "name"), "\"on_functions\" its function arguments must always have \"name\" be their first field");
+				grug_assert(argument_field->value->type == JSON_NODE_STRING, "\"on_functions\" its function arguments must always have string values");
 				grug_arg.name = argument_field->value->data.string;
 				argument_field++;
 
-				assert(streq(argument_field->key, "type") && "\"on_functions\" its function arguments must always have \"type\" be their second field");
-				assert(argument_field->value->type == JSON_NODE_STRING && "\"on_functions\" its function arguments must always have string values");
+				grug_assert(streq(argument_field->key, "type"), "\"on_functions\" its function arguments must always have \"type\" be their second field");
+				grug_assert(argument_field->value->type == JSON_NODE_STRING, "\"on_functions\" its function arguments must always have string values");
 				grug_arg.type = parse_type(argument_field->value->data.string);
 				argument_field++;
 
@@ -976,19 +982,19 @@ static void init_entities(struct json_object entities) {
 		struct grug_entity entity = {0};
 
 		entity.name = entities.fields[entity_field_index].key;
-		assert(!streq(entity.name, "") && "\"entities\" its names must not be an empty string");
+		grug_assert(!streq(entity.name, ""), "\"entities\" its names must not be an empty string");
 
-		assert(entities.fields[entity_field_index].value->type == JSON_NODE_OBJECT && "\"entities\" must only contain object values");
+		grug_assert(entities.fields[entity_field_index].value->type == JSON_NODE_OBJECT, "\"entities\" must only contain object values");
 		struct json_object fn = entities.fields[entity_field_index].value->data.object;
-		assert(fn.field_count >= 1 && "\"entities\" its objects must have at least a \"description\" field");
-		assert(fn.field_count <= 3 && "\"entities\" its objects must not have more than 3 fields");
+		grug_assert(fn.field_count >= 1, "\"entities\" its objects must have at least a \"description\" field");
+		grug_assert(fn.field_count <= 3, "\"entities\" its objects must not have more than 3 fields");
 
 		struct json_field *field = fn.fields;
 
-		assert(streq(field->key, "description") && "\"entities\" must have \"description\" as the first field");
-		assert(field->value->type == JSON_NODE_STRING && "\"entities\" its descriptions must be strings");
+		grug_assert(streq(field->key, "description"), "\"entities\" must have \"description\" as the first field");
+		grug_assert(field->value->type == JSON_NODE_STRING, "\"entities\" its descriptions must be strings");
 		char *description = field->value->data.string;
-		assert(!streq(description, "") && "\"entities\" its descriptions must not be an empty string");
+		grug_assert(!streq(description, ""), "\"entities\" its descriptions must not be an empty string");
 
 		bool seen_fields = false;
 
@@ -996,7 +1002,7 @@ static void init_entities(struct json_object entities) {
 			field++;
 
 			if (streq(field->key, "fields")) {
-				assert(field->value->type == JSON_NODE_ARRAY && "\"entities\" its \"fields\" must be arrays");
+				grug_assert(field->value->type == JSON_NODE_ARRAY, "\"entities\" its \"fields\" must be arrays");
 				struct json_node *value = field->value->data.array.values;
 				entity.arguments = grug_arguments + grug_arguments_size;
 				entity.argument_count = field->value->data.array.value_count;
@@ -1004,17 +1010,17 @@ static void init_entities(struct json_object entities) {
 				for (size_t argument_index = 0; argument_index < entity.argument_count; argument_index++) {
 					struct grug_argument grug_arg;
 
-					assert(value->type == JSON_NODE_OBJECT && "\"entities\" its arguments must only contain objects");
-					assert(value->data.object.field_count == 2 && "\"entities\" its arguments must only contain a name and type field");
+					grug_assert(value->type == JSON_NODE_OBJECT, "\"entities\" its arguments must only contain objects");
+					grug_assert(value->data.object.field_count == 2, "\"entities\" its arguments must only contain a name and type field");
 					struct json_field *arg_field = value->data.object.fields;
 
-					assert(streq(arg_field->key, "name") && "\"entities\" its arguments must always have \"name\" be their first field");
-					assert(arg_field->value->type == JSON_NODE_STRING && "\"entities\" its arguments must always have string values");
+					grug_assert(streq(arg_field->key, "name"), "\"entities\" its arguments must always have \"name\" be their first field");
+					grug_assert(arg_field->value->type == JSON_NODE_STRING, "\"entities\" its arguments must always have string values");
 					grug_arg.name = arg_field->value->data.string;
 					arg_field++;
 
-					assert(streq(arg_field->key, "type") && "\"entities\" its arguments must always have \"type\" be their second field");
-					assert(arg_field->value->type == JSON_NODE_STRING && "\"entities\" its arguments must always have string values");
+					grug_assert(streq(arg_field->key, "type"), "\"entities\" its arguments must always have \"type\" be their second field");
+					grug_assert(arg_field->value->type == JSON_NODE_STRING, "\"entities\" its arguments must always have string values");
 					grug_arg.type = parse_type(arg_field->value->data.string);
 
 					push_grug_argument(grug_arg);
@@ -1024,13 +1030,13 @@ static void init_entities(struct json_object entities) {
 				seen_fields = true;
 				field++;
 			} else {
-				assert(streq(field->key, "on_functions") && "\"entities\" its second field was something other than \"fields\" and \"on_functions\"");
+				grug_assert(streq(field->key, "on_functions"), "\"entities\" its second field was something other than \"fields\" and \"on_functions\"");
 			}
 		}
 
 		if ((!seen_fields && fn.field_count > 1) || fn.field_count > 2) {
-			assert(streq(field->key, "on_functions") && "\"entities\" its second or third field was something other than \"on_functions\"");
-			assert(field->value->type == JSON_NODE_OBJECT && "\"entities\" its \"on_functions\" field must have an object as its value");
+			grug_assert(streq(field->key, "on_functions"), "\"entities\" its second or third field was something other than \"on_functions\"");
+			grug_assert(field->value->type == JSON_NODE_OBJECT, "\"entities\" its \"on_functions\" field must have an object as its value");
 			entity.on_functions = grug_on_functions + grug_on_functions_size;
 			entity.on_function_count = field->value->data.object.field_count;
 			init_on_fns(field->value->data.object);
@@ -1044,20 +1050,20 @@ static void parse_mod_api_json(void) {
 	struct json_node node;
 	json(MOD_API_JSON_PATH, &node);
 
-	assert(node.type == JSON_NODE_OBJECT && "mod_api.json must start with an object");
+	grug_assert(node.type == JSON_NODE_OBJECT, "mod_api.json must start with an object");
 	struct json_object root_object = node.data.object;
 
-	assert(root_object.field_count == 2 && "mod_api.json must have these 2 fields, in this order: \"entities\", \"game_functions\"");
+	grug_assert(root_object.field_count == 2, "mod_api.json must have these 2 fields, in this order: \"entities\", \"game_functions\"");
 
 	struct json_field *field = root_object.fields;
 
-	assert(streq(field->key, "entities") && "mod_api.json its root object must have \"entities\" as its first field");
-	assert(field->value->type == JSON_NODE_OBJECT && "mod_api.json its \"entities\" field must have an object as its value");
+	grug_assert(streq(field->key, "entities"), "mod_api.json its root object must have \"entities\" as its first field");
+	grug_assert(field->value->type == JSON_NODE_OBJECT, "mod_api.json its \"entities\" field must have an object as its value");
 	init_entities(field->value->data.object);
 	field++;
 
-	assert(streq(field->key, "game_functions") && "mod_api.json its root object must have \"game_functions\" as its third field");
-	assert(field->value->type == JSON_NODE_OBJECT && "mod_api.json its \"game_functions\" field must have an object as its value");
+	grug_assert(streq(field->key, "game_functions"), "mod_api.json its root object must have \"game_functions\" as its third field");
+	grug_assert(field->value->type == JSON_NODE_OBJECT, "mod_api.json its \"game_functions\" field must have an object as its value");
 	init_game_fns(field->value->data.object);
 }
 
@@ -3168,7 +3174,8 @@ static void stack_pop_arguments(size_t argument_count) {
 		return;
 	}
 
-	assert(argument_count <= 6 && "Currently grug only supports up to 6 function arguments"); // TODO: Support more arguments
+	// TODO: Support more arguments
+	grug_assert(argument_count <= 6, "Currently grug only supports up to 6 function arguments");
 
 	assert(stack_size >= argument_count);
 	stack_size -= argument_count;
@@ -3433,7 +3440,7 @@ static void compile_returned_field(struct expr expr_value, size_t argument_index
 		compile_push_number(PLACEHOLDER_32, 4);
 	} else {
 		// TODO: Can modders somehow reach this?
-		assert(false && "Only number and string arguments are supported right now");
+		GRUG_ERROR("Only number and strings can be returned right now");
 	}
 }
 
@@ -3572,7 +3579,8 @@ static void compile(void) {
 
 	// define()
 	size_t field_count = define_fn.returned_compound_literal.field_count;
-	assert(field_count <= 6); // TODO: Support more arguments
+	// TODO: Support more arguments
+	grug_assert(field_count <= 6, "Currently grug only supports up to 6 function arguments");
 	for (size_t field_index = 0; field_index < field_count; field_index++) {
 		struct field field = define_fn.returned_compound_literal.fields[field_index];
 
@@ -3600,7 +3608,7 @@ static void compile(void) {
 		compile_push_number(MOV_TO_RDI_PTR, 2);
 
 		// TODO: Add a grug test for this, cause I want it to be able to handle when ptr_offset is >= 256
-		assert(ptr_offset < 256);
+		grug_assert(ptr_offset < 256, "Currently grug only supports up to 64 global variables");
 		compile_push_byte(ptr_offset);
 		ptr_offset += sizeof(u32);
 
