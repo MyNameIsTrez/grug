@@ -1908,7 +1908,6 @@ static void consume_1_newline(size_t *token_index_ptr) {
 	(*token_index_ptr)++;
 }
 
-// This function is actually more 
 // Inspiration: https://stackoverflow.com/a/12923949/13279557
 static i64 str_to_i64(char *str) {
 	char *end;
