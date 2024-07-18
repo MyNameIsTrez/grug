@@ -2885,6 +2885,7 @@ static void print_ast(void) {
 #define PUSH_RAX 0x50
 
 #define ADD_RBX_TO_RAX 0xd80148
+#define SUBTRACT_RBX_FROM_RAX 0xd82948
 #define MULTIPLY_RAX_BY_RBX 0xc3af0f48
 
 #define POP_RBX 0x5b
@@ -3205,7 +3206,6 @@ static void compile_expr(struct expr expr);
 
 static void compile_binary_expr(struct binary_expr binary_expr) {
 	// TODO: Support these:
-	// - MINUS_TOKEN
 	// - DIVISION_TOKEN
 	// - REMAINDER_TOKEN
 	// - EQUALS_TOKEN
@@ -3221,6 +3221,13 @@ static void compile_binary_expr(struct binary_expr binary_expr) {
 			compile_expr(exprs[binary_expr.right_expr_index]);
 			stack_pop_rbx();
 			compile_push_number(ADD_RBX_TO_RAX, 3);
+			break;
+		case MINUS_TOKEN:
+			compile_expr(exprs[binary_expr.right_expr_index]);
+			stack_push_rax();
+			compile_expr(exprs[binary_expr.left_expr_index]);
+			stack_pop_rbx();
+			compile_push_number(SUBTRACT_RBX_FROM_RAX, 3);
 			break;
 		case MULTIPLICATION_TOKEN:
 			compile_expr(exprs[binary_expr.left_expr_index]);
