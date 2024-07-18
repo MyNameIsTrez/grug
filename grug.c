@@ -60,9 +60,10 @@
 
 typedef uint8_t u8;
 typedef uint16_t u16;
+typedef int32_t i32;
 typedef uint32_t u32;
-typedef uint64_t u64;
 typedef int64_t i64;
+typedef uint64_t u64;
 
 struct grug_error grug_error;
 static jmp_buf error_jmp_buffer;
@@ -1663,7 +1664,7 @@ static void verify_and_trim_spaces(void) {
 struct literal_expr {
 	union {
 		char *string;
-		i64 number; // TODO: Support other number types
+		i32 i32; // TODO: Support other number types
 	};
 };
 
@@ -1898,23 +1899,43 @@ static void consume_1_newline(size_t *token_index_ptr) {
 	(*token_index_ptr)++;
 }
 
+// TODO: Use, or remove
 // Inspiration: https://stackoverflow.com/a/12923949/13279557
-static i64 str_to_i64(char *str) {
+// static i64 str_to_i64(char *str) {
+// 	char *end;
+// 	errno = 0;
+// 	long long n = strtoll(str, &end, 10);
+
+// 	if (n > INT64_MAX || (errno == ERANGE && n == LLONG_MAX)) {
+// 		GRUG_ERROR("The number %s is too big for an i64, which has a maximum value of %d", str, INT64_MAX);
+// 	}
+
+// 	// This function can't ever return a negative number,
+// 	// since the minus symbol gets tokenized separately
+// 	assert(errno != ERANGE);
+// 	assert(n >= 0);
+
+// 	// This function can't ever have trailing characters,
+// 	// since the number was tokenized
+// 	assert(*end == '\0');
+
+// 	return n;
+// }
+
+// Inspiration: https://stackoverflow.com/a/12923949/13279557
+static i32 str_to_i32(char *str) {
 	char *end;
 	errno = 0;
-	i64 n = strtoll(str, &end, 10);
+	long n = strtol(str, &end, 10);
 
-	if (errno == ERANGE && n == LLONG_MAX) {
-		GRUG_ERROR("The number %s is bigger than LLONG_MAX", str);
+	if (n > INT32_MAX || (errno == ERANGE && n == LONG_MAX)) {
+		GRUG_ERROR("The number %s is too big for an i32, which has a maximum value of %d", str, INT32_MAX);
 	}
 
 	// This function can't ever return a negative number,
 	// since the minus symbol gets tokenized separately
 	assert(errno != ERANGE);
 	assert(n >= 0);
-	// if (errno == ERANGE && n == LLONG_MIN) {
-	// 	GRUG_ERROR("The number %s is smaller than LLONG_MIN", s);
-	// }
 
 	// This function can't ever have trailing characters,
 	// since the number was tokenized
@@ -1958,7 +1979,7 @@ static struct expr parse_primary(size_t *i) {
 		case NUMBER_TOKEN:
 			(*i)++;
 			expr.type = NUMBER_EXPR;
-			expr.literal.number = str_to_i64(token.str);
+			expr.literal.i32 = str_to_i32(token.str);
 			return expr;
 		default:
 			GRUG_ERROR("Expected a primary expression token, but got token type %s at token index %zu", get_token_type_str[token.type], *i);
@@ -2600,7 +2621,7 @@ static void print_expr(struct expr expr) {
 			break;
 		case NUMBER_EXPR:
 			grug_log(",");
-			grug_log("\"value\":%ld", expr.literal.number);
+			grug_log("\"value\":%ld", expr.literal.i32);
 			break;
 		case UNARY_EXPR:
 			grug_log(",");
@@ -3235,7 +3256,8 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 	switch (unary_expr.operator) {
 		case MINUS_TOKEN:
 			compile_push_number(MOVABS_TO_RAX, 2);
-			compile_push_number(-exprs[unary_expr.expr_index].literal.number, 8);
+			i32 n = exprs[unary_expr.expr_index].literal.i32;
+			compile_push_number(-n, 8);
 			break;
 		default:
 			GRUG_ERROR(UNREACHABLE_STR);
@@ -3265,7 +3287,7 @@ static void compile_expr(struct expr expr) {
 			// break;
 		case NUMBER_EXPR:
 			compile_push_number(MOVABS_TO_RAX, 2);
-			compile_push_number(expr.literal.number, 8);
+			compile_push_number(expr.literal.i32, 8);
 			break;
 		case UNARY_EXPR:
 			compile_unary_expr(expr.unary);
@@ -3395,7 +3417,7 @@ static void compile_returned_field(struct expr expr_value, size_t argument_index
 			MOVABS_TO_R9,
 		}[argument_index], 2);
 
-		compile_push_number(expr_value.literal.number, 8);
+		compile_push_number(expr_value.literal.i32, 8);
 	} else if (expr_value.type == STRING_EXPR) {
 		compile_push_number((uint64_t[]){
 			LEA_TO_RDI,
@@ -3585,7 +3607,7 @@ static void compile(void) {
 
 		// TODO: Make it possible to retrieve .string_literal_expr here
 		// TODO: Add test that only literals can initialize global variables, so no equations
-		i64 value = global_variable.assignment_expr.literal.number;
+		u64 value = global_variable.assignment_expr.literal.i32;
 
 		compile_push_number(value, 4);
 	}
