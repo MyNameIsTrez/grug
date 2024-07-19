@@ -1052,6 +1052,8 @@ enum token_type {
 	GREATER_TOKEN,
 	LESS_OR_EQUAL_TOKEN,
 	LESS_TOKEN,
+	AND_TOKEN,
+	OR_TOKEN,
 	NOT_TOKEN,
 	TRUE_TOKEN,
 	FALSE_TOKEN,
@@ -1093,6 +1095,8 @@ static char *get_token_type_str[] = {
 	[GREATER_TOKEN] = "GREATER_TOKEN",
 	[LESS_OR_EQUAL_TOKEN] = "LESS_OR_EQUAL_TOKEN",
 	[LESS_TOKEN] = "LESS_TOKEN",
+	[AND_TOKEN] = "AND_TOKEN",
+	[OR_TOKEN] = "OR_TOKEN",
 	[NOT_TOKEN] = "NOT_TOKEN",
 	[TRUE_TOKEN] = "TRUE_TOKEN",
 	[FALSE_TOKEN] = "FALSE_TOKEN",
@@ -1195,6 +1199,10 @@ static bool is_escaped_char(char c) {
 	return isspace(c) && c != ' ';
 }
 
+static bool is_end_of_word(char c) {
+	return !isalnum(c) && c != '_';
+}
+
 static void push_token(enum token_type type, char *str, size_t len) {
 	grug_assert(tokens_size < MAX_TOKENS_IN_FILE, "There are more than %d tokens in the grug file, exceeding MAX_TOKENS_IN_FILE", MAX_TOKENS_IN_FILE);
 	tokens[tokens_size++] = (struct token){
@@ -1265,31 +1273,37 @@ static void tokenize(char *grug_text) {
 		} else if (grug_text[i] == '<') {
 			push_token(LESS_TOKEN, grug_text+i, 1);
 			i += 1;
-		} else if (grug_text[i + 0] == 'n' && grug_text[i + 1] == 'o' && grug_text[i + 2] == 't' && grug_text[i + 3] == ' ') {
+		} else if (grug_text[i + 0] == 'a' && grug_text[i + 1] == 'n' && grug_text[i + 2] == 'd' && is_end_of_word(grug_text[i + 3])) {
+			push_token(AND_TOKEN, grug_text+i, 3);
+			i += 3;
+		} else if (grug_text[i + 0] == 'o' && grug_text[i + 1] == 'r' && is_end_of_word(grug_text[i + 2])) {
+			push_token(OR_TOKEN, grug_text+i, 2);
+			i += 2;
+		} else if (grug_text[i + 0] == 'n' && grug_text[i + 1] == 'o' && grug_text[i + 2] == 't' && is_end_of_word(grug_text[i + 3])) {
 			push_token(NOT_TOKEN, grug_text+i, 3);
 			i += 3;
-		} else if (grug_text[i + 0] == 't' && grug_text[i + 1] == 'r' && grug_text[i + 2] == 'u' && grug_text[i + 3] == 'e' && grug_text[i + 4] == ' ') {
+		} else if (grug_text[i + 0] == 't' && grug_text[i + 1] == 'r' && grug_text[i + 2] == 'u' && grug_text[i + 3] == 'e' && is_end_of_word(grug_text[i + 4])) {
 			push_token(TRUE_TOKEN, grug_text+i, 4);
 			i += 4;
-		} else if (grug_text[i + 0] == 'f' && grug_text[i + 1] == 'a' && grug_text[i + 2] == 'l' && grug_text[i + 3] == 's' && grug_text[i + 4] == 'e' && grug_text[i + 5] == ' ') {
+		} else if (grug_text[i + 0] == 'f' && grug_text[i + 1] == 'a' && grug_text[i + 2] == 'l' && grug_text[i + 3] == 's' && grug_text[i + 4] == 'e' && is_end_of_word(grug_text[i + 5])) {
 			push_token(FALSE_TOKEN, grug_text+i, 5);
 			i += 5;
-		} else if (grug_text[i + 0] == 'i' && grug_text[i + 1] == 'f' && grug_text[i + 2] == ' ') {
+		} else if (grug_text[i + 0] == 'i' && grug_text[i + 1] == 'f' && is_end_of_word(grug_text[i + 2])) {
 			push_token(IF_TOKEN, grug_text+i, 2);
 			i += 2;
-		} else if (grug_text[i + 0] == 'e' && grug_text[i + 1] == 'l' && grug_text[i + 2] == 's' && grug_text[i + 3] == 'e' && grug_text[i + 4] == ' ') {
+		} else if (grug_text[i + 0] == 'e' && grug_text[i + 1] == 'l' && grug_text[i + 2] == 's' && grug_text[i + 3] == 'e' && is_end_of_word(grug_text[i + 4])) {
 			push_token(ELSE_TOKEN, grug_text+i, 4);
 			i += 4;
-		} else if (grug_text[i + 0] == 'l' && grug_text[i + 1] == 'o' && grug_text[i + 2] == 'o' && grug_text[i + 3] == 'p' && grug_text[i + 4] == ' ') {
+		} else if (grug_text[i + 0] == 'l' && grug_text[i + 1] == 'o' && grug_text[i + 2] == 'o' && grug_text[i + 3] == 'p' && is_end_of_word(grug_text[i + 4])) {
 			push_token(LOOP_TOKEN, grug_text+i, 4);
 			i += 4;
-		} else if (grug_text[i + 0] == 'b' && grug_text[i + 1] == 'r' && grug_text[i + 2] == 'e' && grug_text[i + 3] == 'a' && grug_text[i + 4] == 'k' && (grug_text[i + 5] == ' ' || grug_text[i + 5] == '\n')) {
+		} else if (grug_text[i + 0] == 'b' && grug_text[i + 1] == 'r' && grug_text[i + 2] == 'e' && grug_text[i + 3] == 'a' && grug_text[i + 4] == 'k' && is_end_of_word(grug_text[i + 5])) {
 			push_token(BREAK_TOKEN, grug_text+i, 5);
 			i += 5;
-		} else if (grug_text[i + 0] == 'r' && grug_text[i + 1] == 'e' && grug_text[i + 2] == 't' && grug_text[i + 3] == 'u' && grug_text[i + 4] == 'r' && grug_text[i + 5] == 'n' && (grug_text[i + 6] == ' ' || grug_text[i + 6] == '\n')) {
+		} else if (grug_text[i + 0] == 'r' && grug_text[i + 1] == 'e' && grug_text[i + 2] == 't' && grug_text[i + 3] == 'u' && grug_text[i + 4] == 'r' && grug_text[i + 5] == 'n' && is_end_of_word(grug_text[i + 6])) {
 			push_token(RETURN_TOKEN, grug_text+i, 6);
 			i += 6;
-		} else if (grug_text[i + 0] == 'c' && grug_text[i + 1] == 'o' && grug_text[i + 2] == 'n' && grug_text[i + 3] == 't' && grug_text[i + 4] == 'i' && grug_text[i + 5] == 'n' && grug_text[i + 6] == 'u' && grug_text[i + 7] == 'e' && (grug_text[i + 8] == ' ' || grug_text[i + 8] == '\n')) {
+		} else if (grug_text[i + 0] == 'c' && grug_text[i + 1] == 'o' && grug_text[i + 2] == 'n' && grug_text[i + 3] == 't' && grug_text[i + 4] == 'i' && grug_text[i + 5] == 'n' && grug_text[i + 6] == 'u' && grug_text[i + 7] == 'e' && is_end_of_word(grug_text[i + 8])) {
 			push_token(CONTINUE_TOKEN, grug_text+i, 8);
 			i += 8;
 		} else if (grug_text[i] == ' ') {
@@ -1446,6 +1460,8 @@ static void verify_and_trim_spaces(void) {
 			case GREATER_TOKEN:
 			case LESS_OR_EQUAL_TOKEN:
 			case LESS_TOKEN:
+			case AND_TOKEN:
+			case OR_TOKEN:
 			case NOT_TOKEN:
 			case TRUE_TOKEN:
 			case FALSE_TOKEN:
@@ -1489,6 +1505,8 @@ static void verify_and_trim_spaces(void) {
 					case GREATER_TOKEN:
 					case LESS_OR_EQUAL_TOKEN:
 					case LESS_TOKEN:
+					case AND_TOKEN:
+					case OR_TOKEN:
 					case NOT_TOKEN:
 					case TRUE_TOKEN:
 					case FALSE_TOKEN:
@@ -1592,6 +1610,7 @@ struct expr {
 		NUMBER_EXPR,
 		UNARY_EXPR,
 		BINARY_EXPR,
+		LOGICAL_EXPR,
 		CALL_EXPR,
 		PARENTHESIZED_EXPR,
 	} type;
@@ -1611,6 +1630,7 @@ static char *get_expr_type_str[] = {
 	[NUMBER_EXPR] = "NUMBER_EXPR",
 	[UNARY_EXPR] = "UNARY_EXPR",
 	[BINARY_EXPR] = "BINARY_EXPR",
+	[LOGICAL_EXPR] = "LOGICAL_EXPR",
 	[CALL_EXPR] = "CALL_EXPR",
 	[PARENTHESIZED_EXPR] = "PARENTHESIZED_EXPR",
 };
@@ -2025,10 +2045,46 @@ static struct expr parse_equality(size_t *i) {
 	return expr;
 }
 
+static struct expr parse_and(size_t *i) {
+	struct expr expr = parse_equality(i);
+
+	while (true) {
+		struct token token = peek_token(*i);
+		if (token.type != AND_TOKEN) {
+			break;
+		}
+		(*i)++;
+		expr.binary.left_expr = push_expr(expr);
+		expr.binary.operator = token.type;
+		expr.binary.right_expr = push_expr(parse_equality(i));
+		expr.type = LOGICAL_EXPR;
+	}
+
+	return expr;
+}
+
+static struct expr parse_or(size_t *i) {
+	struct expr expr = parse_and(i);
+
+	while (true) {
+		struct token token = peek_token(*i);
+		if (token.type != OR_TOKEN) {
+			break;
+		}
+		(*i)++;
+		expr.binary.left_expr = push_expr(expr);
+		expr.binary.operator = token.type;
+		expr.binary.right_expr = push_expr(parse_and(i));
+		expr.type = LOGICAL_EXPR;
+	}
+
+	return expr;
+}
+
 // Recursive descent parsing inspired by the book Crafting Interpreters:
 // https://craftinginterpreters.com/parsing-expressions.html#recursive-descent-parsing
 static struct expr parse_expression(size_t *i) {
-	return parse_equality(i);
+	return parse_or(i);
 }
 
 static struct statement *parse_statements(size_t *i, size_t *body_statement_count);
@@ -2487,6 +2543,7 @@ static void print_expr(struct expr expr) {
 			grug_log("}");
 			break;
 		case BINARY_EXPR:
+		case LOGICAL_EXPR:
 			grug_log(",");
 			print_binary_expr(expr.binary);
 			break;
@@ -2764,6 +2821,9 @@ enum code {
 
 	TEST_RAX_IS_ZERO = 0xc08548,
 
+	JE_32_BIT_OFFSET = 0x840f,
+	JMP_32_BIT_OFFSET = 0xe9,
+
 	SETE_AL = 0xc0940f,
 	SETNE_AL = 0xc0950f,
 	SETGT_AL = 0xc09f0f,
@@ -2780,7 +2840,10 @@ enum code {
 	POP_R8 = 0x5841,
 	POP_R9 = 0x5941,
 
-	MOVABS_TO_RAX = 0xb848,
+	XOR_CLEAR_EAX = 0xc031, // xor eax, eax
+	MOV_1_TO_EAX = 0x1b8, // mov eax, 1
+
+	MOV_TO_EAX = 0xb8, // mov eax, n
 
 	MOVABS_TO_RDI = 0xbf48,
 	MOVABS_TO_RSI = 0xbe48,
@@ -3013,8 +3076,7 @@ static void compile_push_zeros(size_t count) {
 
 static void compile_push_number(u64 n, size_t byte_count) {
 	while (n > 0 && byte_count > 0) {
-		// Little-endian requires the least significant byte first
-		compile_push_byte(n & 0xff);
+		compile_push_byte(n & 0xff); // Little-endian
 		byte_count--;
 
 		n >>= 8; // Shift right by one byte
@@ -3059,6 +3121,13 @@ static void stack_pop_arguments(size_t argument_count) {
 	}
 }
 
+static void overwrite_jmp_address(size_t jump_address, size_t size) {
+	size_t byte_count = 4;
+	for (u32 n = size - (jump_address + byte_count); byte_count > 0; n >>= 8, byte_count--) {
+		codes[jump_address++] = n & 0xff; // Little-endian
+	}
+}
+
 static void stack_pop_rbx(void) {
 	assert(stack_size > 0);
 	--stack_size;
@@ -3074,6 +3143,34 @@ static void stack_push_rax(void) {
 }
 
 static void compile_expr(struct expr expr);
+
+static void compile_logical_expr(struct binary_expr logical_expr) {
+	switch (logical_expr.operator) {
+		case AND_TOKEN:
+			assert(false);
+			break;
+		case OR_TOKEN:
+			compile_expr(*logical_expr.right_expr);
+			compile_push_number(TEST_RAX_IS_ZERO, 3);
+			compile_push_number(JE_32_BIT_OFFSET, 2);
+			size_t expr_1_is_false_jump_offset = codes_size;
+			compile_push_number(PLACEHOLDER_32, 4);
+			compile_push_number(MOV_1_TO_EAX, 5);
+			compile_push_number(JMP_32_BIT_OFFSET, 1);
+			size_t end_jump_offset = codes_size;
+			compile_push_number(PLACEHOLDER_32, 4);
+			overwrite_jmp_address(expr_1_is_false_jump_offset, codes_size);
+			compile_expr(*logical_expr.left_expr);
+			compile_push_number(TEST_RAX_IS_ZERO, 3);
+			compile_push_number(MOV_TO_EAX, 1);
+			compile_push_number(0, 4);
+			compile_push_number(SETNE_AL, 3);
+			overwrite_jmp_address(end_jump_offset, codes_size);
+			break;
+		default:
+			grug_error(UNREACHABLE_STR);
+	}
+}
 
 static void compile_binary_expr(struct binary_expr binary_expr) {
 	compile_expr(*binary_expr.right_expr);
@@ -3102,38 +3199,38 @@ static void compile_binary_expr(struct binary_expr binary_expr) {
 			break;
 		case EQUALS_TOKEN:
 			compile_push_number(CMP_RAX_WITH_RBX, 3);
-			compile_push_number(MOVABS_TO_RAX, 2);
-			compile_push_number(0, 8);
+			compile_push_number(MOV_TO_EAX, 1);
+			compile_push_number(0, 4);
 			compile_push_number(SETE_AL, 3);
 			break;
 		case NOT_EQUALS_TOKEN:
 			compile_push_number(CMP_RAX_WITH_RBX, 3);
-			compile_push_number(MOVABS_TO_RAX, 2);
-			compile_push_number(0, 8);
+			compile_push_number(MOV_TO_EAX, 1);
+			compile_push_number(0, 4);
 			compile_push_number(SETNE_AL, 3);
 			break;
 		case GREATER_OR_EQUAL_TOKEN:
 			compile_push_number(CMP_RAX_WITH_RBX, 3);
-			compile_push_number(MOVABS_TO_RAX, 2);
-			compile_push_number(0, 8);
+			compile_push_number(MOV_TO_EAX, 1);
+			compile_push_number(0, 4);
 			compile_push_number(SETGE_AL, 3);
 			break;
 		case GREATER_TOKEN:
 			compile_push_number(CMP_RAX_WITH_RBX, 3);
-			compile_push_number(MOVABS_TO_RAX, 2);
-			compile_push_number(0, 8);
+			compile_push_number(MOV_TO_EAX, 1);
+			compile_push_number(0, 4);
 			compile_push_number(SETGT_AL, 3);
 			break;
 		case LESS_OR_EQUAL_TOKEN:
 			compile_push_number(CMP_RAX_WITH_RBX, 3);
-			compile_push_number(MOVABS_TO_RAX, 2);
-			compile_push_number(0, 8);
+			compile_push_number(MOV_TO_EAX, 1);
+			compile_push_number(0, 4);
 			compile_push_number(SETLE_AL, 3);
 			break;
 		case LESS_TOKEN:
 			compile_push_number(CMP_RAX_WITH_RBX, 3);
-			compile_push_number(MOVABS_TO_RAX, 2);
-			compile_push_number(0, 8);
+			compile_push_number(MOV_TO_EAX, 1);
+			compile_push_number(0, 4);
 			compile_push_number(SETLT_AL, 3);
 			break;
 		default:
@@ -3150,8 +3247,8 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 		case NOT_TOKEN:
 			compile_expr(*unary_expr.expr);
 			compile_push_number(TEST_RAX_IS_ZERO, 3);
-			compile_push_number(MOVABS_TO_RAX, 2);
-			compile_push_number(0, 8);
+			compile_push_number(MOV_TO_EAX, 1);
+			compile_push_number(0, 4);
 			compile_push_number(SETE_AL, 3);
 			break;
 		default:
@@ -3162,13 +3259,11 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 static void compile_expr(struct expr expr) {
 	switch (expr.type) {
 		case TRUE_EXPR:
-			assert(false);
-			// serialize_append("true");
-			// break;
+			compile_push_number(MOV_1_TO_EAX, 5);
+			break;
 		case FALSE_EXPR:
-			assert(false);
-			// serialize_append("false");
-			// break;
+			compile_push_number(XOR_CLEAR_EAX, 2);
+			break;
 		case STRING_EXPR:
 			assert(false);
 			// serialize_append_slice(expr.string_literal_expr.str, expr.string_literal_expr.len);
@@ -3180,15 +3275,26 @@ static void compile_expr(struct expr expr) {
 			// }
 			// serialize_append_slice(expr.string_literal_expr.str, expr.string_literal_expr.len);
 			// break;
-		case NUMBER_EXPR:
-			compile_push_number(MOVABS_TO_RAX, 2);
-			compile_push_number(expr.literal.i32, 8);
+		case NUMBER_EXPR: {
+			i32 n = expr.literal.i32;
+			if (n == 0) {
+				compile_push_number(XOR_CLEAR_EAX, 2);
+			} else if (n == 1) {
+				compile_push_number(MOV_1_TO_EAX, 5);
+			} else {
+				compile_push_number(MOV_TO_EAX, 1);
+				compile_push_number(n, 4);
+			}
 			break;
+		}
 		case UNARY_EXPR:
 			compile_unary_expr(expr.unary);
 			break;
 		case BINARY_EXPR:
 			compile_binary_expr(expr.binary);
+			break;
+		case LOGICAL_EXPR:
+			compile_logical_expr(expr.binary);
 			break;
 		case CALL_EXPR:
 			assert(false);
@@ -4005,8 +4111,7 @@ static void reset_generate_shared_object(void) {
 
 static void overwrite(u64 n, size_t bytes_offset, size_t overwrite_count) {
 	for (size_t i = 0; i < overwrite_count; i++) {
-		// Little-endian requires the least significant byte first
-		bytes[bytes_offset++] = n & 0xff;
+		bytes[bytes_offset++] = n & 0xff; // Little-endian
 
 		n >>= 8; // Shift right by one byte
 	}
@@ -4363,8 +4468,7 @@ static void push_strtab(char *grug_path) {
 
 static void push_number(u64 n, size_t byte_count) {
 	while (n > 0 && byte_count > 0) {
-		// Little-endian requires the least significant byte first
-		push_byte(n & 0xff);
+		push_byte(n & 0xff); // Little-endian
 		byte_count--;
 
 		n >>= 8; // Shift right by one byte
