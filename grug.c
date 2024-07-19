@@ -2758,6 +2758,8 @@ enum code {
 	DIVIDE_RAX_BY_RBX = 0xfbf748,
 	MOV_RDX_TO_RAX = 0xd08948,
 
+	NEGATE_RAX = 0xd8f748,
+
 	TEST_RAX_IS_ZERO = 0xc08548,
 	SETE_AL = 0xc0940f,
 
@@ -3120,9 +3122,8 @@ static void compile_binary_expr(struct binary_expr binary_expr) {
 static void compile_unary_expr(struct unary_expr unary_expr) {
 	switch (unary_expr.operator) {
 		case MINUS_TOKEN:
-			compile_push_number(MOVABS_TO_RAX, 2);
-			i32 n = unary_expr.expr->literal.i32;
-			compile_push_number(-n, 8);
+			compile_expr(*unary_expr.expr);
+			compile_push_number(NEGATE_RAX, 3);
 			break;
 		case NOT_TOKEN:
 			compile_expr(*unary_expr.expr);
