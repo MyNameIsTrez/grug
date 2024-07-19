@@ -2753,8 +2753,10 @@ enum code {
 	ADD_RBX_TO_RAX = 0xd80148,
 	SUBTRACT_RBX_FROM_RAX = 0xd82948,
 	MULTIPLY_RAX_BY_RBX = 0xebf748,
+
 	CQO_CLEAR_BEFORE_DIVISION = 0x9948,
 	DIVIDE_RAX_BY_RBX = 0xfbf748,
+	MOV_RDX_TO_RAX = 0xd08948,
 
 	POP_RBX = 0x5b,
 
@@ -3062,8 +3064,6 @@ static void compile_expr(struct expr expr);
 
 static void compile_binary_expr(struct binary_expr binary_expr) {
 	// TODO: Support these:
-	// - DIVISION_TOKEN
-	// - REMAINDER_TOKEN
 	// - EQUALS_TOKEN
 	// - NOT_EQUALS_TOKEN
 	// - GREATER_OR_EQUAL_TOKEN
@@ -3099,6 +3099,15 @@ static void compile_binary_expr(struct binary_expr binary_expr) {
 			stack_pop_rbx();
 			compile_push_number(CQO_CLEAR_BEFORE_DIVISION, 2);
 			compile_push_number(DIVIDE_RAX_BY_RBX, 3);
+			break;
+		case REMAINDER_TOKEN:
+			compile_expr(*binary_expr.right_expr);
+			stack_push_rax();
+			compile_expr(*binary_expr.left_expr);
+			stack_pop_rbx();
+			compile_push_number(CQO_CLEAR_BEFORE_DIVISION, 2);
+			compile_push_number(DIVIDE_RAX_BY_RBX, 3);
+			compile_push_number(MOV_RDX_TO_RAX, 3);
 			break;
 		default:
 			grug_error(UNREACHABLE_STR);
