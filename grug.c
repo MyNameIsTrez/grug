@@ -2743,44 +2743,44 @@ static void print_ast(void) {
 #define PLACEHOLDER_32 0xEFBEADDE
 #define PLACEHOLDER_64 0xEFBEADDEEFBEADDE
 
-// code enums (some don't fit in an enum's max value, which is a signed int)
+enum code {
+	CALL = 0xe8,
+	RET = 0xc3,
+	MOV_TO_RDI_PTR = 0x47c7,
 
-#define CALL 0xe8
-#define RET 0xc3
-#define MOV_TO_RDI_PTR 0x47c7
+	PUSH_RAX = 0x50,
 
-#define PUSH_RAX 0x50
+	ADD_RBX_TO_RAX = 0xd80148,
+	SUBTRACT_RBX_FROM_RAX = 0xd82948,
+	MULTIPLY_RAX_BY_RBX = 0xebf748,
+	CQO_CLEAR_BEFORE_DIVISION = 0x9948,
+	DIVIDE_RAX_BY_RBX = 0xfbf748,
 
-#define ADD_RBX_TO_RAX 0xd80148
-#define SUBTRACT_RBX_FROM_RAX 0xd82948
-#define MULTIPLY_RAX_BY_RBX 0xc3af0f48
+	POP_RBX = 0x5b,
 
-#define POP_RBX 0x5b
+	POP_RDI = 0x5f,
+	POP_RSI = 0x5e,
+	POP_RDX = 0x5a,
+	POP_RCX = 0x59,
+	POP_R8 = 0x5841,
+	POP_R9 = 0x5941,
 
-#define POP_RDI 0x5f
-#define POP_RSI 0x5e
-#define POP_RDX 0x5a
-#define POP_RCX 0x59
-#define POP_R8 0x5841
-#define POP_R9 0x5941
+	MOVABS_TO_RAX = 0xb848,
 
-#define MOVABS_TO_RAX 0xb848
+	MOVABS_TO_RDI = 0xbf48,
+	MOVABS_TO_RSI = 0xbe48,
+	MOVABS_TO_RDX = 0xba48,
+	MOVABS_TO_RCX = 0xb948,
+	MOVABS_TO_R8 = 0xb849,
+	MOVABS_TO_R9 = 0xb949,
 
-#define MOVABS_TO_RDI 0xbf48
-#define MOVABS_TO_RSI 0xbe48
-#define MOVABS_TO_RDX 0xba48
-#define MOVABS_TO_RCX 0xb948
-#define MOVABS_TO_R8 0xb849
-#define MOVABS_TO_R9 0xb949
-
-#define LEA_TO_RDI 0x3d8d48
-#define LEA_TO_RSI 0x358d48
-#define LEA_TO_RDX 0x158d48
-#define LEA_TO_RCX 0x0d8d48
-#define LEA_TO_R8 0x058d4c
-#define LEA_TO_R9 0x0d8d4c
-
-// end of code enums
+	LEA_TO_RDI = 0x3d8d48,
+	LEA_TO_RSI = 0x358d48,
+	LEA_TO_RDX = 0x158d48,
+	LEA_TO_RCX = 0x0d8d48,
+	LEA_TO_R8 = 0x058d4c,
+	LEA_TO_R9 = 0x0d8d4c,
+};
 
 struct data_string_code {
 	char *string;
@@ -3090,7 +3090,15 @@ static void compile_binary_expr(struct binary_expr binary_expr) {
 			stack_push_rax();
 			compile_expr(*binary_expr.right_expr);
 			stack_pop_rbx();
-			compile_push_number(MULTIPLY_RAX_BY_RBX, 4);
+			compile_push_number(MULTIPLY_RAX_BY_RBX, 3);
+			break;
+		case DIVISION_TOKEN:
+			compile_expr(*binary_expr.right_expr);
+			stack_push_rax();
+			compile_expr(*binary_expr.left_expr);
+			stack_pop_rbx();
+			compile_push_number(CQO_CLEAR_BEFORE_DIVISION, 2);
+			compile_push_number(DIVIDE_RAX_BY_RBX, 3);
 			break;
 		default:
 			grug_error(UNREACHABLE_STR);
