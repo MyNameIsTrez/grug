@@ -2822,6 +2822,7 @@ enum code {
 	TEST_RAX_IS_ZERO = 0xc08548,
 
 	JE_32_BIT_OFFSET = 0x840f,
+	JNE_32_BIT_OFFSET = 0x850f,
 	JMP_32_BIT_OFFSET = 0xe9,
 
 	SETE_AL = 0xc0940f,
@@ -3134,10 +3135,25 @@ static void compile_expr(struct expr expr);
 
 static void compile_logical_expr(struct binary_expr logical_expr) {
 	switch (logical_expr.operator) {
-		case AND_TOKEN:
-			assert(false);
+		case AND_TOKEN: {
+			compile_expr(*logical_expr.left_expr);
+			compile_push_number(TEST_RAX_IS_ZERO, 3);
+			compile_push_number(JNE_32_BIT_OFFSET, 2);
+			size_t expr_1_is_true_jump_offset = codes_size;
+			compile_push_number(PLACEHOLDER_32, 4);
+			compile_push_number(JMP_32_BIT_OFFSET, 1);
+			size_t end_jump_offset = codes_size;
+			compile_push_number(PLACEHOLDER_32, 4);
+			overwrite_jmp_address(expr_1_is_true_jump_offset, codes_size);
+			compile_expr(*logical_expr.right_expr);
+			compile_push_number(TEST_RAX_IS_ZERO, 3);
+			compile_push_number(MOV_TO_EAX, 1);
+			compile_push_number(0, 4);
+			compile_push_number(SETNE_AL, 3);
+			overwrite_jmp_address(end_jump_offset, codes_size);
 			break;
-		case OR_TOKEN:
+		}
+		case OR_TOKEN: {
 			compile_expr(*logical_expr.left_expr);
 			compile_push_number(TEST_RAX_IS_ZERO, 3);
 			compile_push_number(JE_32_BIT_OFFSET, 2);
@@ -3155,6 +3171,7 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 			compile_push_number(SETNE_AL, 3);
 			overwrite_jmp_address(end_jump_offset, codes_size);
 			break;
+		}
 		default:
 			grug_error(UNREACHABLE_STR);
 	}
