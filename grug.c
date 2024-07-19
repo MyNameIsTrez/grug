@@ -3406,11 +3406,6 @@ static void compile_statements(struct statement *statements_offset, size_t state
 	}
 }
 
-static void compile_on_fn(struct on_fn fn) {
-	compile_statements(fn.body_statements, fn.body_statement_count);
-	compile_push_byte(RET);
-}
-
 static void compile_returned_field(struct expr expr_value, size_t argument_index) {
 	if (expr_value.type == NUMBER_EXPR) {
 		compile_push_number((uint64_t[]){
@@ -3611,7 +3606,10 @@ static void compile(void) {
 	for (size_t on_fn_index = 0; on_fn_index < on_fns_size; on_fn_index++) {
 		start_codes_size = codes_size;
 
-		compile_on_fn(on_fns[on_fn_index]);
+		struct on_fn fn = on_fns[on_fn_index];
+
+		compile_statements(fn.body_statements, fn.body_statement_count);
+		compile_push_byte(RET);
 
 		text_offsets[text_offset_index++] = text_offset;
 		text_offset += codes_size - start_codes_size;
@@ -3620,20 +3618,11 @@ static void compile(void) {
 	for (size_t helper_fn_index = 0; helper_fn_index < helper_fns_size; helper_fn_index++) {
 		start_codes_size = codes_size;
 
-		struct helper_fn helper_fn = helper_fns[helper_fn_index];
+		struct helper_fn fn = helper_fns[helper_fn_index];
 
-		push_helper_fn_offset(helper_fn.fn_name, codes_size);
+		push_helper_fn_offset(fn.fn_name, codes_size);
 
-		if (helper_fn.body_statement_count > 0) {
-			compile_push_byte(CALL);
-			if (is_game_fn(helper_fn.body_statements[0].call_statement.expr->call.fn_name)) {
-				push_game_fn_call(helper_fn.body_statements[0].call_statement.expr->call.fn_name, codes_size);
-			} else {
-				push_helper_fn_call(helper_fn.body_statements[0].call_statement.expr->call.fn_name, codes_size);
-			}
-			compile_push_number(PLACEHOLDER_32, 4);
-		}
-
+		compile_statements(fn.body_statements, fn.body_statement_count);
 		compile_push_byte(RET);
 
 		text_offsets[text_offset_index++] = text_offset;
