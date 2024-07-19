@@ -3068,22 +3068,10 @@ static void compile_push_byte(u8 byte) {
 	codes[codes_size++] = byte;
 }
 
-static void compile_push_zeros(size_t count) {
-	for (size_t i = 0; i < count; i++) {
-		compile_push_byte(0);
-	}
-}
-
 static void compile_push_number(u64 n, size_t byte_count) {
-	while (n > 0 && byte_count > 0) {
+	for (; byte_count-- > 0; n >>= 8) {
 		compile_push_byte(n & 0xff); // Little-endian
-		byte_count--;
-
-		n >>= 8; // Shift right by one byte
 	}
-
-	// Optional padding
-	compile_push_zeros(byte_count);
 }
 
 static void stack_pop_arguments(size_t argument_count) {
@@ -4467,15 +4455,9 @@ static void push_strtab(char *grug_path) {
 }
 
 static void push_number(u64 n, size_t byte_count) {
-	while (n > 0 && byte_count > 0) {
+	for (; byte_count-- > 0; n >>= 8) {
 		push_byte(n & 0xff); // Little-endian
-		byte_count--;
-
-		n >>= 8; // Shift right by one byte
 	}
-
-	// Optional padding
-	push_zeros(byte_count);
 }
 
 // See https://docs.oracle.com/cd/E19683-01/816-1386/chapter6-79797/index.html
