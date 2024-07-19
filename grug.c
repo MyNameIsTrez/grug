@@ -2766,6 +2766,10 @@ enum code {
 
 	SETE_AL = 0xc0940f,
 	SETNE_AL = 0xc0950f,
+	SETGT_AL = 0xc09f0f,
+	SETGE_AL = 0xc09d0f,
+	SETLT_AL = 0xc09c0f,
+	SETLE_AL = 0xc09e0f,
 
 	POP_RBX = 0x5b,
 
@@ -3072,54 +3076,52 @@ static void stack_push_rax(void) {
 static void compile_expr(struct expr expr);
 
 static void compile_binary_expr(struct binary_expr binary_expr) {
-	// TODO: Support these:
-	// - GREATER_OR_EQUAL_TOKEN
-	// - GREATER_TOKEN
-	// - LESS_OR_EQUAL_TOKEN
-	// - LESS_TOKEN
+	struct expr left = *binary_expr.left_expr;
+	struct expr right = *binary_expr.right_expr;
+
 	switch (binary_expr.operator) {
 		case PLUS_TOKEN:
-			compile_expr(*binary_expr.left_expr);
+			compile_expr(right);
 			stack_push_rax();
-			compile_expr(*binary_expr.right_expr);
+			compile_expr(left);
 			stack_pop_rbx();
 			compile_push_number(ADD_RBX_TO_RAX, 3);
 			break;
 		case MINUS_TOKEN:
-			compile_expr(*binary_expr.right_expr);
+			compile_expr(right);
 			stack_push_rax();
-			compile_expr(*binary_expr.left_expr);
+			compile_expr(left);
 			stack_pop_rbx();
 			compile_push_number(SUBTRACT_RBX_FROM_RAX, 3);
 			break;
 		case MULTIPLICATION_TOKEN:
-			compile_expr(*binary_expr.left_expr);
+			compile_expr(right);
 			stack_push_rax();
-			compile_expr(*binary_expr.right_expr);
+			compile_expr(left);
 			stack_pop_rbx();
 			compile_push_number(MULTIPLY_RAX_BY_RBX, 3);
 			break;
 		case DIVISION_TOKEN:
-			compile_expr(*binary_expr.right_expr);
+			compile_expr(right);
 			stack_push_rax();
-			compile_expr(*binary_expr.left_expr);
+			compile_expr(left);
 			stack_pop_rbx();
 			compile_push_number(CQO_CLEAR_BEFORE_DIVISION, 2);
 			compile_push_number(DIVIDE_RAX_BY_RBX, 3);
 			break;
 		case REMAINDER_TOKEN:
-			compile_expr(*binary_expr.right_expr);
+			compile_expr(right);
 			stack_push_rax();
-			compile_expr(*binary_expr.left_expr);
+			compile_expr(left);
 			stack_pop_rbx();
 			compile_push_number(CQO_CLEAR_BEFORE_DIVISION, 2);
 			compile_push_number(DIVIDE_RAX_BY_RBX, 3);
 			compile_push_number(MOV_RDX_TO_RAX, 3);
 			break;
 		case EQUALS_TOKEN:
-			compile_expr(*binary_expr.left_expr);
+			compile_expr(right);
 			stack_push_rax();
-			compile_expr(*binary_expr.right_expr);
+			compile_expr(left);
 			stack_pop_rbx();
 			compile_push_number(CMP_RAX_WITH_RBX, 3);
 			compile_push_number(MOVABS_TO_RAX, 2);
@@ -3127,14 +3129,54 @@ static void compile_binary_expr(struct binary_expr binary_expr) {
 			compile_push_number(SETE_AL, 3);
 			break;
 		case NOT_EQUALS_TOKEN:
-			compile_expr(*binary_expr.left_expr);
+			compile_expr(right);
 			stack_push_rax();
-			compile_expr(*binary_expr.right_expr);
+			compile_expr(left);
 			stack_pop_rbx();
 			compile_push_number(CMP_RAX_WITH_RBX, 3);
 			compile_push_number(MOVABS_TO_RAX, 2);
 			compile_push_number(0, 8);
 			compile_push_number(SETNE_AL, 3);
+			break;
+		case GREATER_OR_EQUAL_TOKEN:
+			compile_expr(right);
+			stack_push_rax();
+			compile_expr(left);
+			stack_pop_rbx();
+			compile_push_number(CMP_RAX_WITH_RBX, 3);
+			compile_push_number(MOVABS_TO_RAX, 2);
+			compile_push_number(0, 8);
+			compile_push_number(SETGE_AL, 3);
+			break;
+		case GREATER_TOKEN:
+			compile_expr(right);
+			stack_push_rax();
+			compile_expr(left);
+			stack_pop_rbx();
+			compile_push_number(CMP_RAX_WITH_RBX, 3);
+			compile_push_number(MOVABS_TO_RAX, 2);
+			compile_push_number(0, 8);
+			compile_push_number(SETGT_AL, 3);
+			break;
+		case LESS_OR_EQUAL_TOKEN:
+			compile_expr(right);
+			stack_push_rax();
+			compile_expr(left);
+			stack_pop_rbx();
+			compile_push_number(CMP_RAX_WITH_RBX, 3);
+			compile_push_number(MOVABS_TO_RAX, 2);
+			compile_push_number(0, 8);
+			compile_push_number(SETLE_AL, 3);
+			break;
+		case LESS_TOKEN:
+			compile_expr(right);
+			stack_push_rax();
+			compile_expr(left);
+			stack_pop_rbx();
+			compile_push_number(CMP_RAX_WITH_RBX, 3);
+			compile_push_number(MOVABS_TO_RAX, 2);
+			compile_push_number(0, 8);
+			compile_push_number(SETLT_AL, 3);
 			break;
 		default:
 			grug_error(UNREACHABLE_STR);
