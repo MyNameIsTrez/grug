@@ -2758,6 +2758,9 @@ enum code {
 	DIVIDE_RAX_BY_RBX = 0xfbf748,
 	MOV_RDX_TO_RAX = 0xd08948,
 
+	TEST_RAX_IS_ZERO = 0xc08548,
+	SETE_AL = 0xc0940f,
+
 	POP_RBX = 0x5b,
 
 	POP_RDI = 0x5f,
@@ -3120,6 +3123,13 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 			compile_push_number(MOVABS_TO_RAX, 2);
 			i32 n = unary_expr.expr->literal.i32;
 			compile_push_number(-n, 8);
+			break;
+		case NOT_TOKEN:
+			compile_expr(*unary_expr.expr);
+			compile_push_number(TEST_RAX_IS_ZERO, 3);
+			compile_push_number(MOVABS_TO_RAX, 2);
+			compile_push_number(0, 8);
+			compile_push_number(SETE_AL, 3);
 			break;
 		default:
 			grug_error(UNREACHABLE_STR);
