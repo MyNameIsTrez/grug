@@ -2477,7 +2477,7 @@ static void print_expr(struct expr expr) {
 			break;
 		case NUMBER_EXPR:
 			grug_log(",");
-			grug_log("\"value\":%ld", expr.literal.i32);
+			grug_log("\"value\":%d", expr.literal.i32);
 			break;
 		case UNARY_EXPR:
 			grug_log(",");
