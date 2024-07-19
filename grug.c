@@ -2758,10 +2758,14 @@ enum code {
 	DIVIDE_RAX_BY_RBX = 0xfbf748,
 	MOV_RDX_TO_RAX = 0xd08948,
 
+	CMP_RAX_WITH_RBX = 0xd83948,
+
 	NEGATE_RAX = 0xd8f748,
 
 	TEST_RAX_IS_ZERO = 0xc08548,
+
 	SETE_AL = 0xc0940f,
+	SETNE_AL = 0xc0950f,
 
 	POP_RBX = 0x5b,
 
@@ -3069,8 +3073,6 @@ static void compile_expr(struct expr expr);
 
 static void compile_binary_expr(struct binary_expr binary_expr) {
 	// TODO: Support these:
-	// - EQUALS_TOKEN
-	// - NOT_EQUALS_TOKEN
 	// - GREATER_OR_EQUAL_TOKEN
 	// - GREATER_TOKEN
 	// - LESS_OR_EQUAL_TOKEN
@@ -3113,6 +3115,26 @@ static void compile_binary_expr(struct binary_expr binary_expr) {
 			compile_push_number(CQO_CLEAR_BEFORE_DIVISION, 2);
 			compile_push_number(DIVIDE_RAX_BY_RBX, 3);
 			compile_push_number(MOV_RDX_TO_RAX, 3);
+			break;
+		case EQUALS_TOKEN:
+			compile_expr(*binary_expr.left_expr);
+			stack_push_rax();
+			compile_expr(*binary_expr.right_expr);
+			stack_pop_rbx();
+			compile_push_number(CMP_RAX_WITH_RBX, 3);
+			compile_push_number(MOVABS_TO_RAX, 2);
+			compile_push_number(0, 8);
+			compile_push_number(SETE_AL, 3);
+			break;
+		case NOT_EQUALS_TOKEN:
+			compile_expr(*binary_expr.left_expr);
+			stack_push_rax();
+			compile_expr(*binary_expr.right_expr);
+			stack_pop_rbx();
+			compile_push_number(CMP_RAX_WITH_RBX, 3);
+			compile_push_number(MOVABS_TO_RAX, 2);
+			compile_push_number(0, 8);
+			compile_push_number(SETNE_AL, 3);
 			break;
 		default:
 			grug_error(UNREACHABLE_STR);
