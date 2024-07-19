@@ -3138,7 +3138,7 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 			assert(false);
 			break;
 		case OR_TOKEN:
-			compile_expr(*logical_expr.right_expr);
+			compile_expr(*logical_expr.left_expr);
 			compile_push_number(TEST_RAX_IS_ZERO, 3);
 			compile_push_number(JE_32_BIT_OFFSET, 2);
 			size_t expr_1_is_false_jump_offset = codes_size;
@@ -3148,7 +3148,7 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 			size_t end_jump_offset = codes_size;
 			compile_push_number(PLACEHOLDER_32, 4);
 			overwrite_jmp_address(expr_1_is_false_jump_offset, codes_size);
-			compile_expr(*logical_expr.left_expr);
+			compile_expr(*logical_expr.right_expr);
 			compile_push_number(TEST_RAX_IS_ZERO, 3);
 			compile_push_number(MOV_TO_EAX, 1);
 			compile_push_number(0, 4);
