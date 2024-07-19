@@ -3173,9 +3173,8 @@ static void compile_expr(struct expr expr) {
 			// serialize_call_expr(expr.call_expr);
 			// break;
 		case PARENTHESIZED_EXPR:
-			assert(false);
-			// serialize_parenthesized_expr(expr.parenthesized_expr);
-			// break;
+			compile_expr(*expr.parenthesized);
+			break;
 	}
 }
 
@@ -3540,12 +3539,6 @@ static void compile(void) {
 // }
 
 // static void serialize_expr(struct expr expr);
-
-// static void serialize_parenthesized_expr(struct parenthesized_expr parenthesized_expr) {
-// 	serialize_append("(");
-// 	serialize_expr(exprs[parenthesized_expr.expr_index]);
-// 	serialize_append(")");
-// }
 
 // static void serialize_operator(enum token_type operator);
 
