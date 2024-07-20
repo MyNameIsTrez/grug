@@ -2801,64 +2801,64 @@ static void print_ast(void) {
 #define PLACEHOLDER_64 0xEFBEADDEEFBEADDE
 
 enum code {
-	CALL = 0xe8,
-	RET = 0xc3,
-	MOV_TO_RDI_PTR = 0x47c7,
+	CALL = 0xe8, // call foo
+	RET = 0xc3, // ret
+	MOV_TO_RDI_PTR = 0x47c7, // mov dword [rdi+offset], n
 
-	PUSH_RAX = 0x50,
+	PUSH_RAX = 0x50, // push rax
 
-	ADD_RBX_TO_RAX = 0xd80148,
-	SUBTRACT_RBX_FROM_RAX = 0xd82948,
-	MULTIPLY_RAX_BY_RBX = 0xebf748,
+	ADD_RBX_TO_RAX = 0xd80148, // add rax, rbx
+	SUBTRACT_RBX_FROM_RAX = 0xd82948, // sub rax, rbx
+	MULTIPLY_RAX_BY_RBX = 0xebf748, // imul rbx
 
-	CQO_CLEAR_BEFORE_DIVISION = 0x9948,
-	DIVIDE_RAX_BY_RBX = 0xfbf748,
-	MOV_RDX_TO_RAX = 0xd08948,
+	CQO_CLEAR_BEFORE_DIVISION = 0x9948, // cqo
+	DIVIDE_RAX_BY_RBX = 0xfbf748, // idiv rbx
+	MOV_RDX_TO_RAX = 0xd08948, // mov rax, rdx
 
-	CMP_RAX_WITH_RBX = 0xd83948,
+	CMP_RAX_WITH_RBX = 0xd83948, // cmp rax, rbx
 
-	NEGATE_RAX = 0xd8f748,
+	NEGATE_RAX = 0xd8f748, // neg rax
 
-	TEST_RAX_IS_ZERO = 0xc08548,
+	TEST_RAX_IS_ZERO = 0xc08548, // test rax, rax
 
-	JE_32_BIT_OFFSET = 0x840f,
-	JNE_32_BIT_OFFSET = 0x850f,
-	JMP_32_BIT_OFFSET = 0xe9,
+	JE_32_BIT_OFFSET = 0x840f, // je strict $+0xn
+	JNE_32_BIT_OFFSET = 0x850f, // jne strict $+0xn
+	JMP_32_BIT_OFFSET = 0xe9, // jmp $+0xn
 
-	SETE_AL = 0xc0940f,
-	SETNE_AL = 0xc0950f,
-	SETGT_AL = 0xc09f0f,
-	SETGE_AL = 0xc09d0f,
-	SETLT_AL = 0xc09c0f,
-	SETLE_AL = 0xc09e0f,
+	SETE_AL = 0xc0940f, // sete al
+	SETNE_AL = 0xc0950f, // setne al
+	SETGT_AL = 0xc09f0f, // setg al
+	SETGE_AL = 0xc09d0f, // setge al
+	SETLT_AL = 0xc09c0f, // setl al
+	SETLE_AL = 0xc09e0f, // setle al
 
-	POP_RBX = 0x5b,
+	POP_RBX = 0x5b, // pop rbx
 
-	POP_RDI = 0x5f,
-	POP_RSI = 0x5e,
-	POP_RDX = 0x5a,
-	POP_RCX = 0x59,
-	POP_R8 = 0x5841,
-	POP_R9 = 0x5941,
+	POP_RDI = 0x5f, // pop rdi
+	POP_RSI = 0x5e, // pop rsi
+	POP_RDX = 0x5a, // pop rdx
+	POP_RCX = 0x59, // pop rcx
+	POP_R8 = 0x5841, // pop r8
+	POP_R9 = 0x5941, // pop r9
 
 	XOR_CLEAR_EAX = 0xc031, // xor eax, eax
 	MOV_1_TO_EAX = 0x1b8, // mov eax, 1
 
 	MOV_TO_EAX = 0xb8, // mov eax, n
 
-	MOVABS_TO_RDI = 0xbf48,
-	MOVABS_TO_RSI = 0xbe48,
-	MOVABS_TO_RDX = 0xba48,
-	MOVABS_TO_RCX = 0xb948,
-	MOVABS_TO_R8 = 0xb849,
-	MOVABS_TO_R9 = 0xb949,
+	MOVABS_TO_RDI = 0xbf48, // mov rdi, n
+	MOVABS_TO_RSI = 0xbe48, // mov rsi, n
+	MOVABS_TO_RDX = 0xba48, // mov rdx, n
+	MOVABS_TO_RCX = 0xb948, // mov rcx, n
+	MOVABS_TO_R8 = 0xb849, // mov r8, n
+	MOVABS_TO_R9 = 0xb949, // mov r9, n
 
-	LEA_TO_RDI = 0x3d8d48,
-	LEA_TO_RSI = 0x358d48,
-	LEA_TO_RDX = 0x158d48,
-	LEA_TO_RCX = 0x0d8d48,
-	LEA_TO_R8 = 0x058d4c,
-	LEA_TO_R9 = 0x0d8d4c,
+	LEA_TO_RDI = 0x3d8d48, // lea rdi, [rel strings+offset]
+	LEA_TO_RSI = 0x358d48, // lea rsi, [rel strings+offset]
+	LEA_TO_RDX = 0x158d48, // lea rdx, [rel strings+offset]
+	LEA_TO_RCX = 0x0d8d48, // lea rcx, [rel strings+offset]
+	LEA_TO_R8 = 0x058d4c, // lea r8, [rel strings+offset]
+	LEA_TO_R9 = 0x0d8d4c, // lea r9, [rel strings+offset]
 };
 
 struct data_string_code {
