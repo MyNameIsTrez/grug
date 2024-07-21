@@ -2794,6 +2794,7 @@ static void print_ast(void) {
 #define MAX_USED_GAME_FNS 420
 #define MAX_HELPER_FN_OFFSETS 420420
 #define MAX_STACK_SIZE 420420
+#define MAX_VARIABLES_PER_FUNCTION 420
 
 // 0xDEADBEEF in little-endian
 #define PLACEHOLDER_16 0xADDE
@@ -2917,6 +2918,13 @@ static u32 chains_helper_fn_offsets[MAX_HELPER_FN_OFFSETS];
 
 static size_t stack_size;
 
+static char *variables[MAX_VARIABLES_PER_FUNCTION];
+static size_t variables_size;
+static size_t variables_offsets[MAX_VARIABLES_PER_FUNCTION];
+static size_t variables_stack_bytes;
+static u32 buckets_variables[MAX_VARIABLES_PER_FUNCTION];
+static u32 chains_variables[MAX_VARIABLES_PER_FUNCTION];
+
 static void reset_compiling(void) {
 	codes_size = 0;
 	data_strings_size = 0;
@@ -2925,13 +2933,50 @@ static void reset_compiling(void) {
 	helper_fn_calls_size = 0;
 	used_game_fns_size = 0;
 	helper_fn_offsets_size = 0;
+	stack_size = 0;
+	variables_size = 0;
+	variables_stack_bytes = 0;
+}
+
+static u32 get_variable_offset(char *name) {
+	u32 i = buckets_variables[elf_hash(name) % MAX_VARIABLES_PER_FUNCTION];
+
+	while (1) {
+		assert(i != UINT32_MAX && "get_variable_offset() is supposed to never fail");
+
+		if (streq(name, variables[i])) {
+			break;
+		}
+
+		i = chains_variables[i];
+	}
+
+	return variables_offsets[i];
+}
+
+static void add_variable(char *name, enum type type) {
+	grug_assert(variables_size < MAX_VARIABLES_PER_FUNCTION, "There are more than %d variables in a grug function, exceeding MAX_VARIABLES_PER_FUNCTION", MAX_VARIABLES_PER_FUNCTION);
+
+	grug_assert(!get_variable_offset(name), "The variable '%s' has been declared twice in a grug function", name);
+
+	variables[variables_size] = name;
+	variables_offsets[variables_size] = variables_stack_bytes;
+	variables_stack_bytes += type_sizes[type];
+
+	u32 bucket_index = elf_hash(name) % MAX_VARIABLES_PER_FUNCTION;
+
+	chains_variables[variables_size] = buckets_variables[bucket_index];
+
+	buckets_variables[bucket_index] = variables_size;
+
+	variables_size++;
 }
 
 static size_t get_helper_fn_offset(char *name) {
 	u32 i = buckets_helper_fn_offsets[elf_hash(name) % helper_fn_offsets_size];
 
 	while (1) {
-		assert(i != UINT32_MAX && "get_helper_fn_offset() isn't supposed to ever fail");
+		assert(i != UINT32_MAX && "get_helper_fn_offset() is supposed to never fail");
 
 		if (streq(name, helper_fn_offsets[i].fn_name)) {
 			break;
@@ -3406,6 +3451,22 @@ static void compile_statements(struct statement *statements_offset, size_t state
 	}
 }
 
+static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
+	// TODO: REMOVE THESE
+	(void)fn_arguments;
+	(void)argument_count;
+
+	variables_size = 0;
+	variables_stack_bytes = 0;
+	memset(buckets_variables, UINT32_MAX, MAX_VARIABLES_PER_FUNCTION * sizeof(u32));
+
+	// TODO: REMOVE
+	(void)add_variable;
+
+	compile_statements(body_statements, body_statement_count);
+	compile_push_byte(RET);
+}
+
 static void compile_returned_field(struct expr expr_value, size_t argument_index) {
 	if (expr_value.type == NUMBER_EXPR) {
 		compile_push_number((uint64_t[]){
@@ -3608,8 +3669,7 @@ static void compile(void) {
 
 		struct on_fn fn = on_fns[on_fn_index];
 
-		compile_statements(fn.body_statements, fn.body_statement_count);
-		compile_push_byte(RET);
+		compile_on_or_helper_fn(fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count);
 
 		text_offsets[text_offset_index++] = text_offset;
 		text_offset += codes_size - start_codes_size;
@@ -3622,12 +3682,13 @@ static void compile(void) {
 
 		push_helper_fn_offset(fn.fn_name, codes_size);
 
-		compile_statements(fn.body_statements, fn.body_statement_count);
-		compile_push_byte(RET);
+		compile_on_or_helper_fn(fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count);
 
 		text_offsets[text_offset_index++] = text_offset;
 		text_offset += codes_size - start_codes_size;
 	}
+
+	assert(stack_size == 0);
 
 	hash_used_game_fns();
 	hash_helper_fn_offsets();
@@ -4217,7 +4278,7 @@ static size_t get_game_fn_offset(char *name) {
 	u32 i = buckets_game_fn_offsets[elf_hash(name) % game_fn_offsets_size];
 
 	while (1) {
-		assert(i != UINT32_MAX && "get_game_fn_offset() isn't supposed to ever fail");
+		assert(i != UINT32_MAX && "get_game_fn_offset() is supposed to never fail");
 
 		if (streq(name, game_fn_offsets[i].fn_name)) {
 			break;
