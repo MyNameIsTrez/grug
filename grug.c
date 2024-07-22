@@ -2827,6 +2827,9 @@ enum code {
 	MOV_R8_TO_RBP = 0x45894c, // mov rbp[n], r8
 	MOV_R9_TO_RBP = 0x4d894c, // mov rbp[n], r9
 
+	MOV_RBP_TO_EAX = 0x458b, // mov eax, rbp[n]
+	MOV_RBP_TO_RAX = 0x458b48, // mov rax, rbp[n]
+
 	MOV_RBP_TO_RSP = 0xec8948, // mov rsp, rbp
 	POP_RBP = 0x5d, // pop rbp
 
@@ -3356,10 +3359,12 @@ static void compile_expr(struct expr expr) {
 				case type_void:
 					assert(false);
 				case type_i32:
-					assert(false);
+					compile_push_number(MOV_RBP_TO_EAX, 2);
+					compile_push_byte(-var.offset);
 					break;
 				case type_string:
-					assert(false);
+					compile_push_number(MOV_RBP_TO_RAX, 3);
+					compile_push_byte(-var.offset);
 					break;
 			}
 			break;
