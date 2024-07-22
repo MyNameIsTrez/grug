@@ -41,7 +41,7 @@
 
 #define grug_error(...) {\
 	int ret = snprintf(grug_error.msg, sizeof(grug_error.msg), __VA_ARGS__);\
-	(void)ret;\
+	assert(ret >= 0);\
 	grug_error.filename = __FILE__;\
 	grug_error.line_number = __LINE__;\
 	longjmp(error_jmp_buffer, 1);\
@@ -347,7 +347,7 @@ static void json_push_field(struct json_field field) {
 static bool is_duplicate_key(struct json_field *child_fields, size_t field_count, char *key) {
 	u32 i = json_buckets[elf_hash(key) % field_count];
 
-	while (1) {
+	while (true) {
 		if (i == UINT32_MAX) {
 			return false;
 		}
@@ -2808,6 +2808,28 @@ enum code {
 
 	PUSH_RAX = 0x50, // push rax
 
+	PUSH_RBP = 0x55, // push rbp
+	PUSH_RSP_TO_RBP = 0xe58948, // push rbp, rsp
+	SUB_RSP_8_BITS = 0xec8348, // sub rsp, n
+	SUB_RSP_32_BITS = 0xec8148, // sub rsp, n
+
+	MOV_EDI_TO_RBP = 0x7d89, // mov rbp[n], edi
+	MOV_ESI_TO_RBP = 0x7589, // mov rbp[n], esi
+	MOV_EDX_TO_RBP = 0x5589, // mov rbp[n], edx
+	MOV_ECX_TO_RBP = 0x4d89, // mov rbp[n], ecx
+	MOV_R8D_TO_RBP = 0x458944, // mov rbp[n], r8d
+	MOV_R9D_TO_RBP = 0x4d8944, // mov rbp[n], r9d
+
+	MOV_RDI_TO_RBP = 0x7d8948, // mov rbp[n], rdi
+	MOV_RSI_TO_RBP = 0x758948, // mov rbp[n], rsi
+	MOV_RDX_TO_RBP = 0x558948, // mov rbp[n], rdx
+	MOV_RCX_TO_RBP = 0x4d8948, // mov rbp[n], rcx
+	MOV_R8_TO_RBP = 0x45894c, // mov rbp[n], r8
+	MOV_R9_TO_RBP = 0x4d894c, // mov rbp[n], r9
+
+	MOV_RBP_TO_RSP = 0xec8948, // mov rsp, rbp
+	POP_RBP = 0x5d, // pop rbp
+
 	ADD_RBX_TO_RAX = 0xd80148, // add rax, rbx
 	SUBTRACT_RBX_FROM_RAX = 0xd82948, // sub rax, rbx
 	MULTIPLY_RAX_BY_RBX = 0xebf748, // imul rbx
@@ -2918,9 +2940,13 @@ static u32 chains_helper_fn_offsets[MAX_HELPER_FN_OFFSETS];
 
 static size_t stack_size;
 
-static char *variables[MAX_VARIABLES_PER_FUNCTION];
+struct variable {
+	char *name;
+	enum type type;
+	size_t offset;
+};
+static struct variable variables[MAX_VARIABLES_PER_FUNCTION];
 static size_t variables_size;
-static size_t variables_offsets[MAX_VARIABLES_PER_FUNCTION];
 static size_t variables_stack_bytes;
 static u32 buckets_variables[MAX_VARIABLES_PER_FUNCTION];
 static u32 chains_variables[MAX_VARIABLES_PER_FUNCTION];
@@ -2938,29 +2964,35 @@ static void reset_compiling(void) {
 	variables_stack_bytes = 0;
 }
 
-static u32 get_variable_offset(char *name) {
+static struct variable *get_variable(char *name) {
 	u32 i = buckets_variables[elf_hash(name) % MAX_VARIABLES_PER_FUNCTION];
 
-	while (1) {
-		assert(i != UINT32_MAX && "get_variable_offset() is supposed to never fail");
+	while (true) {
+		if (i == UINT32_MAX) {
+			return NULL;
+		}
 
-		if (streq(name, variables[i])) {
+		if (streq(name, variables[i].name)) {
 			break;
 		}
 
 		i = chains_variables[i];
 	}
 
-	return variables_offsets[i];
+	return variables + i;
 }
 
 static void add_variable(char *name, enum type type) {
 	grug_assert(variables_size < MAX_VARIABLES_PER_FUNCTION, "There are more than %d variables in a grug function, exceeding MAX_VARIABLES_PER_FUNCTION", MAX_VARIABLES_PER_FUNCTION);
 
-	grug_assert(!get_variable_offset(name), "The variable '%s' has been declared twice in a grug function", name);
+	grug_assert(!get_variable(name), "The variable '%s' has been declared twice in a grug function", name);
 
-	variables[variables_size] = name;
-	variables_offsets[variables_size] = variables_stack_bytes;
+	variables[variables_size] = (struct variable){
+		.name = name,
+		.type = type,
+		.offset = variables_stack_bytes + type_sizes[type],
+	};
+
 	variables_stack_bytes += type_sizes[type];
 
 	u32 bucket_index = elf_hash(name) % MAX_VARIABLES_PER_FUNCTION;
@@ -2975,7 +3007,7 @@ static void add_variable(char *name, enum type type) {
 static size_t get_helper_fn_offset(char *name) {
 	u32 i = buckets_helper_fn_offsets[elf_hash(name) % helper_fn_offsets_size];
 
-	while (1) {
+	while (true) {
 		assert(i != UINT32_MAX && "get_helper_fn_offset() is supposed to never fail");
 
 		if (streq(name, helper_fn_offsets[i].fn_name)) {
@@ -3014,7 +3046,7 @@ static void push_helper_fn_offset(char *fn_name, size_t offset) {
 static bool has_used_game_fn(char *name) {
 	u32 i = buckets_used_game_fns[bfd_hash(name) % BFD_HASH_BUCKET_SIZE];
 
-	while (1) {
+	while (true) {
 		if (i == UINT32_MAX) {
 			return false;
 		}
@@ -3052,7 +3084,7 @@ static void hash_used_game_fns(void) {
 static bool is_game_fn(char *name) {
 	u32 i = buckets_game_fns[elf_hash(name) % grug_game_functions_size];
 
-	while (1) {
+	while (true) {
 		if (i == UINT32_MAX) {
 			return false;
 		}
@@ -3318,13 +3350,20 @@ static void compile_expr(struct expr expr) {
 			assert(false);
 			// serialize_append_slice(expr.string_literal_expr.str, expr.string_literal_expr.len);
 			// break;
-		case IDENTIFIER_EXPR:
-			assert(false);
-			// if (is_identifier_global(expr.string_literal_expr.str, expr.string_literal_expr.len)) {
-			// 	serialize_append("globals->");
-			// }
-			// serialize_append_slice(expr.string_literal_expr.str, expr.string_literal_expr.len);
-			// break;
+		case IDENTIFIER_EXPR: {
+			struct variable var = *get_variable(expr.literal.string);
+			switch (var.type) {
+				case type_void:
+					assert(false);
+				case type_i32:
+					assert(false);
+					break;
+				case type_string:
+					assert(false);
+					break;
+			}
+			break;
+		}
 		case NUMBER_EXPR: {
 			i32 n = expr.literal.i32;
 			if (n == 0) {
@@ -3451,25 +3490,119 @@ static void compile_statements(struct statement *statements_offset, size_t state
 	}
 }
 
-static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
-	// TODO: REMOVE THESE
-	(void)fn_arguments;
-	(void)argument_count;
+static void add_variables_in_statements(struct statement *statements_offset, size_t statement_count) {
+	for (size_t statement_index = 0; statement_index < statement_count; statement_index++) {
+		struct statement statement = statements_offset[statement_index];
 
+		switch (statement.type) {
+			case VARIABLE_STATEMENT:
+				if (statement.variable_statement.has_type) {
+					add_variable(statement.variable_statement.name, statement.variable_statement.type);
+				}
+				break;
+			case CALL_STATEMENT:
+				break;
+			case IF_STATEMENT:
+				add_variables_in_statements(statement.if_statement.if_body_statements, statement.if_statement.if_body_statement_count);
+
+				if (statement.if_statement.else_body_statement_count > 0) {
+					add_variables_in_statements(statement.if_statement.else_body_statements, statement.if_statement.else_body_statement_count);
+				}
+
+				break;
+			case RETURN_STATEMENT:
+				break;
+			case LOOP_STATEMENT:
+				add_variables_in_statements(statement.loop_statement.body_statements, statement.loop_statement.body_statement_count);
+				break;
+			case BREAK_STATEMENT:
+				break;
+			case CONTINUE_STATEMENT:
+				break;
+		}
+	}
+}
+
+static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
 	variables_size = 0;
 	variables_stack_bytes = 0;
 	memset(buckets_variables, UINT32_MAX, MAX_VARIABLES_PER_FUNCTION * sizeof(u32));
 
-	// TODO: REMOVE
-	(void)add_variable;
+	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
+		struct argument arg = fn_arguments[argument_index];
+		add_variable(arg.name, arg.type);
+	}
+
+	add_variables_in_statements(body_statements, body_statement_count);
+
+	// if (variables_size > 0) {
+	// 	// Function prologue
+	// 	compile_push_byte(PUSH_RBP);
+	// 	compile_push_number(PUSH_RSP_TO_RBP, 3);
+
+	// 	// TODO: OS X requires 16 byte alignment:
+	// 	// https://norasandler.com/2018/06/27/Write-a-Compiler-9.html
+	// 	// https://staffwww.fullcoll.edu/aclifton/cs241/lecture-stack-c-functions.html#stack-alignment
+
+	// 	// Make space in the stack for the arguments and variables
+	// 	if (variables_stack_bytes < 0xff) {
+	// 		compile_push_number(SUB_RSP_8_BITS, 3);
+	// 		compile_push_byte(variables_stack_bytes);
+	// 	} else {
+	// 		compile_push_number(SUB_RSP_32_BITS, 3);
+	// 		compile_push_number(variables_stack_bytes, 4);
+	// 	}
+
+	// 	// Move args
+	// 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
+	// 		struct argument arg = fn_arguments[argument_index];
+
+	// 		switch (arg.type) {
+	// 			case type_void:
+	// 				assert(false);
+	// 			case type_i32:
+	// 				compile_push_number((enum code[]){
+	// 					MOV_EDI_TO_RBP,
+	// 					MOV_ESI_TO_RBP,
+	// 					MOV_EDX_TO_RBP,
+	// 					MOV_ECX_TO_RBP,
+	// 					MOV_R8D_TO_RBP,
+	// 					MOV_R9D_TO_RBP,
+	// 				}[argument_index], 3);
+	// 				break;
+	// 			case type_string:
+	// 				compile_push_number((enum code[]){
+	// 					MOV_RDI_TO_RBP,
+	// 					MOV_RSI_TO_RBP,
+	// 					MOV_RDX_TO_RBP,
+	// 					MOV_RCX_TO_RBP,
+	// 					MOV_R8_TO_RBP,
+	// 					MOV_R9_TO_RBP,
+	// 				}[argument_index], 3);
+	// 				break;
+	// 		}
+
+	// 		// TODO: Support offsets greater than 256 bytes
+	// 		compile_push_byte(-get_variable(arg.name)->offset);
+	// 	}
+
+	// 	// TODO: Move vars
+	// }
 
 	compile_statements(body_statements, body_statement_count);
+
+	// if (variables_size > 0) {
+	// 	// Function epilogue
+	// 	compile_push_number(MOV_RBP_TO_RSP, 3);
+	// 	compile_push_byte(POP_RBP);
+	// }
+
 	compile_push_byte(RET);
 }
 
 static void compile_returned_field(struct expr expr_value, size_t argument_index) {
 	if (expr_value.type == NUMBER_EXPR) {
-		compile_push_number((uint64_t[]){
+		compile_push_number((enum code[]){
 			MOVABS_TO_RDI,
 			MOVABS_TO_RSI,
 			MOVABS_TO_RDX,
@@ -3480,7 +3613,7 @@ static void compile_returned_field(struct expr expr_value, size_t argument_index
 
 		compile_push_number(expr_value.literal.i32, 8);
 	} else if (expr_value.type == STRING_EXPR) {
-		compile_push_number((uint64_t[]){
+		compile_push_number((enum code[]){
 			LEA_TO_RDI,
 			LEA_TO_RSI,
 			LEA_TO_RDX,
@@ -3507,7 +3640,7 @@ static void push_data_string(char *string) {
 static u32 get_data_string_index(char *string) {
 	u32 i = buckets_data_strings[elf_hash(string) % MAX_BUCKETS_DATA_STRINGS];
 
-	while (1) {
+	while (true) {
 		if (i == UINT32_MAX) {
 			return UINT32_MAX;
 		}
@@ -3549,7 +3682,7 @@ static void init_data_strings(void) {
 static struct grug_on_function *get_define_on_fn(char *name) {
 	u32 i = buckets_define_on_fns[elf_hash(name) % grug_define_entity->on_function_count];
 
-	while (1) {
+	while (true) {
 		if (i == UINT32_MAX) {
 			return NULL;
 		}
@@ -4187,7 +4320,7 @@ static void overwrite_64(u64 n, size_t bytes_offset) {
 static struct on_fn *get_on_fn(char *name) {
 	u32 i = buckets_on_fns[elf_hash(name) % on_fns_size];
 
-	while (1) {
+	while (true) {
 		if (i == UINT32_MAX) {
 			return NULL;
 		}
@@ -4277,7 +4410,7 @@ static void patch_dynsym(void) {
 static size_t get_game_fn_offset(char *name) {
 	u32 i = buckets_game_fn_offsets[elf_hash(name) % game_fn_offsets_size];
 
-	while (1) {
+	while (true) {
 		assert(i != UINT32_MAX && "get_game_fn_offset() is supposed to never fail");
 
 		if (streq(name, game_fn_offsets[i].fn_name)) {
@@ -5219,7 +5352,7 @@ static void init_symbol_name_strtab_offsets(void) {
 		char *symbol = symbols[symbol_index];
 
 		size_t parent_index;
-		size_t ending_index;
+		size_t ending_index = -1;
 		for (parent_index = 0; parent_index < symbols_size; parent_index++) {
 			if (symbol_index != parent_index) {
 				ending_index = get_ending_index(symbols[parent_index], symbol);
@@ -5230,7 +5363,7 @@ static void init_symbol_name_strtab_offsets(void) {
 		}
 
 		// If symbol wasn't at the end of another symbol
-		bool is_substr = parent_index != symbols_size;
+		bool is_substr = ending_index != (size_t)-1;
 
 		if (is_substr) {
 			parent_indices[symbol_index] = parent_index;
@@ -5317,7 +5450,7 @@ static void init_symbol_name_dynstr_offsets(void) {
 		char *symbol = symbols[i];
 
 		size_t parent_index;
-		size_t ending_index;
+		size_t ending_index = -1;
 		for (parent_index = 0; parent_index < symbols_size; parent_index++) {
 			if (i != parent_index) {
 				ending_index = get_ending_index(symbols[parent_index], symbol);
@@ -5328,7 +5461,7 @@ static void init_symbol_name_dynstr_offsets(void) {
 		}
 
 		// If symbol wasn't at the end of another symbol
-		bool is_substr = parent_index != symbols_size;
+		bool is_substr = ending_index != (size_t)-1;
 
 		if (is_substr) {
 			parent_indices[i] = parent_index;
@@ -5516,15 +5649,6 @@ static void try_create_parent_dirs(char *file_path) {
 	}
 }
 
-static void fill_as_path_with_dll_extension(char *dll_path, char *grug_path) {
-	dll_path[0] = '\0';
-	strncat(dll_path, grug_path, STUPID_MAX_PATH - 1);
-	char *ext = get_file_extension(dll_path);
-	assert(*ext);
-	ext[1] = '\0';
-	strncat(ext + 1, "so", STUPID_MAX_PATH - 1 - strlen(dll_path));
-}
-
 static void print_dlerror(char *function_name) {
 	char *err = dlerror();
 	grug_assert(err, "dlerror was asked to find an error string, but it couldn't find one");
@@ -5671,8 +5795,13 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, struct
 			}
 			seen_file_names[seen_file_names_size++] = strdup(dp->d_name);
 
+			// Fill dll_path
 			char dll_path[STUPID_MAX_PATH];
-			fill_as_path_with_dll_extension(dll_path, dll_entry_path);
+			memcpy(dll_path, dll_entry_path, STUPID_MAX_PATH);
+			char *ext = get_file_extension(dll_path);
+			assert(*ext);
+			ext[1] = '\0';
+			strncat(ext + 1, "so", STUPID_MAX_PATH - 1 - strlen(dll_path));
 
 			struct stat dll_stat;
 			bool dll_exists = stat(dll_path, &dll_stat) == 0;
