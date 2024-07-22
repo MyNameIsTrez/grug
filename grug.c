@@ -2869,12 +2869,12 @@ enum code {
 
 	MOV_TO_EAX = 0xb8, // mov eax, n
 
-	MOVABS_TO_RDI = 0xbf48, // mov rdi, n
-	MOVABS_TO_RSI = 0xbe48, // mov rsi, n
-	MOVABS_TO_RDX = 0xba48, // mov rdx, n
-	MOVABS_TO_RCX = 0xb948, // mov rcx, n
-	MOVABS_TO_R8 = 0xb849, // mov r8, n
-	MOVABS_TO_R9 = 0xb949, // mov r9, n
+	MOV_TO_EDI = 0xbf, // mov rdi, n
+	MOV_TO_ESI = 0xbe, // mov rsi, n
+	MOV_TO_EDX = 0xba, // mov rdx, n
+	MOV_TO_ECX = 0xb9, // mov rcx, n
+	MOV_TO_R8D = 0xb841, // mov r8, n
+	MOV_TO_R9D = 0xb941, // mov r9, n
 
 	LEA_TO_RDI = 0x3d8d48, // lea rdi, [rel strings+offset]
 	LEA_TO_RSI = 0x358d48, // lea rsi, [rel strings+offset]
@@ -3535,83 +3535,93 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 
 	add_variables_in_statements(body_statements, body_statement_count);
 
-	// if (variables_size > 0) {
-	// 	// Function prologue
-	// 	compile_push_byte(PUSH_RBP);
-	// 	compile_push_number(PUSH_RSP_TO_RBP, 3);
+	if (variables_size > 0) {
+		// Function prologue
+		compile_push_byte(PUSH_RBP);
+		compile_push_number(PUSH_RSP_TO_RBP, 3);
 
-	// 	// TODO: OS X requires 16 byte alignment:
-	// 	// https://norasandler.com/2018/06/27/Write-a-Compiler-9.html
-	// 	// https://staffwww.fullcoll.edu/aclifton/cs241/lecture-stack-c-functions.html#stack-alignment
+		// TODO: OS X requires 16 byte alignment:
+		// https://norasandler.com/2018/06/27/Write-a-Compiler-9.html
+		// https://staffwww.fullcoll.edu/aclifton/cs241/lecture-stack-c-functions.html#stack-alignment
 
-	// 	// Make space in the stack for the arguments and variables
-	// 	if (variables_stack_bytes < 0xff) {
-	// 		compile_push_number(SUB_RSP_8_BITS, 3);
-	// 		compile_push_byte(variables_stack_bytes);
-	// 	} else {
-	// 		compile_push_number(SUB_RSP_32_BITS, 3);
-	// 		compile_push_number(variables_stack_bytes, 4);
-	// 	}
+		// Make space in the stack for the arguments and variables
+		if (variables_stack_bytes < 0xff) {
+			compile_push_number(SUB_RSP_8_BITS, 3);
+			compile_push_byte(variables_stack_bytes);
+		} else {
+			compile_push_number(SUB_RSP_32_BITS, 3);
+			compile_push_number(variables_stack_bytes, 4);
+		}
 
-	// 	// Move args
-	// 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
-	// 		struct argument arg = fn_arguments[argument_index];
+		// Move args
+		for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
+			struct argument arg = fn_arguments[argument_index];
 
-	// 		switch (arg.type) {
-	// 			case type_void:
-	// 				assert(false);
-	// 			case type_i32:
-	// 				compile_push_number((enum code[]){
-	// 					MOV_EDI_TO_RBP,
-	// 					MOV_ESI_TO_RBP,
-	// 					MOV_EDX_TO_RBP,
-	// 					MOV_ECX_TO_RBP,
-	// 					MOV_R8D_TO_RBP,
-	// 					MOV_R9D_TO_RBP,
-	// 				}[argument_index], 3);
-	// 				break;
-	// 			case type_string:
-	// 				compile_push_number((enum code[]){
-	// 					MOV_RDI_TO_RBP,
-	// 					MOV_RSI_TO_RBP,
-	// 					MOV_RDX_TO_RBP,
-	// 					MOV_RCX_TO_RBP,
-	// 					MOV_R8_TO_RBP,
-	// 					MOV_R9_TO_RBP,
-	// 				}[argument_index], 3);
-	// 				break;
-	// 		}
+			switch (arg.type) {
+				case type_void:
+					assert(false);
+				case type_i32:
+					if (argument_index < 4) {
+						compile_push_number((enum code[]){
+							MOV_EDI_TO_RBP,
+							MOV_ESI_TO_RBP,
+							MOV_EDX_TO_RBP,
+							MOV_ECX_TO_RBP,
+						}[argument_index], 2);
+					} else {
+						compile_push_number((enum code[]){
+							MOV_R8D_TO_RBP,
+							MOV_R9D_TO_RBP,
+						}[argument_index - 4], 3);
+					}
+					break;
+				case type_string:
+					compile_push_number((enum code[]){
+						MOV_RDI_TO_RBP,
+						MOV_RSI_TO_RBP,
+						MOV_RDX_TO_RBP,
+						MOV_RCX_TO_RBP,
+						MOV_R8_TO_RBP,
+						MOV_R9_TO_RBP,
+					}[argument_index], 3);
+					break;
+			}
 
-	// 		// TODO: Support offsets greater than 256 bytes
-	// 		compile_push_byte(-get_variable(arg.name)->offset);
-	// 	}
+			// TODO: Support offsets greater than 256 bytes
+			compile_push_byte(-get_variable(arg.name)->offset);
+		}
 
-	// 	// TODO: Move vars
-	// }
+		// TODO: Move vars
+	}
 
 	compile_statements(body_statements, body_statement_count);
 
-	// if (variables_size > 0) {
-	// 	// Function epilogue
-	// 	compile_push_number(MOV_RBP_TO_RSP, 3);
-	// 	compile_push_byte(POP_RBP);
-	// }
+	if (variables_size > 0) {
+		// Function epilogue
+		compile_push_number(MOV_RBP_TO_RSP, 3);
+		compile_push_byte(POP_RBP);
+	}
 
 	compile_push_byte(RET);
 }
 
 static void compile_returned_field(struct expr expr_value, size_t argument_index) {
 	if (expr_value.type == NUMBER_EXPR) {
-		compile_push_number((enum code[]){
-			MOVABS_TO_RDI,
-			MOVABS_TO_RSI,
-			MOVABS_TO_RDX,
-			MOVABS_TO_RCX,
-			MOVABS_TO_R8,
-			MOVABS_TO_R9,
-		}[argument_index], 2);
+		if (argument_index < 4) {
+			compile_push_byte((enum code[]){
+				MOV_TO_EDI,
+				MOV_TO_ESI,
+				MOV_TO_EDX,
+				MOV_TO_ECX,
+			}[argument_index]);
+		} else {
+			compile_push_number((enum code[]){
+				MOV_TO_R8D,
+				MOV_TO_R9D,
+			}[argument_index - 4], 2);
+		}
 
-		compile_push_number(expr_value.literal.i32, 8);
+		compile_push_number(expr_value.literal.i32, 4);
 	} else if (expr_value.type == STRING_EXPR) {
 		compile_push_number((enum code[]){
 			LEA_TO_RDI,
