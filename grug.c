@@ -1651,7 +1651,7 @@ struct compound_literal {
 
 struct variable_statement {
 	char *name;
-	char *type;
+	enum type type;
 	bool has_type;
 	struct expr *assignment_expr;
 	bool has_assignment;
@@ -1710,7 +1710,7 @@ static struct statement statements[MAX_STATEMENTS_IN_FILE];
 static size_t statements_size;
 
 struct argument {
-	char *type;
+	enum type type;
 	char *name;
 };
 static struct argument arguments[MAX_ARGUMENTS_IN_FILE];
@@ -2128,7 +2128,7 @@ static struct variable_statement parse_variable_statement(size_t *i) {
 		grug_assert(type_token.type == WORD_TOKEN, "Expected a word token after the colon at token index %zu", *i - 3);
 
 		variable_statement.has_type = true;
-		variable_statement.type = type_token.str;
+		variable_statement.type = parse_type(type_token.str);
 	}
 
 	token = peek_token(*i);
@@ -2281,7 +2281,7 @@ static struct argument *parse_arguments(size_t *i, size_t *argument_count) {
 	assert_token_type(*i, WORD_TOKEN);
 	token = consume_token(i);
 
-	argument.type = token.str;
+	argument.type = parse_type(token.str);
 	struct argument *first_argument = push_argument(argument);
 	(*argument_count)++;
 
@@ -2301,7 +2301,7 @@ static struct argument *parse_arguments(size_t *i, size_t *argument_count) {
 
 		assert_token_type(*i, WORD_TOKEN);
 		token = consume_token(i);
-		argument.type = token.str;
+		argument.type = parse_type(token.str);
 		push_argument(argument);
 		(*argument_count)++;
 	}
@@ -3411,7 +3411,7 @@ static void compile_statements(struct statement *statements_offset, size_t state
 // 				serialize_expr(statement.if_statement.condition);
 // 				serialize_append(") {\n");
 // 				serialize_statements(statement.if_statement.if_body_statements_offset, statement.if_statement.if_body_statement_count, depth + 1);
-				
+
 // 				if (statement.if_statement.else_body_statement_count > 0) {
 // 					serialize_append_indents(depth);
 // 					serialize_append("} else {\n");
@@ -3813,7 +3813,7 @@ static void compile(void) {
 // 		} else {
 // 			serialize_append("void");
 // 		}
-		
+
 // 		serialize_append(" ");
 // 		serialize_append_slice(fn.fn_name, fn.fn_name_len);
 
@@ -3996,7 +3996,7 @@ static void compile(void) {
 // 	serialize_append("struct entity {\n");
 // 	serialize_append("\tuint64_t a;\n");
 // 	serialize_append("};\n");
-	
+
 // 	serialize_append("\n");
 // 	serialize_define_type();
 
@@ -4501,7 +4501,7 @@ static void push_strtab(char *grug_path) {
 
 	push_byte(0);
 	push_string_bytes(grug_path);
-	
+
 	// Local symbols
 	// TODO: Add loop
 
@@ -4707,7 +4707,7 @@ static void push_plt(void) {
 
 	size_t pushed_plt_entries = 0;
 	size_t offset = 0x10;
-	// The 0x18 here is from the first three addresses push_got_plt() pushes 
+	// The 0x18 here is from the first three addresses push_got_plt() pushes
 	size_t got_plt_fn_address = GOT_PLT_OFFSET + 0x18;
 
 	for (size_t i = 0; i < BFD_HASH_BUCKET_SIZE; i++) {
@@ -5197,7 +5197,7 @@ static size_t get_ending_index(char *haystack, char *needle) {
 	// If the needle entirely fits into the end of the haystack,
 	// return the index where needle starts in haystack
 	if (np == needle) {
-	  return hp - haystack; 
+	  return hp - haystack;
 	}
 
 	hp--;
