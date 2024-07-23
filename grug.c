@@ -2839,6 +2839,9 @@ enum code {
 	MOV_RBP_TO_EAX = 0x458b, // mov eax, rbp[n]
 	MOV_RBP_TO_RAX = 0x458b48, // mov rax, rbp[n]
 
+	MOV_EAX_TO_RBP = 0x4589, // mov rbp[n], eax
+	MOV_RAX_TO_RBP = 0x458948, // mov rbp[n], rax
+
 	MOV_RBP_TO_RSP = 0xec8948, // mov rsp, rbp
 	POP_RBP = 0x5d, // pop rbp
 
@@ -3475,25 +3478,23 @@ static void compile_statements(struct statement *statements_offset, size_t state
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
-				assert(false);
-// 				if (statement.variable_statement.has_type) {
-// 					serialize_append_slice(statement.variable_statement.type, statement.variable_statement.type_len);
-// 					serialize_append(" ");
-// 				}
+				compile_expr(*statement.variable_statement.assignment_expr);
 
-// 				if (is_identifier_global(statement.variable_statement.name, statement.variable_statement.name_len)) {
-// 					serialize_append("globals->");
-// 				}
-// 				serialize_append_slice(statement.variable_statement.name, statement.variable_statement.name_len);
+				struct variable var = *get_variable(statement.variable_statement.name);
+				switch (var.type) {
+					case type_void:
+						grug_unreachable();
+					case type_i32:
+						compile_push_number(MOV_EAX_TO_RBP, 2);
+						compile_push_byte(-var.offset);
+						break;
+					case type_string:
+						compile_push_number(MOV_RAX_TO_RBP, 3);
+						compile_push_byte(-var.offset);
+						break;
+				}
 
-// 				if (statement.variable_statement.has_assignment) {
-// 					serialize_append(" = ");
-// 					serialize_expr(exprs[statement.variable_statement.assignment_expr_index]);
-// 				}
-
-// 				serialize_append(";");
-
-// 				break;
+				break;
 			case CALL_STATEMENT:
 				compile_call_expr(statement.call_statement.expr->call);
 				break;
@@ -3643,8 +3644,6 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 			// TODO: Support offsets greater than 256 bytes
 			compile_push_byte(-get_variable(arg.name)->offset);
 		}
-
-		// TODO: Move vars
 	}
 
 	compile_statements(body_statements, body_statement_count);
