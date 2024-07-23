@@ -3232,10 +3232,23 @@ static void compile_if_statement(struct if_statement if_statement) {
 	compile_expr(if_statement.condition);
 	compile_push_number(TEST_RAX_IS_ZERO, 3);
 	compile_push_number(JE_32_BIT_OFFSET, 2);
-	size_t end_jump_offset = codes_size;
+	size_t else_or_end_jump_offset = codes_size;
 	compile_push_number(PLACEHOLDER_32, 4);
 	compile_statements(if_statement.if_body_statements, if_statement.if_body_statement_count);
-	overwrite_jmp_address(end_jump_offset, codes_size);
+
+	if (if_statement.else_body_statement_count > 0) {
+		compile_push_number(JMP_32_BIT_OFFSET, 1);
+		size_t skip_else_jump_offset = codes_size;
+		compile_push_number(PLACEHOLDER_32, 4);
+
+		overwrite_jmp_address(else_or_end_jump_offset, codes_size);
+
+		compile_statements(if_statement.else_body_statements, if_statement.else_body_statement_count);
+
+		overwrite_jmp_address(skip_else_jump_offset, codes_size);
+	} else {
+		overwrite_jmp_address(else_or_end_jump_offset, codes_size);
+	}
 }
 
 static void compile_call_expr(struct call_expr call_expr) {
