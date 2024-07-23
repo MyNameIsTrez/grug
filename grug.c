@@ -2877,6 +2877,7 @@ enum code {
 	POP_R9 = 0x5941, // pop r9
 
 	XOR_CLEAR_EAX = 0xc031, // xor eax, eax
+    LEA_TO_RAX = 0x58d48, // lea rax, [rel strings+offset]
 	MOV_1_TO_EAX = 0x1b8, // mov eax, 1
 
 	MOV_TO_EAX = 0xb8, // mov eax, n
@@ -3368,6 +3369,42 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 	}
 }
 
+static void push_data_string(char *string) {
+	grug_assert(data_strings_size < MAX_DATA_STRINGS, "There are more than %d data strings, exceeding MAX_DATA_STRINGS", MAX_DATA_STRINGS);
+
+	data_strings[data_strings_size++] = string;
+}
+
+static u32 get_data_string_index(char *string) {
+	u32 i = buckets_data_strings[elf_hash(string) % MAX_BUCKETS_DATA_STRINGS];
+
+	while (true) {
+		if (i == UINT32_MAX) {
+			return UINT32_MAX;
+		}
+
+		if (streq(string, data_strings[i])) {
+			break;
+		}
+
+		i = chains_data_strings[i];
+	}
+
+	return i;
+}
+
+static void add_data_string(char *string) {
+    if (get_data_string_index(string) == UINT32_MAX) {
+        u32 bucket_index = elf_hash(string) % MAX_BUCKETS_DATA_STRINGS;
+
+        chains_data_strings[data_strings_size] = buckets_data_strings[bucket_index];
+
+        buckets_data_strings[bucket_index] = data_strings_size;
+
+        push_data_string(string);
+    }
+}
+
 static void compile_expr(struct expr expr) {
 	switch (expr.type) {
 		case TRUE_EXPR:
@@ -3377,9 +3414,15 @@ static void compile_expr(struct expr expr) {
 			compile_push_number(XOR_CLEAR_EAX, 2);
 			break;
 		case STRING_EXPR:
-			assert(false);
-			// serialize_append_slice(expr.string_literal_expr.str, expr.string_literal_expr.len);
-			// break;
+            add_data_string(expr.literal.string);
+
+			compile_push_number(LEA_TO_RAX, 3);
+
+            // RIP-relative address of data string
+            push_data_string_code(expr.literal.string, codes_size);
+            compile_push_number(PLACEHOLDER_32, 4);
+
+			break;
 		case IDENTIFIER_EXPR: {
 			struct variable var = *get_variable(expr.literal.string);
 			switch (var.type) {
@@ -3651,48 +3694,16 @@ static void compile_returned_field(struct expr expr_value, size_t argument_index
 	}
 }
 
-static void push_data_string(char *string) {
-	grug_assert(data_strings_size < MAX_DATA_STRINGS, "There are more than %d data strings, exceeding MAX_DATA_STRINGS", MAX_DATA_STRINGS);
-
-	data_strings[data_strings_size++] = string;
-}
-
-static u32 get_data_string_index(char *string) {
-	u32 i = buckets_data_strings[elf_hash(string) % MAX_BUCKETS_DATA_STRINGS];
-
-	while (true) {
-		if (i == UINT32_MAX) {
-			return UINT32_MAX;
-		}
-
-		if (streq(string, data_strings[i])) {
-			break;
-		}
-
-		i = chains_data_strings[i];
-	}
-
-	return i;
-}
-
 static void init_data_strings(void) {
-	size_t field_count = define_fn.returned_compound_literal.field_count;
-
 	memset(buckets_data_strings, UINT32_MAX, MAX_BUCKETS_DATA_STRINGS * sizeof(u32));
 
-	for (size_t field_index = 0; field_index < field_count; field_index++) {
+	size_t define_field_count = define_fn.returned_compound_literal.field_count;
+
+	for (size_t field_index = 0; field_index < define_field_count; field_index++) {
 		struct field field = define_fn.returned_compound_literal.fields[field_index];
 
-		if (field.expr_value.type == STRING_EXPR && get_data_string_index(field.expr_value.literal.string) == UINT32_MAX) {
-			char *string = field.expr_value.literal.string;
-
-			u32 bucket_index = elf_hash(string) % MAX_BUCKETS_DATA_STRINGS;
-
-			chains_data_strings[data_strings_size] = buckets_data_strings[bucket_index];
-
-			buckets_data_strings[bucket_index] = data_strings_size;
-
-			push_data_string(string);
+		if (field.expr_value.type == STRING_EXPR) {
+            add_data_string(field.expr_value.literal.string);
 		}
 	}
 }
@@ -3762,7 +3773,7 @@ static void compile(void) {
 	init_define_fn_name(grug_define_entity->name);
 	hash_define_on_fns();
 	for (size_t on_fn_index = 0; on_fn_index < on_fns_size; on_fn_index++) {
-		grug_assert(grug_define_entity->on_function_count != 0 && get_define_on_fn(on_fns[on_fn_index].fn_name), "The function '%s' was not was not declared by entity '%s' in mod_api.json", on_fns[on_fn_index].fn_name, define_fn.return_type);
+		grug_assert(grug_define_entity->on_function_count > 0 && get_define_on_fn(on_fns[on_fn_index].fn_name), "The function '%s' was not was not declared by entity '%s' in mod_api.json", on_fns[on_fn_index].fn_name, define_fn.return_type);
 	}
 
 	init_data_strings();
