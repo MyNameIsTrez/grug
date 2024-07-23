@@ -3228,6 +3228,15 @@ static void stack_push_rax(void) {
 static void compile_expr(struct expr expr);
 static void compile_statements(struct statement *statements_offset, size_t statement_count);
 
+static void compile_loop_statement(struct loop_statement loop_statement) {
+	size_t start_of_loop_jump_offset = codes_size;
+
+	compile_statements(loop_statement.body_statements, loop_statement.body_statement_count);
+
+	compile_push_number(JMP_32_BIT_OFFSET, 1);
+	compile_push_number(start_of_loop_jump_offset, 4);
+}
+
 static void compile_if_statement(struct if_statement if_statement) {
 	compile_expr(if_statement.condition);
 	compile_push_number(TEST_RAX_IS_ZERO, 3);
@@ -3536,12 +3545,8 @@ static void compile_statements(struct statement *statements_offset, size_t state
 				compile_push_byte(RET);
 				break;
 			case LOOP_STATEMENT:
-				assert(false);
-// 				serialize_append("while (true) {\n");
-// 				serialize_statements(statement.loop_statement.body_statements_offset, statement.loop_statement.body_statement_count, depth + 1);
-// 				serialize_append_indents(depth);
-// 				serialize_append("}");
-// 				break;
+				compile_loop_statement(statement.loop_statement);
+				break;
 			case BREAK_STATEMENT:
 				assert(false);
 // 				serialize_append("break;");
