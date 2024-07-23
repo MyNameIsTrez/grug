@@ -4232,8 +4232,6 @@ static size_t on_fns_symbol_offset;
 
 static size_t data_symbols_size;
 
-static bool is_substrs[MAX_SYMBOLS];
-
 static size_t symbol_name_dynstr_offsets[MAX_SYMBOLS];
 static size_t symbol_name_strtab_offsets[MAX_SYMBOLS];
 
@@ -4659,11 +4657,7 @@ static void push_strtab(char *grug_path) {
 	// Global symbols
 	// TODO: Don't loop through local symbols
 	for (size_t i = 0; i < symbols_size; i++) {
-		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
-
-		if (!is_substrs[symbol_index]) {
-			push_string_bytes(shuffled_symbols[i]);
-		}
+        push_string_bytes(shuffled_symbols[i]);
 	}
 
 	strtab_size = bytes_size - strtab_offset;
@@ -4951,10 +4945,8 @@ static void push_dynstr(void) {
 
 	push_byte(0);
 	for (size_t i = 0; i < symbols_size; i++) {
-		if (!is_substrs[i]) {
-			push_string_bytes(symbols[i]);
-			dynstr_size += strlen(symbols[i]) + 1;
-		}
+        push_string_bytes(symbols[i]);
+        dynstr_size += strlen(symbols[i]) + 1;
 	}
 
 	push_alignment(8);
@@ -5316,87 +5308,13 @@ static void init_data_offsets(void) {
 	data_size = offset;
 }
 
-// haystack="a" , needle="a" => returns 0
-// haystack="ab", needle="b" => returns 1
-// haystack="a" , needle="b" => returns -1
-// haystack="a" , needle="ab" => returns -1
-static size_t get_ending_index(char *haystack, char *needle) {
-  // Go to the end of the haystack and the needle
-  char *hp = haystack;
-  while (*hp) {
-	hp++;
-  }
-  char *np = needle;
-  while (*np) {
-	np++;
-  }
-
-  // If the needle is longer than the haystack, it can't fit
-  if (np - needle > hp - haystack) {
-	return -1;
-  }
-
-  while (true) {
-	// If one of the characters doesn't match
-	if (*hp != *np) {
-	  return -1;
-	}
-
-	// If the needle entirely fits into the end of the haystack,
-	// return the index where needle starts in haystack
-	if (np == needle) {
-	  return hp - haystack;
-	}
-
-	hp--;
-	np--;
-  }
-}
-
 static void init_symbol_name_strtab_offsets(void) {
-	size_t offset = 0;
-
-	static size_t parent_indices[MAX_SYMBOLS];
-	static size_t substr_offsets[MAX_SYMBOLS];
-
-	memset(parent_indices, -1, symbols_size * sizeof(size_t));
-
-	// This function could be optimized from O(n^2) to O(n) with a hash table
-	for (size_t i = 0; i < symbols_size; i++) {
+	for (size_t i = 0, offset = 0; i < symbols_size; i++) {
 		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
 		char *symbol = symbols[symbol_index];
 
-		size_t parent_index;
-		size_t ending_index = -1;
-		for (parent_index = 0; parent_index < symbols_size; parent_index++) {
-			if (symbol_index != parent_index) {
-				ending_index = get_ending_index(symbols[parent_index], symbol);
-				if (ending_index != (size_t)-1) {
-					break;
-				}
-			}
-		}
-
-		// If symbol wasn't at the end of another symbol
-		bool is_substr = ending_index != (size_t)-1;
-
-		if (is_substr) {
-			parent_indices[symbol_index] = parent_index;
-			substr_offsets[symbol_index] = ending_index;
-		} else {
-			symbol_name_strtab_offsets[symbol_index] = offset;
-			offset += strlen(symbol) + 1;
-		}
-	}
-
-	// Now that all the parents have been given final offsets in .strtab,
-	// it is clear what index their substring symbols have
-	for (size_t i = 0; i < symbols_size; i++) {
-		size_t parent_index = parent_indices[i];
-		if (parent_index != (size_t)-1) {
-			size_t parent_offset = symbol_name_strtab_offsets[parent_index];
-			symbol_name_strtab_offsets[i] = parent_offset + substr_offsets[i];
-		}
+        symbol_name_strtab_offsets[symbol_index] = offset;
+        offset += strlen(symbol) + 1;
 	}
 }
 
@@ -5451,52 +5369,11 @@ static void generate_shuffled_symbols(void) {
 }
 
 static void init_symbol_name_dynstr_offsets(void) {
-	size_t offset = 1;
-
-	static size_t parent_indices[MAX_SYMBOLS];
-	static size_t substr_offsets[MAX_SYMBOLS];
-
-	memset(parent_indices, -1, symbols_size * sizeof(size_t));
-
-	memset(is_substrs, false, symbols_size * sizeof(bool));
-
-	// This function could be optimized from O(n^2) to O(n) with a hash table
-	for (size_t i = 0; i < symbols_size; i++) {
+	for (size_t i = 0, offset = 1; i < symbols_size; i++) {
 		char *symbol = symbols[i];
 
-		size_t parent_index;
-		size_t ending_index = -1;
-		for (parent_index = 0; parent_index < symbols_size; parent_index++) {
-			if (i != parent_index) {
-				ending_index = get_ending_index(symbols[parent_index], symbol);
-				if (ending_index != (size_t)-1) {
-					break;
-				}
-			}
-		}
-
-		// If symbol wasn't at the end of another symbol
-		bool is_substr = ending_index != (size_t)-1;
-
-		if (is_substr) {
-			parent_indices[i] = parent_index;
-			substr_offsets[i] = ending_index;
-		} else {
-			symbol_name_dynstr_offsets[i] = offset;
-			offset += strlen(symbol) + 1;
-		}
-
-		is_substrs[i] = is_substr;
-	}
-
-	// Now that all the parents have been given final offsets in .dynstr,
-	// it is clear what index their substring symbols have
-	for (size_t i = 0; i < symbols_size; i++) {
-		size_t parent_index = parent_indices[i];
-		if (parent_index != (size_t)-1) {
-			size_t parent_offset = symbol_name_dynstr_offsets[parent_index];
-			symbol_name_dynstr_offsets[i] = parent_offset + substr_offsets[i];
-		}
+        symbol_name_dynstr_offsets[i] = offset;
+        offset += strlen(symbol) + 1;
 	}
 }
 
