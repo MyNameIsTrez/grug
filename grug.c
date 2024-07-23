@@ -3213,6 +3213,28 @@ static void stack_push_rax(void) {
 
 static void compile_expr(struct expr expr);
 
+static void compile_call_expr(struct call_expr call_expr) {
+	for (size_t i = 0; i < call_expr.argument_count; i++) {
+		struct expr argument = call_expr.arguments[i];
+
+		// TODO: Verify that the argument has the same type as the one in grug_define_entity
+        // TODO: This should be done when the AST gets created, not during compilation!
+
+		compile_expr(argument);
+		stack_push_rax();
+	}
+
+	stack_pop_arguments(call_expr.argument_count);
+
+	compile_push_byte(CALL);
+	if (is_game_fn(call_expr.fn_name)) {
+		push_game_fn_call(call_expr.fn_name, codes_size);
+	} else {
+		push_helper_fn_call(call_expr.fn_name, codes_size);
+	}
+	compile_push_number(PLACEHOLDER_32, 4);
+}
+
 static void compile_logical_expr(struct binary_expr logical_expr) {
 	switch (logical_expr.operator) {
 		case AND_TOKEN: {
@@ -3391,34 +3413,12 @@ static void compile_expr(struct expr expr) {
 			compile_logical_expr(expr.binary);
 			break;
 		case CALL_EXPR:
-			assert(false);
-			// serialize_call_expr(expr.call_expr);
-			// break;
+            compile_call_expr(expr.call);
+			break;
 		case PARENTHESIZED_EXPR:
 			compile_expr(*expr.parenthesized);
 			break;
 	}
-}
-
-static void compile_call_expr(struct call_expr call_expr) {
-	for (size_t i = 0; i < call_expr.argument_count; i++) {
-		struct expr argument = call_expr.arguments[i];
-
-		// TODO: Verify that the argument has the same type as the one in grug_define_entity
-
-		compile_expr(argument);
-		stack_push_rax();
-	}
-
-	stack_pop_arguments(call_expr.argument_count);
-
-	compile_push_byte(CALL);
-	if (is_game_fn(call_expr.fn_name)) {
-		push_game_fn_call(call_expr.fn_name, codes_size);
-	} else {
-		push_helper_fn_call(call_expr.fn_name, codes_size);
-	}
-	compile_push_number(PLACEHOLDER_32, 4);
 }
 
 static void compile_statements(struct statement *statements_offset, size_t statement_count) {
