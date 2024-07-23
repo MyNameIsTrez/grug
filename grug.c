@@ -30,7 +30,6 @@
 #define MODS_DIR_PATH "mods"
 #define DLL_DIR_PATH "mod_dlls"
 #define MOD_API_JSON_PATH "mod_api.json"
-#define UNREACHABLE_STR "This line of code is supposed to be unreachable. Please report this bug to the grug developers!"
 
 // "The problem is that you can't meaningfully define a constant like this
 // in a header file. The maximum path size is actually to be something
@@ -52,6 +51,16 @@
 		grug_error(__VA_ARGS__);\
 	}\
 }
+
+#ifdef CRASH_ON_UNREACHABLE
+#define grug_unreachable() {\
+    assert(false && "This line of code is supposed to be unreachable. Please report this bug to the grug developers!");\
+}
+#else
+#define grug_unreachable() {\
+    grug_error("This line of code is supposed to be unreachable. Please report this bug to the grug developers!");\
+}
+#endif
 
 #ifdef LOGGING
 #define grug_log(...) fprintf(stderr, __VA_ARGS__)
@@ -1524,7 +1533,7 @@ static void verify_and_trim_spaces(void) {
 						assert_spaces(i, depth * SPACES_PER_INDENT);
 						break;
 					case SPACES_TOKEN:
-						grug_error(UNREACHABLE_STR);
+						grug_unreachable();
 					case NEWLINES_TOKEN:
 						grug_error("Unexpected trailing whitespace '%s' at token index %zu", token.str, i);
 					case STRING_TOKEN:
@@ -3186,7 +3195,7 @@ static void stack_pop_arguments(size_t argument_count) {
 			compile_push_byte(POP_RDI);
 			return;
 		default:
-			grug_error(UNREACHABLE_STR);
+			grug_unreachable();
 	}
 }
 
@@ -3275,7 +3284,7 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 			break;
 		}
 		default:
-			grug_error(UNREACHABLE_STR);
+			grug_unreachable();
 	}
 }
 
@@ -3341,7 +3350,7 @@ static void compile_binary_expr(struct binary_expr binary_expr) {
 			compile_push_number(SETLT_AL, 3);
 			break;
 		default:
-			grug_error(UNREACHABLE_STR);
+			grug_unreachable();
 	}
 }
 
@@ -3359,7 +3368,7 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 			compile_push_number(SETE_AL, 3);
 			break;
 		default:
-			grug_error(UNREACHABLE_STR);
+			grug_unreachable();
 	}
 }
 
@@ -3379,7 +3388,7 @@ static void compile_expr(struct expr expr) {
 			struct variable var = *get_variable(expr.literal.string);
 			switch (var.type) {
 				case type_void:
-					assert(false);
+					grug_unreachable();
 				case type_i32:
 					compile_push_number(MOV_RBP_TO_EAX, 2);
 					compile_push_byte(-var.offset);
@@ -3564,7 +3573,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 
 			switch (arg.type) {
 				case type_void:
-					assert(false);
+					grug_unreachable();
 				case type_i32:
 					if (argument_index < 4) {
 						compile_push_number((enum code[]){
@@ -3915,7 +3924,7 @@ static void compile(void) {
 // 			serialize_append("not");
 // 			return;
 // 		default:
-// 			grug_error(UNREACHABLE_STR);
+// 			grug_unreachable();
 // 	}
 // }
 

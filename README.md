@@ -25,3 +25,9 @@ You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
 
 - [terminal fighting game](https://github.com/MyNameIsTrez/grug-terminal-fighting-game)
 - [grug benchmarks](https://github.com/MyNameIsTrez/grug-benchmarks)
+
+## Options
+
+Search for `#define` in `grug.c` (with Ctrl+F). All the defines are configurable.
+
+If you want to allow your compiler to optimize `grug.c` extra hard, add `-DCRASH_ON_UNREACHABLE` during compilation.
