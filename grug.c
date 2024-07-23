@@ -3680,21 +3680,19 @@ static void init_data_strings(void) {
 
 	memset(buckets_data_strings, UINT32_MAX, MAX_BUCKETS_DATA_STRINGS * sizeof(u32));
 
-	size_t chains_size = 0;
-
 	for (size_t field_index = 0; field_index < field_count; field_index++) {
 		struct field field = define_fn.returned_compound_literal.fields[field_index];
 
 		if (field.expr_value.type == STRING_EXPR && get_data_string_index(field.expr_value.literal.string) == UINT32_MAX) {
 			char *string = field.expr_value.literal.string;
 
-			push_data_string(string);
-
 			u32 bucket_index = elf_hash(string) % MAX_BUCKETS_DATA_STRINGS;
 
-			chains_data_strings[chains_size] = buckets_data_strings[bucket_index];
+			chains_data_strings[data_strings_size] = buckets_data_strings[bucket_index];
 
-			buckets_data_strings[bucket_index] = chains_size++;
+			buckets_data_strings[bucket_index] = data_strings_size;
+
+			push_data_string(string);
 		}
 	}
 }
