@@ -1523,7 +1523,7 @@ static void verify_and_trim_spaces(void) {
 					case IF_TOKEN:
 						assert_spaces(i, depth * SPACES_PER_INDENT);
 						break;
-					case ELSE_TOKEN:
+					case ELSE_TOKEN: // Skip the space in "} else"
 						assert_spaces(i, 1);
 						break;
 					case LOOP_TOKEN:
@@ -2859,8 +2859,9 @@ enum code {
 
 	TEST_RAX_IS_ZERO = 0xc08548, // test rax, rax
 
+	JE_8_BIT_OFFSET = 0x74, // je $+0xn
+	JNE_8_BIT_OFFSET = 0x75, // jne $+0xn
 	JE_32_BIT_OFFSET = 0x840f, // je strict $+0xn
-	JNE_32_BIT_OFFSET = 0x850f, // jne strict $+0xn
 	JMP_32_BIT_OFFSET = 0xe9, // jmp $+0xn
 
 	SETE_AL = 0xc0940f, // sete al
@@ -3225,6 +3226,17 @@ static void stack_push_rax(void) {
 }
 
 static void compile_expr(struct expr expr);
+static void compile_statements(struct statement *statements_offset, size_t statement_count);
+
+static void compile_if_statement(struct if_statement if_statement) {
+	compile_expr(if_statement.condition);
+	compile_push_number(TEST_RAX_IS_ZERO, 3);
+	compile_push_number(JE_32_BIT_OFFSET, 2);
+	size_t end_jump_offset = codes_size;
+	compile_push_number(PLACEHOLDER_32, 4);
+	compile_statements(if_statement.if_body_statements, if_statement.if_body_statement_count);
+	overwrite_jmp_address(end_jump_offset, codes_size);
+}
 
 static void compile_call_expr(struct call_expr call_expr) {
 	for (size_t i = 0; i < call_expr.argument_count; i++) {
@@ -3253,8 +3265,8 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 		case AND_TOKEN: {
 			compile_expr(*logical_expr.left_expr);
 			compile_push_number(TEST_RAX_IS_ZERO, 3);
-			compile_push_number(JNE_32_BIT_OFFSET, 2);
-			compile_push_number(5, 4); // Jump 5 bytes forward
+			compile_push_byte(JNE_8_BIT_OFFSET);
+			compile_push_byte(5); // Jump 5 bytes forward
 			compile_push_number(JMP_32_BIT_OFFSET, 1);
 			size_t end_jump_offset = codes_size;
 			compile_push_number(PLACEHOLDER_32, 4);
@@ -3269,8 +3281,8 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 		case OR_TOKEN: {
 			compile_expr(*logical_expr.left_expr);
 			compile_push_number(TEST_RAX_IS_ZERO, 3);
-			compile_push_number(JE_32_BIT_OFFSET, 2);
-			compile_push_number(10, 4); // Jump 10 bytes forward
+			compile_push_byte(JE_8_BIT_OFFSET);
+			compile_push_byte(10); // Jump 10 bytes forward
 			compile_push_number(MOV_1_TO_EAX, 5);
 			compile_push_number(JMP_32_BIT_OFFSET, 1);
 			size_t end_jump_offset = codes_size;
@@ -3472,34 +3484,38 @@ static void compile_expr(struct expr expr) {
 	}
 }
 
+static void compile_variable_statement(struct variable_statement variable_statement) {
+	compile_expr(*variable_statement.assignment_expr);
+
+	struct variable var = *get_variable(variable_statement.name);
+	switch (var.type) {
+		case type_void:
+			grug_unreachable();
+		case type_i32:
+			compile_push_number(MOV_EAX_TO_RBP, 2);
+			compile_push_byte(-var.offset);
+			break;
+		case type_string:
+			compile_push_number(MOV_RAX_TO_RBP, 3);
+			compile_push_byte(-var.offset);
+			break;
+	}
+}
+
 static void compile_statements(struct statement *statements_offset, size_t statement_count) {
 	for (size_t statement_index = 0; statement_index < statement_count; statement_index++) {
 		struct statement statement = statements_offset[statement_index];
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
-				compile_expr(*statement.variable_statement.assignment_expr);
-
-				struct variable var = *get_variable(statement.variable_statement.name);
-				switch (var.type) {
-					case type_void:
-						grug_unreachable();
-					case type_i32:
-						compile_push_number(MOV_EAX_TO_RBP, 2);
-						compile_push_byte(-var.offset);
-						break;
-					case type_string:
-						compile_push_number(MOV_RAX_TO_RBP, 3);
-						compile_push_byte(-var.offset);
-						break;
-				}
-
+				compile_variable_statement(statement.variable_statement);
 				break;
 			case CALL_STATEMENT:
 				compile_call_expr(statement.call_statement.expr->call);
 				break;
 			case IF_STATEMENT:
-				assert(false);
+				compile_if_statement(statement.if_statement);
+
 // 				serialize_append("if (");
 // 				serialize_expr(statement.if_statement.condition);
 // 				serialize_append(") {\n");
@@ -3514,7 +3530,7 @@ static void compile_statements(struct statement *statements_offset, size_t state
 // 				serialize_append_indents(depth);
 // 				serialize_append("}");
 
-// 				break;
+				break;
 			case RETURN_STATEMENT:
 				assert(false);
 // 				serialize_append("return");
