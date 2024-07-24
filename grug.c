@@ -1068,7 +1068,7 @@ enum token_type {
 	FALSE_TOKEN,
 	IF_TOKEN,
 	ELSE_TOKEN,
-	LOOP_TOKEN,
+	WHILE_TOKEN,
 	BREAK_TOKEN,
 	RETURN_TOKEN,
 	CONTINUE_TOKEN,
@@ -1111,7 +1111,7 @@ static char *get_token_type_str[] = {
 	[FALSE_TOKEN] = "FALSE_TOKEN",
 	[IF_TOKEN] = "IF_TOKEN",
 	[ELSE_TOKEN] = "ELSE_TOKEN",
-	[LOOP_TOKEN] = "LOOP_TOKEN",
+	[WHILE_TOKEN] = "WHILE_TOKEN",
 	[BREAK_TOKEN] = "BREAK_TOKEN",
 	[RETURN_TOKEN] = "RETURN_TOKEN",
 	[CONTINUE_TOKEN] = "CONTINUE_TOKEN",
@@ -1303,9 +1303,9 @@ static void tokenize(char *grug_text) {
 		} else if (grug_text[i + 0] == 'e' && grug_text[i + 1] == 'l' && grug_text[i + 2] == 's' && grug_text[i + 3] == 'e' && is_end_of_word(grug_text[i + 4])) {
 			push_token(ELSE_TOKEN, grug_text+i, 4);
 			i += 4;
-		} else if (grug_text[i + 0] == 'l' && grug_text[i + 1] == 'o' && grug_text[i + 2] == 'o' && grug_text[i + 3] == 'p' && is_end_of_word(grug_text[i + 4])) {
-			push_token(LOOP_TOKEN, grug_text+i, 4);
-			i += 4;
+		} else if (grug_text[i + 0] == 'w' && grug_text[i + 1] == 'h' && grug_text[i + 2] == 'i' && grug_text[i + 3] == 'l' && grug_text[i + 4] == 'e' && is_end_of_word(grug_text[i + 5])) {
+			push_token(WHILE_TOKEN, grug_text+i, 5);
+			i += 5;
 		} else if (grug_text[i + 0] == 'b' && grug_text[i + 1] == 'r' && grug_text[i + 2] == 'e' && grug_text[i + 3] == 'a' && grug_text[i + 4] == 'k' && is_end_of_word(grug_text[i + 5])) {
 			push_token(BREAK_TOKEN, grug_text+i, 5);
 			i += 5;
@@ -1476,7 +1476,7 @@ static void verify_and_trim_spaces(void) {
 			case FALSE_TOKEN:
 			case IF_TOKEN:
 			case ELSE_TOKEN:
-			case LOOP_TOKEN:
+			case WHILE_TOKEN:
 			case BREAK_TOKEN:
 			case RETURN_TOKEN:
 			case CONTINUE_TOKEN:
@@ -1526,7 +1526,7 @@ static void verify_and_trim_spaces(void) {
 					case ELSE_TOKEN: // Skip the space in "} else"
 						assert_spaces(i, 1);
 						break;
-					case LOOP_TOKEN:
+					case WHILE_TOKEN:
 					case BREAK_TOKEN:
 					case RETURN_TOKEN:
 					case CONTINUE_TOKEN:
@@ -1683,7 +1683,8 @@ struct return_statement {
 	bool has_value;
 };
 
-struct loop_statement {
+struct while_statement {
+	struct expr condition;
 	struct statement *body_statements;
 	size_t body_statement_count;
 };
@@ -1694,7 +1695,7 @@ struct statement {
 		CALL_STATEMENT,
 		IF_STATEMENT,
 		RETURN_STATEMENT,
-		LOOP_STATEMENT,
+		WHILE_STATEMENT,
 		BREAK_STATEMENT,
 		CONTINUE_STATEMENT,
 	} type;
@@ -1703,7 +1704,7 @@ struct statement {
 		struct call_statement call_statement;
 		struct if_statement if_statement;
 		struct return_statement return_statement;
-		struct loop_statement loop_statement;
+		struct while_statement while_statement;
 	};
 };
 static char *get_statement_type_str[] = {
@@ -1711,7 +1712,7 @@ static char *get_statement_type_str[] = {
 	[CALL_STATEMENT] = "CALL_STATEMENT",
 	[IF_STATEMENT] = "IF_STATEMENT",
 	[RETURN_STATEMENT] = "RETURN_STATEMENT",
-	[LOOP_STATEMENT] = "LOOP_STATEMENT",
+	[WHILE_STATEMENT] = "WHILE_STATEMENT",
 	[BREAK_STATEMENT] = "BREAK_STATEMENT",
 	[CONTINUE_STATEMENT] = "CONTINUE_STATEMENT",
 };
@@ -2098,6 +2099,16 @@ static struct expr parse_expression(size_t *i) {
 
 static struct statement *parse_statements(size_t *i, size_t *body_statement_count);
 
+static struct statement parse_while_statement(size_t *i) {
+	struct statement statement = {0};
+	statement.type = WHILE_STATEMENT;
+	statement.while_statement.condition = parse_expression(i);
+
+	statement.while_statement.body_statements = parse_statements(i, &statement.while_statement.body_statement_count);
+
+	return statement;
+}
+
 static struct statement parse_if_statement(size_t *i) {
 	struct statement statement = {0};
 	statement.type = IF_STATEMENT;
@@ -2214,10 +2225,9 @@ static struct statement parse_statement(size_t *i) {
 
 			break;
 		}
-		case LOOP_TOKEN:
+		case WHILE_TOKEN:
 			(*i)++;
-			statement.type = LOOP_STATEMENT;
-			statement.loop_statement.body_statements = parse_statements(i, &statement.loop_statement.body_statement_count);
+			statement = parse_while_statement(i);
 			break;
 		case BREAK_TOKEN:
 			(*i)++;
@@ -2625,11 +2635,16 @@ static void print_statements(struct statement *statements_offset, size_t stateme
 					grug_log("}");
 				}
 				break;
-			case LOOP_STATEMENT:
+			case WHILE_STATEMENT:
 				grug_log(",");
+				grug_log("\"condition\":{");
+				print_expr(statement.while_statement.condition);
+				grug_log("},");
+
 				grug_log("\"statements\":[");
-				print_statements(statement.loop_statement.body_statements, statement.loop_statement.body_statement_count);
+				print_statements(statement.while_statement.body_statements, statement.while_statement.body_statement_count);
 				grug_log("]");
+
 				break;
 			case BREAK_STATEMENT:
 				break;
@@ -3228,13 +3243,22 @@ static void stack_push_rax(void) {
 static void compile_expr(struct expr expr);
 static void compile_statements(struct statement *statements_offset, size_t statement_count);
 
-static void compile_loop_statement(struct loop_statement loop_statement) {
+static void compile_while_statement(struct while_statement while_statement) {
 	size_t start_of_loop_jump_offset = codes_size;
 
-	compile_statements(loop_statement.body_statements, loop_statement.body_statement_count);
+	compile_expr(while_statement.condition);
+	compile_push_number(TEST_RAX_IS_ZERO, 3);
+	compile_push_number(JE_32_BIT_OFFSET, 2);
+	size_t end_jump_offset = codes_size;
+	compile_push_number(PLACEHOLDER_32, 4);
+
+	compile_statements(while_statement.body_statements, while_statement.body_statement_count);
 
 	compile_push_number(JMP_32_BIT_OFFSET, 1);
-	compile_push_number(start_of_loop_jump_offset, 4);
+	// +4 is the address of the next instruction
+	compile_push_number(start_of_loop_jump_offset - (codes_size + 4), 4);
+
+	overwrite_jmp_address(end_jump_offset, codes_size);
 }
 
 static void compile_if_statement(struct if_statement if_statement) {
@@ -3544,8 +3568,8 @@ static void compile_statements(struct statement *statements_offset, size_t state
 				}
 				compile_push_byte(RET);
 				break;
-			case LOOP_STATEMENT:
-				compile_loop_statement(statement.loop_statement);
+			case WHILE_STATEMENT:
+				compile_while_statement(statement.while_statement);
 				break;
 			case BREAK_STATEMENT:
 				assert(false);
@@ -3581,8 +3605,8 @@ static void add_variables_in_statements(struct statement *statements_offset, siz
 				break;
 			case RETURN_STATEMENT:
 				break;
-			case LOOP_STATEMENT:
-				add_variables_in_statements(statement.loop_statement.body_statements, statement.loop_statement.body_statement_count);
+			case WHILE_STATEMENT:
+				add_variables_in_statements(statement.while_statement.body_statements, statement.while_statement.body_statement_count);
 				break;
 			case BREAK_STATEMENT:
 				break;
