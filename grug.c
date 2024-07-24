@@ -3278,7 +3278,7 @@ static void push_break_statement_jump_address_offset(size_t offset) {
 static void push_loop_break_statements(void) {
 	grug_assert(loop_break_statements_stack_size < MAX_LOOP_DEPTH, "There are more than %d loops nested inside each other, exceeding MAX_LOOP_DEPTH", MAX_LOOP_DEPTH);
 
-	loop_break_statements_stack_size++;
+	loop_break_statements_stack[loop_break_statements_stack_size++].break_statements_size = 0;
 }
 
 static void push_start_of_loop_jump_offset(size_t offset) {
