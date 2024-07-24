@@ -2820,6 +2820,7 @@ static void print_ast(void) {
 #define MAX_STACK_SIZE 420420
 #define MAX_VARIABLES_PER_FUNCTION 420
 #define MAX_LOOP_DEPTH 420
+#define MAX_BREAK_STATEMENTS_PER_LOOP 420
 
 // 0xDEADBEEF in little-endian
 #define PLACEHOLDER_16 0xADDE
@@ -2984,8 +2985,15 @@ static size_t variables_stack_bytes;
 static u32 buckets_variables[MAX_VARIABLES_PER_FUNCTION];
 static u32 chains_variables[MAX_VARIABLES_PER_FUNCTION];
 
-static size_t start_of_loop_jump_offset_stack[MAX_LOOP_DEPTH];
-static size_t start_of_loop_jump_offset_stack_size;
+static size_t start_of_loop_jump_offsets[MAX_LOOP_DEPTH];
+static size_t start_of_loop_jump_offsets_size;
+
+struct loop_break_statements {
+	size_t break_statements[MAX_BREAK_STATEMENTS_PER_LOOP];
+	size_t break_statements_size;
+};
+static struct loop_break_statements loop_break_statements_stack[MAX_LOOP_DEPTH];
+static size_t loop_break_statements_stack_size;
 
 static void reset_compiling(void) {
 	codes_size = 0;
@@ -2995,9 +3003,11 @@ static void reset_compiling(void) {
 	helper_fn_calls_size = 0;
 	used_game_fns_size = 0;
 	helper_fn_offsets_size = 0;
-	stack_size = 0;
+	assert(stack_size == 0);
 	variables_size = 0;
 	variables_stack_bytes = 0;
+	assert(start_of_loop_jump_offsets_size == 0);
+	assert(loop_break_statements_stack_size == 0);
 }
 
 static struct variable *get_variable(char *name) {
@@ -3255,16 +3265,33 @@ static void stack_push_rax(void) {
 static void compile_expr(struct expr expr);
 static void compile_statements(struct statement *statements_offset, size_t statement_count);
 
-static void push_start_of_loop_jump_offset(size_t offset) {
-	grug_assert(start_of_loop_jump_offset_stack_size < MAX_LOOP_DEPTH, "There are more than %d offsets in start_of_loop_jump_offset_stack[], exceeding MAX_LOOP_DEPTH", MAX_LOOP_DEPTH);
+static void push_break_statement_jump_address_offset(size_t offset) {
+	grug_assert(loop_break_statements_stack_size > 0, "One of the break statements isn't inside of a while() loop");
 
-	start_of_loop_jump_offset_stack[start_of_loop_jump_offset_stack_size++] = offset;
+	struct loop_break_statements *loop_break_statements = &loop_break_statements_stack[loop_break_statements_stack_size - 1];
+
+	grug_assert(loop_break_statements->break_statements_size < MAX_BREAK_STATEMENTS_PER_LOOP, "There are more than %d break statements in one of the while() loops, exceeding MAX_BREAK_STATEMENTS_PER_LOOP", MAX_BREAK_STATEMENTS_PER_LOOP);
+
+	loop_break_statements->break_statements[loop_break_statements->break_statements_size++] = offset;
+}
+
+static void push_loop_break_statements(void) {
+	grug_assert(loop_break_statements_stack_size < MAX_LOOP_DEPTH, "There are more than %d loops nested inside each other, exceeding MAX_LOOP_DEPTH", MAX_LOOP_DEPTH);
+
+	loop_break_statements_stack_size++;
+}
+
+static void push_start_of_loop_jump_offset(size_t offset) {
+	grug_assert(start_of_loop_jump_offsets_size < MAX_LOOP_DEPTH, "There are more than %d offsets in start_of_loop_jump_offsets[], exceeding MAX_LOOP_DEPTH", MAX_LOOP_DEPTH);
+
+	start_of_loop_jump_offsets[start_of_loop_jump_offsets_size++] = offset;
 }
 
 static void compile_while_statement(struct while_statement while_statement) {
 	size_t start_of_loop_jump_offset = codes_size;
 
 	push_start_of_loop_jump_offset(start_of_loop_jump_offset);
+	push_loop_break_statements();
 
 	compile_expr(while_statement.condition);
 	compile_number(TEST_RAX_IS_ZERO, 3);
@@ -3280,7 +3307,16 @@ static void compile_while_statement(struct while_statement while_statement) {
 
 	overwrite_jmp_address(end_jump_offset, codes_size);
 
-	start_of_loop_jump_offset_stack_size--;
+	struct loop_break_statements *loop_break_statements = &loop_break_statements_stack[loop_break_statements_stack_size - 1];
+
+	for (size_t i = 0; i < loop_break_statements->break_statements_size; i++) {
+		size_t break_statement_codes_offset = loop_break_statements->break_statements[i];
+
+		overwrite_jmp_address(break_statement_codes_offset, codes_size);
+	}
+
+	start_of_loop_jump_offsets_size--;
+	loop_break_statements_stack_size--;
 }
 
 static void compile_if_statement(struct if_statement if_statement) {
@@ -3594,11 +3630,13 @@ static void compile_statements(struct statement *statements_offset, size_t state
 				compile_while_statement(statement.while_statement);
 				break;
 			case BREAK_STATEMENT:
-				assert(false);
+				compile_number(JMP_32_BIT_OFFSET, 1);
+				push_break_statement_jump_address_offset(codes_size);
+				compile_number(PLACEHOLDER_32, 4);
 				break;
 			case CONTINUE_STATEMENT:
 				compile_number(JMP_32_BIT_OFFSET, 1);
-				size_t start_of_loop_jump_offset = start_of_loop_jump_offset_stack[start_of_loop_jump_offset_stack_size - 1];
+				size_t start_of_loop_jump_offset = start_of_loop_jump_offsets[start_of_loop_jump_offsets_size - 1];
 				compile_number(start_of_loop_jump_offset - (codes_size + 4), 4);
 				break;
 		}
@@ -3899,8 +3937,6 @@ static void compile(void) {
 		text_offsets[text_offset_index++] = text_offset;
 		text_offset += codes_size - start_codes_size;
 	}
-
-	assert(stack_size == 0);
 
 	hash_used_game_fns();
 	hash_helper_fn_offsets();
