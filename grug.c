@@ -2819,6 +2819,7 @@ static void print_ast(void) {
 #define MAX_HELPER_FN_OFFSETS 420420
 #define MAX_STACK_SIZE 420420
 #define MAX_VARIABLES_PER_FUNCTION 420
+#define MAX_GLOBAL_VARIABLES_PER_FILE 420
 #define MAX_LOOP_DEPTH 420
 #define MAX_BREAK_STATEMENTS_PER_LOOP 420
 
@@ -2981,9 +2982,15 @@ struct variable {
 };
 static struct variable variables[MAX_VARIABLES_PER_FUNCTION];
 static size_t variables_size;
-static size_t variables_stack_bytes;
+static size_t variables_bytes;
 static u32 buckets_variables[MAX_VARIABLES_PER_FUNCTION];
 static u32 chains_variables[MAX_VARIABLES_PER_FUNCTION];
+
+static struct variable global_variables[MAX_GLOBAL_VARIABLES_PER_FILE];
+static size_t global_variables_size;
+static size_t globals_bytes;
+static u32 buckets_global_variables[MAX_GLOBAL_VARIABLES_PER_FILE];
+static u32 chains_global_variables[MAX_GLOBAL_VARIABLES_PER_FILE];
 
 static size_t start_of_loop_jump_offsets[MAX_LOOP_DEPTH];
 static size_t start_of_loop_jump_offsets_size;
@@ -3005,7 +3012,10 @@ static void reset_compiling(void) {
 	helper_fn_offsets_size = 0;
 	assert(stack_size == 0);
 	variables_size = 0;
-	variables_stack_bytes = 0;
+	variables_bytes = 0;
+	global_variables_size = 0;
+	globals_bytes = 0;
+	memset(buckets_global_variables, UINT32_MAX, MAX_GLOBAL_VARIABLES_PER_FILE * sizeof(u32));
 	assert(start_of_loop_jump_offsets_size == 0);
 	assert(loop_break_statements_stack_size == 0);
 }
@@ -3028,26 +3038,38 @@ static struct variable *get_variable(char *name) {
 	return variables + i;
 }
 
-static void add_variable(char *name, enum type type) {
-	grug_assert(variables_size < MAX_VARIABLES_PER_FUNCTION, "There are more than %d variables in a grug function, exceeding MAX_VARIABLES_PER_FUNCTION", MAX_VARIABLES_PER_FUNCTION);
+static void add_variable(char *name, enum type type, bool is_global) {
+	// TODO: Print the exact grug file path, function and line number
+	grug_assert(variables_size < MAX_VARIABLES_PER_FUNCTION, "There are more than %d variables in a grug file (adding together local and global variables), exceeding MAX_VARIABLES_PER_FUNCTION", MAX_VARIABLES_PER_FUNCTION);
 
-	grug_assert(!get_variable(name), "The variable '%s' has been declared twice in a grug function", name);
+	grug_assert(!get_variable(name), "The variable '%s' shadows an earlier local or global variable with the same name, so change the name of one of them", name);
+
+	if (is_global) {
+		globals_bytes += type_sizes[type];
+	} else {
+		variables_bytes += type_sizes[type];
+	}
 
 	variables[variables_size] = (struct variable){
 		.name = name,
 		.type = type,
-		.offset = variables_stack_bytes + type_sizes[type],
+		.offset = is_global ? globals_bytes : variables_bytes,
+		.is_global = is_global,
 	};
-
-	variables_stack_bytes += type_sizes[type];
 
 	u32 bucket_index = elf_hash(name) % MAX_VARIABLES_PER_FUNCTION;
 
 	chains_variables[variables_size] = buckets_variables[bucket_index];
 
-	buckets_variables[bucket_index] = variables_size;
+	buckets_variables[bucket_index] = variables_size++;
+}
 
-	variables_size++;
+static void add_global_variable(char *name, enum type type) {
+	add_variable(name, type, true);
+}
+
+static void add_local_variable(char *name, enum type type) {
+	add_variable(name, type, false);
 }
 
 static size_t get_helper_fn_offset(char *name) {
@@ -3544,17 +3566,30 @@ static void compile_expr(struct expr expr) {
 			break;
 		case IDENTIFIER_EXPR: {
 			struct variable var = *get_variable(expr.literal.string);
-			switch (var.type) {
-				case type_void:
-					grug_unreachable();
-				case type_i32:
-					compile_number(MOV_RBP_TO_EAX, 2);
-					compile_byte(-var.offset);
-					break;
-				case type_string:
-					compile_number(MOV_RBP_TO_RAX, 3);
-					compile_byte(-var.offset);
-					break;
+			if (var.is_global) {
+				switch (var.type) {
+					case type_void:
+						grug_unreachable();
+					case type_i32:
+						assert(false); // TODO: Implement
+						break;
+					case type_string:
+						assert(false); // TODO: Implement
+						break;
+				}
+			} else {
+				switch (var.type) {
+					case type_void:
+						grug_unreachable();
+					case type_i32:
+						compile_number(MOV_RBP_TO_EAX, 2);
+						compile_byte(-var.offset);
+						break;
+					case type_string:
+						compile_number(MOV_RBP_TO_RAX, 3);
+						compile_byte(-var.offset);
+						break;
+				}
 			}
 			break;
 		}
@@ -3650,7 +3685,7 @@ static void add_variables_in_statements(struct statement *statements_offset, siz
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
 				if (statement.variable_statement.has_type) {
-					add_variable(statement.variable_statement.name, statement.variable_statement.type);
+					add_local_variable(statement.variable_statement.name, statement.variable_statement.type);
 				}
 				break;
 			case CALL_STATEMENT:
@@ -3678,12 +3713,12 @@ static void add_variables_in_statements(struct statement *statements_offset, siz
 
 static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
 	variables_size = 0;
-	variables_stack_bytes = 0;
+	variables_bytes = 0;
 	memset(buckets_variables, UINT32_MAX, MAX_VARIABLES_PER_FUNCTION * sizeof(u32));
 
 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
 		struct argument arg = fn_arguments[argument_index];
-		add_variable(arg.name, arg.type);
+		add_local_variable(arg.name, arg.type);
 	}
 
 	add_variables_in_statements(body_statements, body_statement_count);
@@ -3698,12 +3733,12 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 		// https://staffwww.fullcoll.edu/aclifton/cs241/lecture-stack-c-functions.html#stack-alignment
 
 		// Make space in the stack for the arguments and variables
-		if (variables_stack_bytes < 0xff) {
+		if (variables_bytes < 0xff) {
 			compile_number(SUB_RSP_8_BITS, 3);
-			compile_byte(variables_stack_bytes);
+			compile_byte(variables_bytes);
 		} else {
 			compile_number(SUB_RSP_32_BITS, 3);
-			compile_number(variables_stack_bytes, 4);
+			compile_number(variables_bytes, 4);
 		}
 
 		// Move args
@@ -3896,6 +3931,8 @@ static void compile(void) {
 	size_t ptr_offset = 0;
 	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
 		struct global_variable global_variable = global_variables[global_variable_index];
+
+		add_global_variable(global_variable.name, global_variable.type);
 
 		compile_number(MOV_TO_RDI_PTR, 2);
 
@@ -4498,11 +4535,6 @@ static void push_data(void) {
 
 	// "globals_size" symbol
 	push_nasm_alignment(8);
-	size_t globals_bytes = 0;
-	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
-		struct global_variable global_variable = global_variables[global_variable_index];
-		globals_bytes += type_sizes[global_variable.type];
-	}
 	push_number(globals_bytes, 8);
 
 	// "on_fns" function addresses
