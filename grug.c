@@ -361,7 +361,7 @@ static bool is_duplicate_key(struct json_field *child_fields, size_t field_count
 			return false;
 		}
 
-		if (strcmp(key, child_fields[i].key) == 0) {
+		if (streq(key, child_fields[i].key)) {
 			break;
 		}
 
@@ -1752,14 +1752,16 @@ struct helper_fn {
 };
 static struct helper_fn helper_fns[MAX_HELPER_FNS_IN_FILE];
 static size_t helper_fns_size;
+static u32 buckets_helper_fns[MAX_HELPER_FNS_IN_FILE];
+static u32 chains_helper_fns[MAX_HELPER_FNS_IN_FILE];
 
-struct global_variable {
+struct global_variable_statement {
 	char *name;
 	enum type type;
 	struct expr assignment_expr;
 };
-static struct global_variable global_variables[MAX_GLOBAL_VARIABLES_IN_FILE];
-static size_t global_variables_size;
+static struct global_variable_statement global_variable_statements[MAX_GLOBAL_VARIABLES_IN_FILE];
+static size_t global_variable_statements_size;
 
 static void reset_parsing(void) {
 	exprs_size = 0;
@@ -1768,7 +1770,39 @@ static void reset_parsing(void) {
 	arguments_size = 0;
 	on_fns_size = 0;
 	helper_fns_size = 0;
-	global_variables_size = 0;
+	global_variable_statements_size = 0;
+}
+
+static bool is_helper_fn(char *name) {
+	u32 i = buckets_helper_fns[elf_hash(name) % helper_fns_size];
+
+	while (true) {
+		if (i == UINT32_MAX) {
+			return false;
+		}
+
+		if (streq(name, helper_fns[i].fn_name)) {
+			break;
+		}
+
+		i = chains_helper_fns[i];
+	}
+
+	return true;
+}
+
+static void hash_helper_fns(void) {
+	memset(buckets_helper_fns, UINT32_MAX, helper_fns_size * sizeof(u32));
+
+	for (size_t i = 0; i < helper_fns_size; i++) {
+		char *name = helper_fns[i].fn_name;
+
+		u32 bucket_index = elf_hash(name) % helper_fns_size;
+
+		chains_helper_fns[i] = buckets_helper_fns[bucket_index];
+
+		buckets_helper_fns[bucket_index] = i;
+	}
 }
 
 static void push_helper_fn(struct helper_fn helper_fn) {
@@ -2161,13 +2195,13 @@ static struct variable_statement parse_variable_statement(size_t *i) {
 	return variable_statement;
 }
 
-static void push_global_variable(struct global_variable global_variable) {
-	grug_assert(global_variables_size < MAX_GLOBAL_VARIABLES_IN_FILE, "There are more than %d global variables in the grug file, exceeding MAX_GLOBAL_VARIABLES_IN_FILE", MAX_GLOBAL_VARIABLES_IN_FILE);
-	global_variables[global_variables_size++] = global_variable;
+static void push_global_variable(struct global_variable_statement global_variable) {
+	grug_assert(global_variable_statements_size < MAX_GLOBAL_VARIABLES_IN_FILE, "There are more than %d global variables in the grug file, exceeding MAX_GLOBAL_VARIABLES_IN_FILE", MAX_GLOBAL_VARIABLES_IN_FILE);
+	global_variable_statements[global_variable_statements_size++] = global_variable;
 }
 
 static void parse_global_variable(size_t *i) {
-	struct global_variable global_variable = {0};
+	struct global_variable_statement global_variable = {0};
 
 	struct token name_token = consume_token(i);
 	global_variable.name = name_token.str;
@@ -2501,6 +2535,8 @@ static void parse(void) {
 	}
 
 	grug_assert(seen_define_fn, "Every grug file requires exactly one define_ function");
+
+	hash_helper_fns();
 }
 
 //// PRINTING AST
@@ -2738,12 +2774,12 @@ static void print_on_fns(void) {
 static void print_global_variables(void) {
 	grug_log("\"global_variables\":{");
 
-	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
+	for (size_t global_variable_index = 0; global_variable_index < global_variable_statements_size; global_variable_index++) {
 		if (global_variable_index > 0) {
 			grug_log(",");
 		}
 
-		struct global_variable global_variable = global_variables[global_variable_index];
+		struct global_variable_statement global_variable = global_variable_statements[global_variable_index];
 
 		grug_log("\"%s\":{", global_variable.name);
 
@@ -2819,9 +2855,11 @@ static void print_ast(void) {
 #define MAX_HELPER_FN_OFFSETS 420420
 #define MAX_STACK_SIZE 420420
 #define MAX_VARIABLES_PER_FUNCTION 420
-#define MAX_GLOBAL_VARIABLES_PER_FILE 420
 #define MAX_LOOP_DEPTH 420
 #define MAX_BREAK_STATEMENTS_PER_LOOP 420
+
+#define NEST_INSTRUCTION_OFFSET 4
+#define GLOBAL_VARIABLES_POINTER_SIZE sizeof(void *)
 
 // 0xDEADBEEF in little-endian
 #define PLACEHOLDER_16 0xADDE
@@ -2840,7 +2878,6 @@ enum code {
 	SUB_RSP_8_BITS = 0xec8348, // sub rsp, n
 	SUB_RSP_32_BITS = 0xec8148, // sub rsp, n
 
-	MOV_EDI_TO_RBP = 0x7d89, // mov rbp[n], edi
 	MOV_ESI_TO_RBP = 0x7589, // mov rbp[n], esi
 	MOV_EDX_TO_RBP = 0x5589, // mov rbp[n], edx
 	MOV_ECX_TO_RBP = 0x4d89, // mov rbp[n], ecx
@@ -2986,11 +3023,11 @@ static size_t variables_bytes;
 static u32 buckets_variables[MAX_VARIABLES_PER_FUNCTION];
 static u32 chains_variables[MAX_VARIABLES_PER_FUNCTION];
 
-static struct variable global_variables[MAX_GLOBAL_VARIABLES_PER_FILE];
+static struct variable global_variables[MAX_GLOBAL_VARIABLES_IN_FILE];
 static size_t global_variables_size;
 static size_t globals_bytes;
-static u32 buckets_global_variables[MAX_GLOBAL_VARIABLES_PER_FILE];
-static u32 chains_global_variables[MAX_GLOBAL_VARIABLES_PER_FILE];
+static u32 buckets_global_variables[MAX_GLOBAL_VARIABLES_IN_FILE];
+static u32 chains_global_variables[MAX_GLOBAL_VARIABLES_IN_FILE];
 
 static size_t start_of_loop_jump_offsets[MAX_LOOP_DEPTH];
 static size_t start_of_loop_jump_offsets_size;
@@ -3012,15 +3049,36 @@ static void reset_compiling(void) {
 	helper_fn_offsets_size = 0;
 	assert(stack_size == 0);
 	variables_size = 0;
-	variables_bytes = 0;
 	global_variables_size = 0;
 	globals_bytes = 0;
-	memset(buckets_global_variables, UINT32_MAX, MAX_GLOBAL_VARIABLES_PER_FILE * sizeof(u32));
+	memset(buckets_global_variables, UINT32_MAX, MAX_GLOBAL_VARIABLES_IN_FILE * sizeof(u32));
 	assert(start_of_loop_jump_offsets_size == 0);
 	assert(loop_break_statements_stack_size == 0);
 }
 
-static struct variable *get_variable(char *name) {
+static struct variable *get_global_variable(char *name) {
+	u32 i = buckets_global_variables[elf_hash(name) % MAX_GLOBAL_VARIABLES_IN_FILE];
+
+	while (true) {
+		if (i == UINT32_MAX) {
+			return NULL;
+		}
+
+		if (streq(name, global_variables[i].name)) {
+			break;
+		}
+
+		i = chains_global_variables[i];
+	}
+
+	return global_variables + i;
+}
+
+static struct variable *get_local_variable(char *name) {
+	if (variables_size == 0) {
+		return NULL;
+	}
+
 	u32 i = buckets_variables[elf_hash(name) % MAX_VARIABLES_PER_FUNCTION];
 
 	while (true) {
@@ -3038,23 +3096,41 @@ static struct variable *get_variable(char *name) {
 	return variables + i;
 }
 
-static void add_variable(char *name, enum type type, bool is_global) {
+static void add_global_variable(char *name, enum type type) {
 	// TODO: Print the exact grug file path, function and line number
-	grug_assert(variables_size < MAX_VARIABLES_PER_FUNCTION, "There are more than %d variables in a grug file (adding together local and global variables), exceeding MAX_VARIABLES_PER_FUNCTION", MAX_VARIABLES_PER_FUNCTION);
+	grug_assert(global_variables_size < MAX_GLOBAL_VARIABLES_IN_FILE, "There are more than %d global variables in a grug file, exceeding MAX_GLOBAL_VARIABLES_IN_FILE", MAX_GLOBAL_VARIABLES_IN_FILE);
 
-	grug_assert(!get_variable(name), "The variable '%s' shadows an earlier local or global variable with the same name, so change the name of one of them", name);
+	grug_assert(!get_local_variable(name), "The variable '%s' shadows an earlier local variable with the same name, so change the name of either of them", name);
+	grug_assert(!get_global_variable(name), "The variable '%s' shadows an earlier global variable with the same name, so change the name of either of them", name);
 
-	if (is_global) {
-		globals_bytes += type_sizes[type];
-	} else {
-		variables_bytes += type_sizes[type];
-	}
+	globals_bytes += type_sizes[type];
+
+	global_variables[global_variables_size] = (struct variable){
+		.name = name,
+		.type = type,
+		.offset = globals_bytes,
+	};
+
+	u32 bucket_index = elf_hash(name) % MAX_GLOBAL_VARIABLES_IN_FILE;
+
+	chains_global_variables[global_variables_size] = buckets_global_variables[bucket_index];
+
+	buckets_global_variables[bucket_index] = global_variables_size++;
+}
+
+static void add_local_variable(char *name, enum type type) {
+	// TODO: Print the exact grug file path, function and line number
+	grug_assert(variables_size < MAX_VARIABLES_PER_FUNCTION, "There are more than %d variables in a function, exceeding MAX_VARIABLES_PER_FUNCTION", MAX_VARIABLES_PER_FUNCTION);
+
+	grug_assert(!get_local_variable(name), "The variable '%s' shadows an earlier local variable with the same name, so change the name of either of them", name);
+	grug_assert(!get_global_variable(name), "The variable '%s' shadows an earlier global variable with the same name, so change the name of either of them", name);
+
+	variables_bytes += type_sizes[type];
 
 	variables[variables_size] = (struct variable){
 		.name = name,
 		.type = type,
-		.offset = is_global ? globals_bytes : variables_bytes,
-		.is_global = is_global,
+		.offset = variables_bytes,
 	};
 
 	u32 bucket_index = elf_hash(name) % MAX_VARIABLES_PER_FUNCTION;
@@ -3062,14 +3138,6 @@ static void add_variable(char *name, enum type type, bool is_global) {
 	chains_variables[variables_size] = buckets_variables[bucket_index];
 
 	buckets_variables[bucket_index] = variables_size++;
-}
-
-static void add_global_variable(char *name, enum type type) {
-	add_variable(name, type, true);
-}
-
-static void add_local_variable(char *name, enum type type) {
-	add_variable(name, type, false);
 }
 
 static size_t get_helper_fn_offset(char *name) {
@@ -3324,8 +3392,7 @@ static void compile_while_statement(struct while_statement while_statement) {
 	compile_statements(while_statement.body_statements, while_statement.body_statement_count);
 
 	compile_number(JMP_32_BIT_OFFSET, 1);
-	// +4 is the address of the next instruction
-	compile_number(start_of_loop_jump_offset - (codes_size + 4), 4);
+	compile_number(start_of_loop_jump_offset - (codes_size + NEST_INSTRUCTION_OFFSET), 4);
 
 	overwrite_jmp_address(end_jump_offset, codes_size);
 
@@ -3365,6 +3432,18 @@ static void compile_if_statement(struct if_statement if_statement) {
 }
 
 static void compile_call_expr(struct call_expr call_expr) {
+	size_t popped_argument_count = call_expr.argument_count;
+
+	if (helper_fns_size > 0 && is_helper_fn(call_expr.fn_name)) {
+		// Push the secret global variables pointer argument
+		compile_number(MOV_RBP_TO_RAX, 3);
+		compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
+		stack_push_rax();
+
+		// The secret global variables pointer argument will need to get popped
+		popped_argument_count++;
+	}
+
 	for (size_t i = 0; i < call_expr.argument_count; i++) {
 		struct expr argument = call_expr.arguments[i];
 
@@ -3375,7 +3454,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 		stack_push_rax();
 	}
 
-	stack_pop_arguments(call_expr.argument_count);
+	stack_pop_arguments(popped_argument_count);
 
 	compile_byte(CALL);
 	if (is_game_fn(call_expr.fn_name)) {
@@ -3565,29 +3644,32 @@ static void compile_expr(struct expr expr) {
 
 			break;
 		case IDENTIFIER_EXPR: {
-			struct variable var = *get_variable(expr.literal.string);
-			if (var.is_global) {
-				switch (var.type) {
-					case type_void:
-						grug_unreachable();
-					case type_i32:
-						assert(false); // TODO: Implement
-						break;
-					case type_string:
-						assert(false); // TODO: Implement
-						break;
-				}
-			} else {
-				switch (var.type) {
+			struct variable *var = get_local_variable(expr.literal.string);
+			if (var) {
+				switch (var->type) {
 					case type_void:
 						grug_unreachable();
 					case type_i32:
 						compile_number(MOV_RBP_TO_EAX, 2);
-						compile_byte(-var.offset);
+						compile_byte(-var->offset);
 						break;
 					case type_string:
 						compile_number(MOV_RBP_TO_RAX, 3);
-						compile_byte(-var.offset);
+						compile_byte(-var->offset);
+						break;
+				}
+			} else {
+				var = get_global_variable(expr.literal.string);
+				switch (var->type) {
+					case type_void:
+						grug_unreachable();
+					case type_i32:
+						compile_number(MOV_RBP_TO_EAX, 2);
+						compile_byte(-var->offset);
+						break;
+					case type_string:
+						compile_number(MOV_RBP_TO_RAX, 3);
+						compile_byte(-var->offset);
 						break;
 				}
 			}
@@ -3626,7 +3708,7 @@ static void compile_expr(struct expr expr) {
 static void compile_variable_statement(struct variable_statement variable_statement) {
 	compile_expr(*variable_statement.assignment_expr);
 
-	struct variable var = *get_variable(variable_statement.name);
+	struct variable var = *get_local_variable(variable_statement.name);
 	switch (var.type) {
 		case type_void:
 			grug_unreachable();
@@ -3659,7 +3741,13 @@ static void compile_statements(struct statement *statements_offset, size_t state
 				if (statement.return_statement.has_value) {
 					compile_expr(*statement.return_statement.value);
 				}
+
+				// Function epilogue
+				compile_number(MOV_RBP_TO_RSP, 3);
+				compile_byte(POP_RBP);
+
 				compile_byte(RET);
+
 				break;
 			case WHILE_STATEMENT:
 				compile_while_statement(statement.while_statement);
@@ -3672,7 +3760,7 @@ static void compile_statements(struct statement *statements_offset, size_t state
 			case CONTINUE_STATEMENT:
 				compile_number(JMP_32_BIT_OFFSET, 1);
 				size_t start_of_loop_jump_offset = start_of_loop_jump_offsets[start_of_loop_jump_offsets_size - 1];
-				compile_number(start_of_loop_jump_offset - (codes_size + 4), 4);
+				compile_number(start_of_loop_jump_offset - (codes_size + NEST_INSTRUCTION_OFFSET), 4);
 				break;
 		}
 	}
@@ -3713,7 +3801,8 @@ static void add_variables_in_statements(struct statement *statements_offset, siz
 
 static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
 	variables_size = 0;
-	variables_bytes = 0;
+	// Reserve space for the secret global variables pointer
+	variables_bytes = GLOBAL_VARIABLES_POINTER_SIZE;
 	memset(buckets_variables, UINT32_MAX, MAX_VARIABLES_PER_FUNCTION * sizeof(u32));
 
 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
@@ -3723,65 +3812,68 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 
 	add_variables_in_statements(body_statements, body_statement_count);
 
-	if (variables_size > 0) {
-		// Function prologue
-		compile_byte(PUSH_RBP);
-		compile_number(PUSH_RSP_TO_RBP, 3);
+	// Function prologue
+	compile_byte(PUSH_RBP);
+	compile_number(PUSH_RSP_TO_RBP, 3);
 
-		// TODO: OS X requires 16 byte alignment:
-		// https://norasandler.com/2018/06/27/Write-a-Compiler-9.html
-		// https://staffwww.fullcoll.edu/aclifton/cs241/lecture-stack-c-functions.html#stack-alignment
+	// TODO: OS X requires 16 byte alignment:
+	// https://norasandler.com/2018/06/27/Write-a-Compiler-9.html
+	// https://staffwww.fullcoll.edu/aclifton/cs241/lecture-stack-c-functions.html#stack-alignment
 
-		// Make space in the stack for the arguments and variables
-		if (variables_bytes < 0xff) {
-			compile_number(SUB_RSP_8_BITS, 3);
-			compile_byte(variables_bytes);
-		} else {
-			compile_number(SUB_RSP_32_BITS, 3);
-			compile_number(variables_bytes, 4);
+	// Make space in the stack for the arguments and variables
+	if (variables_bytes < 0xff) {
+		compile_number(SUB_RSP_8_BITS, 3);
+		compile_byte(variables_bytes);
+	} else {
+		compile_number(SUB_RSP_32_BITS, 3);
+		compile_number(variables_bytes, 4);
+	}
+
+	// We need to push the secret global variables pointer to the function call's stack frame,
+	// because the RDI register will get clobbered when this function calls another function:
+	// https://stackoverflow.com/a/55387707/13279557
+	compile_number(MOV_RDI_TO_RBP, 3);
+	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
+
+	// Move the rest of the arguments
+	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
+		struct argument arg = fn_arguments[argument_index];
+
+		// We skip EDI/RDI, since that is reserved by the secret global variables pointer
+		switch (arg.type) {
+			case type_void:
+				grug_unreachable();
+			case type_i32:
+				compile_unpadded_number((enum code[]){
+					MOV_ESI_TO_RBP,
+					MOV_EDX_TO_RBP,
+					MOV_ECX_TO_RBP,
+					MOV_R8D_TO_RBP,
+					MOV_R9D_TO_RBP,
+				}[argument_index]);
+				break;
+			case type_string:
+				compile_number((enum code[]){
+					MOV_RSI_TO_RBP,
+					MOV_RDX_TO_RBP,
+					MOV_RCX_TO_RBP,
+					MOV_R8_TO_RBP,
+					MOV_R9_TO_RBP,
+				}[argument_index], 3);
+				break;
 		}
 
-		// Move args
-		for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
-			struct argument arg = fn_arguments[argument_index];
-
-			switch (arg.type) {
-				case type_void:
-					grug_unreachable();
-				case type_i32:
-					compile_unpadded_number((enum code[]){
-						MOV_EDI_TO_RBP,
-						MOV_ESI_TO_RBP,
-						MOV_EDX_TO_RBP,
-						MOV_ECX_TO_RBP,
-						MOV_R8D_TO_RBP,
-						MOV_R9D_TO_RBP,
-					}[argument_index]);
-					break;
-				case type_string:
-					compile_number((enum code[]){
-						MOV_RDI_TO_RBP,
-						MOV_RSI_TO_RBP,
-						MOV_RDX_TO_RBP,
-						MOV_RCX_TO_RBP,
-						MOV_R8_TO_RBP,
-						MOV_R9_TO_RBP,
-					}[argument_index], 3);
-					break;
-			}
-
-			// TODO: Support offsets greater than 256 bytes
-			compile_byte(-get_variable(arg.name)->offset);
-		}
+		size_t offset = get_local_variable(arg.name)->offset;
+		// TODO: Support offset >= 256 bytes, and add a test for it
+		grug_assert(offset < 256, "Currently grug doesn't allow function arguments to use more than 256 bytes in the function's stack frame, so use fewer arguments for the time being");
+		compile_byte(-offset);
 	}
 
 	compile_statements(body_statements, body_statement_count);
 
-	if (variables_size > 0) {
-		// Function epilogue
-		compile_number(MOV_RBP_TO_RSP, 3);
-		compile_byte(POP_RBP);
-	}
+	// Function epilogue
+	compile_number(MOV_RBP_TO_RSP, 3);
+	compile_byte(POP_RBP);
 
 	compile_byte(RET);
 }
@@ -3929,14 +4021,14 @@ static void compile(void) {
 	// init_globals()
 	size_t start_codes_size = codes_size;
 	size_t ptr_offset = 0;
-	for (size_t global_variable_index = 0; global_variable_index < global_variables_size; global_variable_index++) {
-		struct global_variable global_variable = global_variables[global_variable_index];
+	for (size_t global_variable_index = 0; global_variable_index < global_variable_statements_size; global_variable_index++) {
+		struct global_variable_statement global_variable = global_variable_statements[global_variable_index];
 
 		add_global_variable(global_variable.name, global_variable.type);
 
 		compile_number(MOV_TO_RDI_PTR, 2);
 
-		// TODO: Add a grug test for this, cause I want it to be able to handle when ptr_offset is >= 256
+		// TODO: Add a test for this, cause I want it to be able to handle when ptr_offset is >= 256
 		grug_assert(ptr_offset < 256, "Currently grug only supports up to 64 global variables");
 		compile_byte(ptr_offset);
 		ptr_offset += sizeof(u32);
@@ -4288,11 +4380,9 @@ static void patch_text(void) {
 
 		size_t string_address = data_offset + data_string_offsets[string_index];
 
-		// rip/PC (program counter) has +4,
-		// because that's the address of the next instruction,
-		// which is used for RIP-relative addressing
-		size_t next_instruction_address = text_offset + code_offset + 4;
+		size_t next_instruction_address = text_offset + code_offset + NEST_INSTRUCTION_OFFSET;
 
+		// RIP-relative address of data string
 		size_t string_offset = string_address - next_instruction_address;
 
 		overwrite_32(string_offset, text_offset + code_offset);
