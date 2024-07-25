@@ -2869,7 +2869,7 @@ static void print_ast(void) {
 enum code {
 	CALL = 0xe8, // call foo
 	RET = 0xc3, // ret
-	MOV_TO_RDI_PTR = 0x47c7, // mov dword [rdi+offset], n
+	MOV_TO_RDI_PTR = 0x47c7, // mov dword rdi[n], n
 
 	PUSH_RAX = 0x50, // push rax
 
@@ -2896,6 +2896,14 @@ enum code {
 
 	MOV_EAX_TO_RBP = 0x4589, // mov rbp[n], eax
 	MOV_RAX_TO_RBP = 0x458948, // mov rbp[n], rax
+
+	DEREF_RBP_TO_R11 = 0x5d8b4c, // mov r11, rbp[n]
+
+	DEREFERENCE_RAX_TO_EAX = 0x408b, // mov eax, rax[n]
+	DEREFERENCE_RAX_TO_RAX = 0x408b48, // mov rax, rax[n]
+
+	MOV_EAX_TO_DEREFERENCED_R11 = 0x438941, // mov r11[n], eax
+	MOV_RAX_TO_DEREFERENCED_R11 = 0x438949, // mov r11[n], rax
 
 	MOV_RBP_TO_RSP = 0xec8948, // mov rsp, rbp
 	POP_RBP = 0x5d, // pop rbp
@@ -2936,7 +2944,7 @@ enum code {
 	POP_R9 = 0x5941, // pop r9
 
 	XOR_CLEAR_EAX = 0xc031, // xor eax, eax
-    LEA_TO_RAX = 0x58d48, // lea rax, [rel strings+offset]
+    LEA_TO_RAX = 0x58d48, // lea rax, strings[rel n]
 	MOV_1_TO_EAX = 0x1b8, // mov eax, 1
 
 	MOV_TO_EAX = 0xb8, // mov eax, n
@@ -2948,12 +2956,12 @@ enum code {
 	MOV_TO_R8D = 0xb841, // mov r8, n
 	MOV_TO_R9D = 0xb941, // mov r9, n
 
-	LEA_TO_RDI = 0x3d8d48, // lea rdi, [rel strings+offset]
-	LEA_TO_RSI = 0x358d48, // lea rsi, [rel strings+offset]
-	LEA_TO_RDX = 0x158d48, // lea rdx, [rel strings+offset]
-	LEA_TO_RCX = 0x0d8d48, // lea rcx, [rel strings+offset]
-	LEA_TO_R8 = 0x058d4c, // lea r8, [rel strings+offset]
-	LEA_TO_R9 = 0x0d8d4c, // lea r9, [rel strings+offset]
+	LEA_TO_RDI = 0x3d8d48, // lea rdi, strings[rel n]
+	LEA_TO_RSI = 0x358d48, // lea rsi, strings[rel n]
+	LEA_TO_RDX = 0x158d48, // lea rdx, strings[rel n]
+	LEA_TO_RCX = 0x0d8d48, // lea rcx, strings[rel n]
+	LEA_TO_R8 = 0x058d4c, // lea r8, strings[rel n]
+	LEA_TO_R9 = 0x0d8d4c, // lea r9, strings[rel n]
 };
 
 struct data_string_code {
@@ -3103,13 +3111,13 @@ static void add_global_variable(char *name, enum type type) {
 	grug_assert(!get_local_variable(name), "The variable '%s' shadows an earlier local variable with the same name, so change the name of either of them", name);
 	grug_assert(!get_global_variable(name), "The variable '%s' shadows an earlier global variable with the same name, so change the name of either of them", name);
 
-	globals_bytes += type_sizes[type];
-
 	global_variables[global_variables_size] = (struct variable){
 		.name = name,
 		.type = type,
 		.offset = globals_bytes,
 	};
+
+	globals_bytes += type_sizes[type];
 
 	u32 bucket_index = elf_hash(name) % MAX_GLOBAL_VARIABLES_IN_FILE;
 
@@ -3645,20 +3653,39 @@ static void compile_expr(struct expr expr) {
 			break;
 		case IDENTIFIER_EXPR: {
 			struct variable *var = get_local_variable(expr.literal.string);
-			if (!var) {
+			if (var) {
+				// TODO: Support any 32 bit offset, instead of only 8 bits
+				switch (var->type) {
+					case type_void:
+						grug_unreachable();
+					case type_i32:
+						compile_number(MOV_RBP_TO_EAX, 2);
+						compile_byte(-var->offset);
+						break;
+					case type_string:
+						compile_number(MOV_RBP_TO_RAX, 3);
+						compile_byte(-var->offset);
+						break;
+				}
+			} else {
 				var = get_global_variable(expr.literal.string);
-			}
-			switch (var->type) {
-				case type_void:
-					grug_unreachable();
-				case type_i32:
-					compile_number(MOV_RBP_TO_EAX, 2);
-					compile_byte(-var->offset);
-					break;
-				case type_string:
-					compile_number(MOV_RBP_TO_RAX, 3);
-					compile_byte(-var->offset);
-					break;
+
+				compile_unpadded_number(MOV_RBP_TO_RAX);
+				compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
+
+				// TODO: Support any 32 bit offset, instead of only 8 bits
+				switch (var->type) {
+					case type_void:
+						grug_unreachable();
+					case type_i32:
+						compile_unpadded_number(DEREFERENCE_RAX_TO_EAX);
+						compile_byte(var->offset);
+						break;
+					case type_string:
+						compile_unpadded_number(DEREFERENCE_RAX_TO_RAX);
+						compile_byte(var->offset);
+						break;
+				}
 			}
 			break;
 		}
@@ -3696,20 +3723,39 @@ static void compile_variable_statement(struct variable_statement variable_statem
 	compile_expr(*variable_statement.assignment_expr);
 
 	struct variable *var = get_local_variable(variable_statement.name);
-	if (!var) {
+	if (var) {
+		// TODO: Support any 32 bit offset, instead of only 8 bits
+		switch (var->type) {
+			case type_void:
+				grug_unreachable();
+			case type_i32:
+				compile_number(MOV_EAX_TO_RBP, 2);
+				compile_byte(-var->offset);
+				break;
+			case type_string:
+				compile_number(MOV_RAX_TO_RBP, 3);
+				compile_byte(-var->offset);
+				break;
+		}
+	} else {
 		var = get_global_variable(variable_statement.name);
-	}
-	switch (var->type) {
-		case type_void:
-			grug_unreachable();
-		case type_i32:
-			compile_number(MOV_EAX_TO_RBP, 2);
-			compile_byte(-var->offset);
-			break;
-		case type_string:
-			compile_number(MOV_RAX_TO_RBP, 3);
-			compile_byte(-var->offset);
-			break;
+
+		compile_unpadded_number(DEREF_RBP_TO_R11);
+		compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
+
+		// TODO: Support any 32 bit offset, instead of only 8 bits
+		switch (var->type) {
+			case type_void:
+				grug_unreachable();
+			case type_i32:
+				compile_unpadded_number(MOV_EAX_TO_DEREFERENCED_R11);
+				compile_byte(var->offset);
+				break;
+			case type_string:
+				compile_unpadded_number(MOV_RAX_TO_DEREFERENCED_R11);
+				compile_byte(var->offset);
+				break;
+		}
 	}
 }
 
