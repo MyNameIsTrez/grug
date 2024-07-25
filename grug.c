@@ -3859,12 +3859,16 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 	// https://staffwww.fullcoll.edu/aclifton/cs241/lecture-stack-c-functions.html#stack-alignment
 
 	// Make space in the stack for the arguments and variables
-	if (variables_bytes < 0xff) {
+	// This is because SYS V requires 16-byte stack alignment: https://stackoverflow.com/q/49391001/13279557
+	size_t multiple = 0x10;
+	// From https://stackoverflow.com/a/9194117/13279557
+	size_t stack_bytes = (variables_bytes + multiple - 1) & -multiple;
+	if (stack_bytes < 0xff) {
 		compile_unpadded_number(SUB_RSP_8_BITS);
-		compile_byte(variables_bytes);
+		compile_byte(stack_bytes);
 	} else {
 		compile_unpadded_number(SUB_RSP_32_BITS);
-		compile_padded_number(variables_bytes, 4);
+		compile_padded_number(stack_bytes, 4);
 	}
 
 	// We need to push the secret global variables pointer to the function call's stack frame,
