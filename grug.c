@@ -2900,15 +2900,15 @@ enum code {
 	MOV_RBP_TO_RSP = 0xec8948, // mov rsp, rbp
 	POP_RBP = 0x5d, // pop rbp
 
-	ADD_RBX_TO_RAX = 0xd80148, // add rax, rbx
-	SUBTRACT_RBX_FROM_RAX = 0xd82948, // sub rax, rbx
-	MULTIPLY_RAX_BY_RBX = 0xebf748, // imul rbx
+	ADD_R11_TO_RAX = 0xd8014c, // add rax, r11
+	SUBTRACT_R11_FROM_RAX = 0xd8294c, // sub rax, r11
+	MULTIPLY_RAX_BY_R11 = 0xebf749, // imul r11
 
 	CQO_CLEAR_BEFORE_DIVISION = 0x9948, // cqo
-	DIVIDE_RAX_BY_RBX = 0xfbf748, // idiv rbx
+	DIVIDE_RAX_BY_R11 = 0xfbf749, // idiv r11
 	MOV_RDX_TO_RAX = 0xd08948, // mov rax, rdx
 
-	CMP_RAX_WITH_RBX = 0xd83948, // cmp rax, rbx
+	CMP_RAX_WITH_R11 = 0xd8394c, // cmp rax, r11
 
 	NEGATE_RAX = 0xd8f748, // neg rax
 
@@ -2926,7 +2926,7 @@ enum code {
 	SETLT_AL = 0xc09c0f, // setl al
 	SETLE_AL = 0xc09e0f, // setle al
 
-	POP_RBX = 0x5b, // pop rbx
+	POP_R11 = 0x5b41, // pop r11
 
 	POP_RDI = 0x5f, // pop rdi
 	POP_RSI = 0x5e, // pop rsi
@@ -3342,7 +3342,7 @@ static void stack_pop_rbx(void) {
 	assert(stack_size > 0);
 	--stack_size;
 
-	compile_byte(POP_RBX);
+	compile_unpadded_number(POP_R11);
 }
 
 static void stack_push_rax(void) {
@@ -3513,55 +3513,55 @@ static void compile_binary_expr(struct binary_expr binary_expr) {
 
 	switch (binary_expr.operator) {
 		case PLUS_TOKEN:
-			compile_number(ADD_RBX_TO_RAX, 3);
+			compile_number(ADD_R11_TO_RAX, 3);
 			break;
 		case MINUS_TOKEN:
-			compile_number(SUBTRACT_RBX_FROM_RAX, 3);
+			compile_number(SUBTRACT_R11_FROM_RAX, 3);
 			break;
 		case MULTIPLICATION_TOKEN:
-			compile_number(MULTIPLY_RAX_BY_RBX, 3);
+			compile_number(MULTIPLY_RAX_BY_R11, 3);
 			break;
 		case DIVISION_TOKEN:
 			compile_number(CQO_CLEAR_BEFORE_DIVISION, 2);
-			compile_number(DIVIDE_RAX_BY_RBX, 3);
+			compile_number(DIVIDE_RAX_BY_R11, 3);
 			break;
 		case REMAINDER_TOKEN:
 			compile_number(CQO_CLEAR_BEFORE_DIVISION, 2);
-			compile_number(DIVIDE_RAX_BY_RBX, 3);
+			compile_number(DIVIDE_RAX_BY_R11, 3);
 			compile_number(MOV_RDX_TO_RAX, 3);
 			break;
 		case EQUALS_TOKEN:
-			compile_number(CMP_RAX_WITH_RBX, 3);
+			compile_number(CMP_RAX_WITH_R11, 3);
 			compile_number(MOV_TO_EAX, 1);
 			compile_number(0, 4);
 			compile_number(SETE_AL, 3);
 			break;
 		case NOT_EQUALS_TOKEN:
-			compile_number(CMP_RAX_WITH_RBX, 3);
+			compile_number(CMP_RAX_WITH_R11, 3);
 			compile_number(MOV_TO_EAX, 1);
 			compile_number(0, 4);
 			compile_number(SETNE_AL, 3);
 			break;
 		case GREATER_OR_EQUAL_TOKEN:
-			compile_number(CMP_RAX_WITH_RBX, 3);
+			compile_number(CMP_RAX_WITH_R11, 3);
 			compile_number(MOV_TO_EAX, 1);
 			compile_number(0, 4);
 			compile_number(SETGE_AL, 3);
 			break;
 		case GREATER_TOKEN:
-			compile_number(CMP_RAX_WITH_RBX, 3);
+			compile_number(CMP_RAX_WITH_R11, 3);
 			compile_number(MOV_TO_EAX, 1);
 			compile_number(0, 4);
 			compile_number(SETGT_AL, 3);
 			break;
 		case LESS_OR_EQUAL_TOKEN:
-			compile_number(CMP_RAX_WITH_RBX, 3);
+			compile_number(CMP_RAX_WITH_R11, 3);
 			compile_number(MOV_TO_EAX, 1);
 			compile_number(0, 4);
 			compile_number(SETLE_AL, 3);
 			break;
 		case LESS_TOKEN:
-			compile_number(CMP_RAX_WITH_RBX, 3);
+			compile_number(CMP_RAX_WITH_R11, 3);
 			compile_number(MOV_TO_EAX, 1);
 			compile_number(0, 4);
 			compile_number(SETLT_AL, 3);
@@ -3645,33 +3645,20 @@ static void compile_expr(struct expr expr) {
 			break;
 		case IDENTIFIER_EXPR: {
 			struct variable *var = get_local_variable(expr.literal.string);
-			if (var) {
-				switch (var->type) {
-					case type_void:
-						grug_unreachable();
-					case type_i32:
-						compile_number(MOV_RBP_TO_EAX, 2);
-						compile_byte(-var->offset);
-						break;
-					case type_string:
-						compile_number(MOV_RBP_TO_RAX, 3);
-						compile_byte(-var->offset);
-						break;
-				}
-			} else {
+			if (!var) {
 				var = get_global_variable(expr.literal.string);
-				switch (var->type) {
-					case type_void:
-						grug_unreachable();
-					case type_i32:
-						compile_number(MOV_RBP_TO_EAX, 2);
-						compile_byte(-var->offset);
-						break;
-					case type_string:
-						compile_number(MOV_RBP_TO_RAX, 3);
-						compile_byte(-var->offset);
-						break;
-				}
+			}
+			switch (var->type) {
+				case type_void:
+					grug_unreachable();
+				case type_i32:
+					compile_number(MOV_RBP_TO_EAX, 2);
+					compile_byte(-var->offset);
+					break;
+				case type_string:
+					compile_number(MOV_RBP_TO_RAX, 3);
+					compile_byte(-var->offset);
+					break;
 			}
 			break;
 		}
@@ -3708,17 +3695,20 @@ static void compile_expr(struct expr expr) {
 static void compile_variable_statement(struct variable_statement variable_statement) {
 	compile_expr(*variable_statement.assignment_expr);
 
-	struct variable var = *get_local_variable(variable_statement.name);
-	switch (var.type) {
+	struct variable *var = get_local_variable(variable_statement.name);
+	if (!var) {
+		var = get_global_variable(variable_statement.name);
+	}
+	switch (var->type) {
 		case type_void:
 			grug_unreachable();
 		case type_i32:
 			compile_number(MOV_EAX_TO_RBP, 2);
-			compile_byte(-var.offset);
+			compile_byte(-var->offset);
 			break;
 		case type_string:
 			compile_number(MOV_RAX_TO_RBP, 3);
-			compile_byte(-var.offset);
+			compile_byte(-var->offset);
 			break;
 	}
 }
