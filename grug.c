@@ -2869,7 +2869,7 @@ static void print_ast(void) {
 enum code {
 	CALL = 0xe8, // call foo
 	RET = 0xc3, // ret
-	MOV_TO_RDI_PTR = 0x47c7, // mov dword rdi[n], n
+	MOV_TO_DEREF_RDI = 0x47c7, // mov dword rdi[n], n
 
 	PUSH_RAX = 0x50, // push rax
 
@@ -2878,32 +2878,32 @@ enum code {
 	SUB_RSP_8_BITS = 0xec8348, // sub rsp, n
 	SUB_RSP_32_BITS = 0xec8148, // sub rsp, n
 
-	MOV_ESI_TO_RBP = 0x7589, // mov rbp[n], esi
-	MOV_EDX_TO_RBP = 0x5589, // mov rbp[n], edx
-	MOV_ECX_TO_RBP = 0x4d89, // mov rbp[n], ecx
-	MOV_R8D_TO_RBP = 0x458944, // mov rbp[n], r8d
-	MOV_R9D_TO_RBP = 0x4d8944, // mov rbp[n], r9d
+	MOV_ESI_TO_DEREF_RBP = 0x7589, // mov rbp[n], esi
+	MOV_EDX_TO_DEREF_RBP = 0x5589, // mov rbp[n], edx
+	MOV_ECX_TO_DEREF_RBP = 0x4d89, // mov rbp[n], ecx
+	MOV_R8D_TO_DEREF_RBP = 0x458944, // mov rbp[n], r8d
+	MOV_R9D_TO_DEREF_RBP = 0x4d8944, // mov rbp[n], r9d
 
-	MOV_RDI_TO_RBP = 0x7d8948, // mov rbp[n], rdi
-	MOV_RSI_TO_RBP = 0x758948, // mov rbp[n], rsi
-	MOV_RDX_TO_RBP = 0x558948, // mov rbp[n], rdx
-	MOV_RCX_TO_RBP = 0x4d8948, // mov rbp[n], rcx
-	MOV_R8_TO_RBP = 0x45894c, // mov rbp[n], r8
-	MOV_R9_TO_RBP = 0x4d894c, // mov rbp[n], r9
+	MOV_RDI_TO_DEREF_RBP = 0x7d8948, // mov rbp[n], rdi
+	MOV_RSI_TO_DEREF_RBP = 0x758948, // mov rbp[n], rsi
+	MOV_RDX_TO_DEREF_RBP = 0x558948, // mov rbp[n], rdx
+	MOV_RCX_TO_DEREF_RBP = 0x4d8948, // mov rbp[n], rcx
+	MOV_R8_TO_DEREF_RBP = 0x45894c, // mov rbp[n], r8
+	MOV_R9_TO_DEREF_RBP = 0x4d894c, // mov rbp[n], r9
 
-	MOV_RBP_TO_EAX = 0x458b, // mov eax, rbp[n]
-	MOV_RBP_TO_RAX = 0x458b48, // mov rax, rbp[n]
+	DEREF_RBP_TO_EAX = 0x458b, // mov eax, rbp[n]
+	DEREF_RBP_TO_RAX = 0x458b48, // mov rax, rbp[n]
 
-	MOV_EAX_TO_RBP = 0x4589, // mov rbp[n], eax
-	MOV_RAX_TO_RBP = 0x458948, // mov rbp[n], rax
+	MOV_EAX_TO_DEREF_RBP = 0x4589, // mov rbp[n], eax
+	MOV_RAX_TO_DEREF_RBP = 0x458948, // mov rbp[n], rax
 
 	DEREF_RBP_TO_R11 = 0x5d8b4c, // mov r11, rbp[n]
 
-	DEREFERENCE_RAX_TO_EAX = 0x408b, // mov eax, rax[n]
-	DEREFERENCE_RAX_TO_RAX = 0x408b48, // mov rax, rax[n]
+	DEREF_RAX_TO_EAX = 0x408b, // mov eax, rax[n]
+	DEREF_RAX_TO_RAX = 0x408b48, // mov rax, rax[n]
 
-	MOV_EAX_TO_DEREFERENCED_R11 = 0x438941, // mov r11[n], eax
-	MOV_RAX_TO_DEREFERENCED_R11 = 0x438949, // mov r11[n], rax
+	MOV_EAX_TO_DEREF_R11 = 0x438941, // mov r11[n], eax
+	MOV_RAX_TO_DEREF_R11 = 0x438949, // mov r11[n], rax
 
 	MOV_RBP_TO_RSP = 0xec8948, // mov rsp, rbp
 	POP_RBP = 0x5d, // pop rbp
@@ -2944,7 +2944,7 @@ enum code {
 	POP_R9 = 0x5941, // pop r9
 
 	XOR_CLEAR_EAX = 0xc031, // xor eax, eax
-    LEA_TO_RAX = 0x58d48, // lea rax, strings[rel n]
+    LEA_STRINGS_TO_RAX = 0x58d48, // lea rax, strings[rel n]
 	MOV_1_TO_EAX = 0x1b8, // mov eax, 1
 
 	MOV_TO_EAX = 0xb8, // mov eax, n
@@ -2956,12 +2956,12 @@ enum code {
 	MOV_TO_R8D = 0xb841, // mov r8, n
 	MOV_TO_R9D = 0xb941, // mov r9, n
 
-	LEA_TO_RDI = 0x3d8d48, // lea rdi, strings[rel n]
-	LEA_TO_RSI = 0x358d48, // lea rsi, strings[rel n]
-	LEA_TO_RDX = 0x158d48, // lea rdx, strings[rel n]
-	LEA_TO_RCX = 0x0d8d48, // lea rcx, strings[rel n]
-	LEA_TO_R8 = 0x058d4c, // lea r8, strings[rel n]
-	LEA_TO_R9 = 0x0d8d4c, // lea r9, strings[rel n]
+	LEA_STRINGS_TO_RDI = 0x3d8d48, // lea rdi, strings[rel n]
+	LEA_STRINGS_TO_RSI = 0x358d48, // lea rsi, strings[rel n]
+	LEA_STRINGS_TO_RDX = 0x158d48, // lea rdx, strings[rel n]
+	LEA_STRINGS_TO_RCX = 0x0d8d48, // lea rcx, strings[rel n]
+	LEA_STRINGS_TO_R8 = 0x058d4c, // lea r8, strings[rel n]
+	LEA_STRINGS_TO_R9 = 0x0d8d4c, // lea r9, strings[rel n]
 };
 
 struct data_string_code {
@@ -3444,7 +3444,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 
 	if (helper_fns_size > 0 && is_helper_fn(call_expr.fn_name)) {
 		// Push the secret global variables pointer argument
-		compile_number(MOV_RBP_TO_RAX, 3);
+		compile_number(DEREF_RBP_TO_RAX, 3);
 		compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 		stack_push_rax();
 
@@ -3644,7 +3644,7 @@ static void compile_expr(struct expr expr) {
 		case STRING_EXPR:
             add_data_string(expr.literal.string);
 
-			compile_number(LEA_TO_RAX, 3);
+			compile_number(LEA_STRINGS_TO_RAX, 3);
 
             // RIP-relative address of data string
             push_data_string_code(expr.literal.string, codes_size);
@@ -3659,18 +3659,18 @@ static void compile_expr(struct expr expr) {
 					case type_void:
 						grug_unreachable();
 					case type_i32:
-						compile_number(MOV_RBP_TO_EAX, 2);
+						compile_number(DEREF_RBP_TO_EAX, 2);
 						compile_byte(-var->offset);
 						break;
 					case type_string:
-						compile_number(MOV_RBP_TO_RAX, 3);
+						compile_number(DEREF_RBP_TO_RAX, 3);
 						compile_byte(-var->offset);
 						break;
 				}
 			} else {
 				var = get_global_variable(expr.literal.string);
 
-				compile_unpadded_number(MOV_RBP_TO_RAX);
+				compile_unpadded_number(DEREF_RBP_TO_RAX);
 				compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 
 				// TODO: Support any 32 bit offset, instead of only 8 bits
@@ -3678,11 +3678,11 @@ static void compile_expr(struct expr expr) {
 					case type_void:
 						grug_unreachable();
 					case type_i32:
-						compile_unpadded_number(DEREFERENCE_RAX_TO_EAX);
+						compile_unpadded_number(DEREF_RAX_TO_EAX);
 						compile_byte(var->offset);
 						break;
 					case type_string:
-						compile_unpadded_number(DEREFERENCE_RAX_TO_RAX);
+						compile_unpadded_number(DEREF_RAX_TO_RAX);
 						compile_byte(var->offset);
 						break;
 				}
@@ -3729,11 +3729,11 @@ static void compile_variable_statement(struct variable_statement variable_statem
 			case type_void:
 				grug_unreachable();
 			case type_i32:
-				compile_number(MOV_EAX_TO_RBP, 2);
+				compile_number(MOV_EAX_TO_DEREF_RBP, 2);
 				compile_byte(-var->offset);
 				break;
 			case type_string:
-				compile_number(MOV_RAX_TO_RBP, 3);
+				compile_number(MOV_RAX_TO_DEREF_RBP, 3);
 				compile_byte(-var->offset);
 				break;
 		}
@@ -3748,11 +3748,11 @@ static void compile_variable_statement(struct variable_statement variable_statem
 			case type_void:
 				grug_unreachable();
 			case type_i32:
-				compile_unpadded_number(MOV_EAX_TO_DEREFERENCED_R11);
+				compile_unpadded_number(MOV_EAX_TO_DEREF_R11);
 				compile_byte(var->offset);
 				break;
 			case type_string:
-				compile_unpadded_number(MOV_RAX_TO_DEREFERENCED_R11);
+				compile_unpadded_number(MOV_RAX_TO_DEREF_R11);
 				compile_byte(var->offset);
 				break;
 		}
@@ -3868,7 +3868,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 	// We need to push the secret global variables pointer to the function call's stack frame,
 	// because the RDI register will get clobbered when this function calls another function:
 	// https://stackoverflow.com/a/55387707/13279557
-	compile_number(MOV_RDI_TO_RBP, 3);
+	compile_number(MOV_RDI_TO_DEREF_RBP, 3);
 	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 
 	// Move the rest of the arguments
@@ -3881,20 +3881,20 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 				grug_unreachable();
 			case type_i32:
 				compile_unpadded_number((enum code[]){
-					MOV_ESI_TO_RBP,
-					MOV_EDX_TO_RBP,
-					MOV_ECX_TO_RBP,
-					MOV_R8D_TO_RBP,
-					MOV_R9D_TO_RBP,
+					MOV_ESI_TO_DEREF_RBP,
+					MOV_EDX_TO_DEREF_RBP,
+					MOV_ECX_TO_DEREF_RBP,
+					MOV_R8D_TO_DEREF_RBP,
+					MOV_R9D_TO_DEREF_RBP,
 				}[argument_index]);
 				break;
 			case type_string:
 				compile_number((enum code[]){
-					MOV_RSI_TO_RBP,
-					MOV_RDX_TO_RBP,
-					MOV_RCX_TO_RBP,
-					MOV_R8_TO_RBP,
-					MOV_R9_TO_RBP,
+					MOV_RSI_TO_DEREF_RBP,
+					MOV_RDX_TO_DEREF_RBP,
+					MOV_RCX_TO_DEREF_RBP,
+					MOV_R8_TO_DEREF_RBP,
+					MOV_R9_TO_DEREF_RBP,
 				}[argument_index], 3);
 				break;
 		}
@@ -3928,12 +3928,12 @@ static void compile_returned_field(struct expr expr_value, size_t argument_index
 		compile_number(expr_value.literal.i32, 4);
 	} else if (expr_value.type == STRING_EXPR) {
 		compile_number((enum code[]){
-			LEA_TO_RDI,
-			LEA_TO_RSI,
-			LEA_TO_RDX,
-			LEA_TO_RCX,
-			LEA_TO_R8,
-			LEA_TO_R9,
+			LEA_STRINGS_TO_RDI,
+			LEA_STRINGS_TO_RSI,
+			LEA_STRINGS_TO_RDX,
+			LEA_STRINGS_TO_RCX,
+			LEA_STRINGS_TO_R8,
+			LEA_STRINGS_TO_R9,
 		}[argument_index], 3);
 
 		// RIP-relative address of data string
@@ -4062,7 +4062,7 @@ static void compile(void) {
 
 		add_global_variable(global_variable.name, global_variable.type);
 
-		compile_number(MOV_TO_RDI_PTR, 2);
+		compile_number(MOV_TO_DEREF_RDI, 2);
 
 		// TODO: Add a test for this, cause I want it to be able to handle when ptr_offset is >= 256
 		grug_assert(ptr_offset < 256, "Currently grug only supports up to 64 global variables");
