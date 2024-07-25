@@ -1550,9 +1550,7 @@ static void verify_and_trim_spaces(void) {
 						// but the problem is that a standalone comment is allowed to have indentation
 						// assert_spaces(i, 1);
 
-						grug_assert(strlen(next_token.str) >= 2 && next_token.str[1] == ' ', "Expected the comment token '%s' to start with a space character at token index %zu", next_token.str, i + 1);
-
-						grug_assert(strlen(next_token.str) >= 3 && !isspace(next_token.str[2]), "Expected the comment token '%s' to have a text character directly after the space at token index %zu", next_token.str, i + 1);
+						grug_assert(strlen(next_token.str) >= 2 && next_token.str[1] == ' ', "Expected a single space between the ';' in '%s' and the rest of the comment at token index %zu", next_token.str, i + 1);
 
 						grug_assert(!isspace(next_token.str[strlen(next_token.str) - 1]), "Unexpected trailing whitespace in the comment token '%s' at token index %zu", next_token.str, i + 1);
 
