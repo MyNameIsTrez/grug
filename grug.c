@@ -160,7 +160,7 @@ static char *get_file_extension(char *filename) {
 
 //// OPENING RESOURCES
 
-// TODO: Also call this from parse_global_resources_fn()
+// TODO: Also call this from skip_tokens_of_global_resources_fn()
 // static void open_resource(char *path) {
 // }
 
@@ -2482,7 +2482,7 @@ static void parse_define_fn(size_t *i) {
 	potentially_skip_comment(i);
 }
 
-static void parse_global_resources_fn(size_t *i) {
+static void skip_tokens_of_global_resources_fn(size_t *i) {
 	consume_token(i); // The function name is always "global_resources"
 	consume_token_type(i, OPEN_PARENTHESIS_TOKEN);
 	consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
@@ -2511,7 +2511,7 @@ static void parse(void) {
 		if (       type == WORD_TOKEN && streq(token.str, "global_resources") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			grug_assert(!seen_global_resources_fn, "There can't be more than one global_resources function in a grug file");
 			grug_assert(!seen_define_fn, "Move the define_ function below the global_resources function");
-			parse_global_resources_fn(&i);
+			skip_tokens_of_global_resources_fn(&i);
 			seen_global_resources_fn = true;
 		} else if (type == WORD_TOKEN && streq(token.str, "define") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			grug_assert(!seen_define_fn, "There can't be more than one define_ function in a grug file");
@@ -2520,7 +2520,7 @@ static void parse(void) {
 		} else if (type == WORD_TOKEN && starts_with(token.str, "on_") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			grug_assert(seen_define_fn, "Move the on_ function '%s' below the define_ function", token.str);
 			parse_on_fn(&i);
-		} else if (type == WORD_TOKEN && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
+		} else if (type == WORD_TOKEN && starts_with(token.str, "helper_") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			parse_helper_fn(&i);
 		} else if (type == WORD_TOKEN && peek_token(i + 1).type == COLON_TOKEN) {
 			grug_assert(seen_define_fn, "Move the global variable '%s' below the define_ function", token.str);
