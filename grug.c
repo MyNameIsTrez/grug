@@ -2186,6 +2186,9 @@ static struct variable_statement parse_variable_statement(size_t *i) {
 	}
 
 	token = peek_token(*i);
+	if (variable_statement.has_type) {
+		grug_assert(token.type == ASSIGNMENT_TOKEN, "The variable '%s' was given a type, but should also be given an initial value at token index %zu", variable_statement.name, *i - 3);
+	}
 	if (token.type == ASSIGNMENT_TOKEN) {
 		(*i)++;
 		variable_statement.has_assignment = true;
