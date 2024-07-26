@@ -1772,6 +1772,10 @@ static void reset_parsing(void) {
 }
 
 static bool is_helper_fn(char *name) {
+	if (helper_fns_size == 0) {
+		return false;
+	}
+
 	u32 i = buckets_helper_fns[elf_hash(name) % helper_fns_size];
 
 	while (true) {
@@ -3233,6 +3237,10 @@ static void hash_used_game_fns(void) {
 }
 
 static bool is_game_fn(char *name) {
+	if (grug_game_functions_size == 0) {
+		return false;
+	}
+
 	u32 i = buckets_game_fns[elf_hash(name) % grug_game_functions_size];
 
 	while (true) {
@@ -3462,7 +3470,7 @@ static size_t get_padding(void) {
 static void compile_call_expr(struct call_expr call_expr) {
 	size_t popped_argument_count = call_expr.argument_count;
 
-	if (helper_fns_size > 0 && is_helper_fn(call_expr.fn_name)) {
+	if (is_helper_fn(call_expr.fn_name)) {
 		// Push the secret global variables pointer argument
 		compile_unpadded_number(DEREF_RBP_TO_RAX);
 		compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
@@ -3494,10 +3502,15 @@ static void compile_call_expr(struct call_expr call_expr) {
 
 	compile_byte(CALL);
 
-	if (is_game_fn(call_expr.fn_name)) {
-		push_game_fn_call(call_expr.fn_name, codes_size);
+	char *fn_name = call_expr.fn_name;
+	if (is_game_fn(fn_name)) {
+		push_game_fn_call(fn_name, codes_size);
+	} else if (is_helper_fn(fn_name)) {
+		push_helper_fn_call(fn_name, codes_size);
+	} else if (starts_with(fn_name, "helper_")) {
+		grug_error("The helper function '%s' does not exist", fn_name);
 	} else {
-		push_helper_fn_call(call_expr.fn_name, codes_size);
+		grug_error("The game function '%s' does not exist", fn_name);
 	}
 	compile_unpadded_number(PLACEHOLDER_32);
 
@@ -4433,14 +4446,16 @@ static void patch_text(void) {
 		struct fn_call fn_call = game_fn_calls[i];
 		size_t offset = text_offset + fn_call.codes_offset;
 		size_t address_after_call_instruction = offset + next_instruction_offset;
-		overwrite_32((PLT_OFFSET + get_game_fn_offset(fn_call.fn_name)) - address_after_call_instruction, offset);
+		size_t game_fn_plt_offset = PLT_OFFSET + get_game_fn_offset(fn_call.fn_name);
+		overwrite_32(game_fn_plt_offset - address_after_call_instruction, offset);
 	}
 
 	for (size_t i = 0; i < helper_fn_calls_size; i++) {
 		struct fn_call fn_call = helper_fn_calls[i];
 		size_t offset = text_offset + fn_call.codes_offset;
 		size_t address_after_call_instruction = offset + next_instruction_offset;
-		overwrite_32((text_offset + get_helper_fn_offset(fn_call.fn_name)) - address_after_call_instruction, offset);
+		size_t helper_fn_text_offset = text_offset + get_helper_fn_offset(fn_call.fn_name);
+		overwrite_32(helper_fn_text_offset - address_after_call_instruction, offset);
 	}
 
 	for (size_t i = 0; i < data_string_codes_size; i++) {
