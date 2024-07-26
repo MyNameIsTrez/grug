@@ -2873,11 +2873,13 @@ enum code {
 	MOV_TO_DEREF_RDI = 0x47c7, // mov dword rdi[n], n
 
 	PUSH_RAX = 0x50, // push rax
-
 	PUSH_RBP = 0x55, // push rbp
-	PUSH_RSP_TO_RBP = 0xe58948, // push rbp, rsp
+	PUSH_32_BITS = 0x68, // push n
+
+	MOV_RSP_TO_RBP = 0xe58948, // mov rbp, rsp
 	SUB_RSP_8_BITS = 0xec8348, // sub rsp, n
 	SUB_RSP_32_BITS = 0xec8148, // sub rsp, n
+	ADD_RSP_8_BITS = 0xc48348, // add rsp, n
 
 	MOV_ESI_TO_DEREF_RBP = 0x7589, // mov rbp[n], esi
 	MOV_EDX_TO_DEREF_RBP = 0x5589, // mov rbp[n], edx
@@ -2962,6 +2964,10 @@ enum code {
 	LEA_STRINGS_TO_RCX = 0x0d8d48, // lea rcx, strings[rel n]
 	LEA_STRINGS_TO_R8 = 0x058d4c, // lea r8, strings[rel n]
 	LEA_STRINGS_TO_R9 = 0x0d8d4c, // lea r9, strings[rel n]
+
+	NOP_32_BITS = 0x401f0f, // no nasm equivalent
+	PUSH_REL = 0x35ff, // TODO: what nasm is this?
+	JMP_REL = 0x25ff, // TODO: what nasm is this?
 };
 
 struct data_string_code {
@@ -3027,7 +3033,6 @@ struct variable {
 };
 static struct variable variables[MAX_VARIABLES_PER_FUNCTION];
 static size_t variables_size;
-static size_t variables_bytes;
 static u32 buckets_variables[MAX_VARIABLES_PER_FUNCTION];
 static u32 chains_variables[MAX_VARIABLES_PER_FUNCTION];
 
@@ -3036,6 +3041,8 @@ static size_t global_variables_size;
 static size_t globals_bytes;
 static u32 buckets_global_variables[MAX_GLOBAL_VARIABLES_IN_FILE];
 static u32 chains_global_variables[MAX_GLOBAL_VARIABLES_IN_FILE];
+
+static size_t stack_frame_bytes;
 
 static size_t start_of_loop_jump_offsets[MAX_LOOP_DEPTH];
 static size_t start_of_loop_jump_offsets_size;
@@ -3133,12 +3140,12 @@ static void add_local_variable(char *name, enum type type) {
 	grug_assert(!get_local_variable(name), "The variable '%s' shadows an earlier local variable with the same name, so change the name of either of them", name);
 	grug_assert(!get_global_variable(name), "The variable '%s' shadows an earlier global variable with the same name, so change the name of either of them", name);
 
-	variables_bytes += type_sizes[type];
+	stack_frame_bytes += type_sizes[type];
 
 	variables[variables_size] = (struct variable){
 		.name = name,
 		.type = type,
-		.offset = variables_bytes,
+		.offset = stack_frame_bytes,
 	};
 
 	u32 bucket_index = elf_hash(name) % MAX_VARIABLES_PER_FUNCTION;
@@ -3315,6 +3322,8 @@ static void stack_pop_arguments(size_t argument_count) {
 	assert(stack_size >= argument_count);
 	stack_size -= argument_count;
 
+	stack_frame_bytes -= sizeof(uint64_t) * argument_count;
+
 	switch (argument_count) {
 		case 6:
 			compile_unpadded_number(POP_R9);
@@ -3346,11 +3355,12 @@ static void overwrite_jmp_address(size_t jump_address, size_t size) {
 	}
 }
 
-static void stack_pop_rbx(void) {
+static void stack_pop_r11(void) {
 	assert(stack_size > 0);
 	--stack_size;
 
 	compile_unpadded_number(POP_R11);
+	stack_frame_bytes -= sizeof(uint64_t);
 }
 
 static void stack_push_rax(void) {
@@ -3358,6 +3368,7 @@ static void stack_push_rax(void) {
 	stack_size++;
 
 	compile_byte(PUSH_RAX);
+	stack_frame_bytes += sizeof(uint64_t);
 }
 
 static void compile_expr(struct expr expr);
@@ -3439,6 +3450,15 @@ static void compile_if_statement(struct if_statement if_statement) {
 	}
 }
 
+// 0 0000 => 0 0000
+// 0 0001 => 0 1111 (NOT 1 1111, due to the `& 0xf`)
+// 0 1111 => 0 0001
+// 1 0000 => 0 0000
+// 1 0001 => 0 1111
+static size_t get_padding(void) {
+	return -stack_frame_bytes & 0xf;
+}
+
 static void compile_call_expr(struct call_expr call_expr) {
 	size_t popped_argument_count = call_expr.argument_count;
 
@@ -3464,13 +3484,31 @@ static void compile_call_expr(struct call_expr call_expr) {
 
 	stack_pop_arguments(popped_argument_count);
 
+	// Ensures the call will be 16-byte aligned
+	size_t padding = get_padding();
+	if (padding > 0) {
+		compile_unpadded_number(SUB_RSP_8_BITS);
+		compile_byte(padding);
+		stack_frame_bytes += padding;
+	}
+
 	compile_byte(CALL);
+
 	if (is_game_fn(call_expr.fn_name)) {
 		push_game_fn_call(call_expr.fn_name, codes_size);
 	} else {
 		push_helper_fn_call(call_expr.fn_name, codes_size);
 	}
 	compile_unpadded_number(PLACEHOLDER_32);
+
+	// Ensures the top of the stack is where it was before the alignment,
+	// which is important during nested expressions, since they expect
+	// the top of the stack to hold their intermediate values
+	if (padding > 0) {
+		compile_unpadded_number(ADD_RSP_8_BITS);
+		compile_byte(padding);
+		stack_frame_bytes += padding;
+	}
 }
 
 static void compile_logical_expr(struct binary_expr logical_expr) {
@@ -3518,7 +3556,7 @@ static void compile_binary_expr(struct binary_expr binary_expr) {
 	compile_expr(*binary_expr.right_expr);
 	stack_push_rax();
 	compile_expr(*binary_expr.left_expr);
-	stack_pop_rbx();
+	stack_pop_r11();
 
 	switch (binary_expr.operator) {
 		case PLUS_TOKEN:
@@ -3840,9 +3878,10 @@ static void add_variables_in_statements(struct statement *statements_offset, siz
 
 static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
 	variables_size = 0;
-	// Reserve space for the secret global variables pointer
-	variables_bytes = GLOBAL_VARIABLES_POINTER_SIZE;
 	memset(buckets_variables, UINT32_MAX, MAX_VARIABLES_PER_FUNCTION * sizeof(u32));
+
+	// Reserve space for the secret global variables pointer
+	stack_frame_bytes = GLOBAL_VARIABLES_POINTER_SIZE;
 
 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
 		struct argument arg = fn_arguments[argument_index];
@@ -3853,23 +3892,22 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 
 	// Function prologue
 	compile_byte(PUSH_RBP);
-	compile_unpadded_number(PUSH_RSP_TO_RBP);
-
-	// TODO: OS X requires 16 byte alignment:
-	// https://norasandler.com/2018/06/27/Write-a-Compiler-9.html
-	// https://staffwww.fullcoll.edu/aclifton/cs241/lecture-stack-c-functions.html#stack-alignment
+	// Deliberately leaving this out, so we don't have to worry about adding 8
+	// after turning stack_frame_bytes into a multiple of 16
+	// stack_frame_bytes += sizeof(uint64_t);
+	compile_unpadded_number(MOV_RSP_TO_RBP);
 
 	// Make space in the stack for the arguments and variables
-	// This is because SYS V requires 16-byte stack alignment: https://stackoverflow.com/q/49391001/13279557
+	// The System V ABI requires 16-byte stack alignment: https://stackoverflow.com/q/49391001/13279557
+	// stack_frame_bytes gets rounded up to 16, from https://stackoverflow.com/a/9194117/13279557
 	size_t multiple = 0x10;
-	// From https://stackoverflow.com/a/9194117/13279557
-	size_t stack_bytes = (variables_bytes + multiple - 1) & -multiple;
-	if (stack_bytes < 0xff) {
+	stack_frame_bytes = (stack_frame_bytes + multiple - 1) & -multiple;
+	if (stack_frame_bytes < 0xff) {
 		compile_unpadded_number(SUB_RSP_8_BITS);
-		compile_byte(stack_bytes);
+		compile_byte(stack_frame_bytes);
 	} else {
 		compile_unpadded_number(SUB_RSP_32_BITS);
-		compile_padded_number(stack_bytes, 4);
+		compile_padded_number(stack_frame_bytes, 4);
 	}
 
 	// We need to push the secret global variables pointer to the function call's stack frame,
@@ -4137,14 +4175,6 @@ static void compile(void) {
 #else
 #define grug_log_section(section_name)
 #endif
-
-enum opcodes {
-	PUSH_BYTE = 0x68,
-	JMP_ABS = 0xe9,
-	JMP_REL = 0x25ff,
-	PUSH_REL = 0x35ff,
-	NOP = 0x401f0f,
-};
 
 static size_t shindex_hash;
 static size_t shindex_dynsym;
@@ -4769,12 +4799,12 @@ static void push_plt(void) {
 
 	plt_offset = bytes_size;
 
-	// TODO: Figure out what these instructions represent
+	// See this for an explanation: https://stackoverflow.com/q/76987336/13279557
 	push_number(PUSH_REL, 2);
 	push_number(0x2002, 4);
 	push_number(JMP_REL, 2);
 	push_number(0x2004, 4);
-	push_number(NOP, 4);
+	push_number(NOP_32_BITS, 4); // See https://reverseengineering.stackexchange.com/a/11973
 
 	size_t pushed_plt_entries = 0;
 	size_t offset = 0x10;
@@ -4794,9 +4824,9 @@ static void push_plt(void) {
 			size_t next_instruction_offset = 4;
 			push_number(got_plt_fn_address - (bytes_size + next_instruction_offset), 4);
 			got_plt_fn_address += 0x8;
-			push_byte(PUSH_BYTE);
+			push_byte(PUSH_32_BITS);
 			push_number(pushed_plt_entries++, 4);
-			push_byte(JMP_ABS);
+			push_byte(JMP_32_BIT_OFFSET);
 			push_game_fn_offset(name, offset);
 			size_t offset_to_start_of_plt = -offset - 0x10;
 			push_number(offset_to_start_of_plt, 4);
