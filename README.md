@@ -1,5 +1,7 @@
 # grug
 
+<img src="https://github.com/user-attachments/assets/030798b8-88bb-4c45-ba42-b79bb1b1e12c" width=200 />
+
 See [my blog post](https://mynameistrez.github.io/2024/02/29/creating-the-perfect-modding-language.html) for an introduction to the grug modding language.
 
 You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
