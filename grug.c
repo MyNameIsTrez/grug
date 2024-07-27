@@ -32,9 +32,9 @@
 // 
 // ## Options
 // 
-// Search for `#define` in `grug.c` (with Ctrl+F). All the defines are configurable.
+// Search for `#define` in this file (with Ctrl+F). All the defines are configurable.
 // 
-// If you want to allow your compiler to optimize `grug.c` extra hard, add `-DCRASH_ON_UNREACHABLE` during compilation.
+// If you want to allow your compiler to optimize this file extra hard, add `-DCRASH_ON_UNREACHABLE` during compilation.
 
 //// INCLUDES AND DEFINES
 
