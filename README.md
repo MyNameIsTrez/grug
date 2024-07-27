@@ -4,7 +4,7 @@ See [my blog post](https://mynameistrez.github.io/2024/02/29/creating-the-perfec
 
 You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
 
-`grug.c` contains an MIT license at the very bottom, so you don't need to copy the `LICENSE` file at the root of this project to your repository. `grug.h` has the same MIT license.
+`grug.c` contains documentation at the top, and the MIT license at the very bottom. `grug.h` refers to the MIT license in `grug.c`.
 
 ## Sections
 
