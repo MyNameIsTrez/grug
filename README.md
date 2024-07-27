@@ -4,7 +4,7 @@ See [my blog post](https://mynameistrez.github.io/2024/02/29/creating-the-perfec
 
 You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
 
-`grug.c` contains documentation at the top, and the MIT license at the very bottom. `grug.h` refers to the MIT license in `grug.c`.
+`grug.c` contains documentation at the top of the file, and the MIT license at the very bottom. `grug.h` refers to the MIT license in `grug.c`.
 
 ## Sections
 
