@@ -1,3 +1,43 @@
+//// GRUG DOCUMENTATION
+//
+// See the bottom of this file for the MIT license
+// 
+// See [my blog post](https://mynameistrez.github.io/2024/02/29/creating-the-perfect-modding-language.html) for an introduction to the grug modding language.
+// 
+// You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
+// 
+// ## Sections
+// 
+// This file is composed of sections, which you can jump between by searching for `////` in the file:
+// 
+// 1. GRUG DOCUMENTATION
+// 2. INCLUDES AND DEFINES
+// 3. UTILS
+// 4. OPENING RESOURCES
+// 5. JSON
+// 6. PARSING MOD API JSON
+// 7. READING
+// 8. TOKENIZATION
+// 9. VERIFY AND TRIM SPACES
+// 10. PARSING
+// 11. PRINTING AST
+// 12. COMPILING
+// 13. LINKING
+// 14. HOT RELOADING
+// 
+// ## Small example programs
+// 
+// - [terminal fighting game](https://github.com/MyNameIsTrez/grug-terminal-fighting-game)
+// - [grug benchmarks](https://github.com/MyNameIsTrez/grug-benchmarks)
+// 
+// ## Options
+// 
+// Search for `#define` in `grug.c` (with Ctrl+F). All the defines are configurable.
+// 
+// If you want to allow your compiler to optimize `grug.c` extra hard, add `-DCRASH_ON_UNREACHABLE` during compilation.
+
+//// INCLUDES AND DEFINES
+
 #include "grug.h"
 
 #include <assert.h>
@@ -5827,3 +5867,25 @@ bool grug_regenerate_modified_mods(void) {
 	reload_modified_mods(MODS_DIR_PATH, DLL_DIR_PATH, &grug_mods);
 	return false;
 }
+
+// MIT License
+
+// Copyright (c) 2024 MyNameIsTrez
+
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.

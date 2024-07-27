@@ -1,3 +1,5 @@
+// See the bottom of grug.c for the MIT license, which also applies to this file
+
 #pragma once
 
 #include <stdbool.h>

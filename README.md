@@ -4,22 +4,26 @@ See [my blog post](https://mynameistrez.github.io/2024/02/29/creating-the-perfec
 
 You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
 
+`grug.c` contains an MIT license at the very bottom, so you don't need to copy the `LICENSE` file at the root of this project to your repository. `grug.h` has the same MIT license.
+
 ## Sections
 
 `grug.c` is composed of sections, which you can jump between by searching for `////` in the file:
 
-1. UTILS
-2. OPENING RESOURCES
-3. JSON
-4. PARSING MOD API JSON
-5. READING
-6. TOKENIZATION
-7. VERIFY AND TRIM SPACES
-8. PARSING
-9. PRINTING AST
-10. COMPILING
-11. LINKING
-12. HOT RELOADING
+1. GRUG DOCUMENTATION
+2. INCLUDES AND DEFINES
+3. UTILS
+4. OPENING RESOURCES
+5. JSON
+6. PARSING MOD API JSON
+7. READING
+8. TOKENIZATION
+9. VERIFY AND TRIM SPACES
+10. PARSING
+11. PRINTING AST
+12. COMPILING
+13. LINKING
+14. HOT RELOADING
 
 ## Small example programs
 
