@@ -1411,7 +1411,7 @@ static void tokenize(char *grug_text) {
 			} while (isdigit(grug_text[i]));
 
 			push_token(NUMBER_TOKEN, str, i - old_i);
-		} else if (grug_text[i] == ';') {
+		} else if (grug_text[i] == '#') {
 			char *str = grug_text+i;
 			size_t old_i = i;
 
@@ -1590,7 +1590,7 @@ static void verify_and_trim_spaces(void) {
 						// but the problem is that a standalone comment is allowed to have indentation
 						// assert_spaces(i, 1);
 
-						grug_assert(strlen(next_token.str) >= 2 && next_token.str[1] == ' ', "Expected a single space between the ';' in '%s' and the rest of the comment at token index %zu", next_token.str, i + 1);
+						grug_assert(strlen(next_token.str) >= 2 && next_token.str[1] == ' ', "Expected a single space between the '#' in '%s' and the rest of the comment at token index %zu", next_token.str, i + 1);
 
 						grug_assert(!isspace(next_token.str[strlen(next_token.str) - 1]), "Unexpected trailing whitespace in the comment token '%s' at token index %zu", next_token.str, i + 1);
 
