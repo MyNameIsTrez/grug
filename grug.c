@@ -1,15 +1,15 @@
 //// GRUG DOCUMENTATION
 //
 // See the bottom of this file for the MIT license
-// 
+//
 // See [my blog post](https://mynameistrez.github.io/2024/02/29/creating-the-perfect-modding-language.html) for an introduction to the grug modding language.
-// 
+//
 // You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
-// 
+//
 // ## Sections
-// 
+//
 // This file is composed of sections, which you can jump between by searching for `////` in the file:
-// 
+//
 // 1. GRUG DOCUMENTATION
 // 2. INCLUDES AND DEFINES
 // 3. UTILS
@@ -24,16 +24,16 @@
 // 12. COMPILING
 // 13. LINKING
 // 14. HOT RELOADING
-// 
+//
 // ## Small example programs
-// 
+//
 // - [terminal fighting game](https://github.com/MyNameIsTrez/grug-terminal-fighting-game)
 // - [grug benchmarks](https://github.com/MyNameIsTrez/grug-benchmarks)
-// 
+//
 // ## Options
-// 
+//
 // Search for `#define` in this file (with Ctrl+F). All the defines are configurable.
-// 
+//
 // If you want to allow your compiler to optimize this file extra hard, add the compiler flag `-DCRASH_ON_UNREACHABLE`.
 
 //// INCLUDES AND DEFINES
