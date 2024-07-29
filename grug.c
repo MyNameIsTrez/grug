@@ -753,14 +753,17 @@ void json(char *json_file_path, struct json_node *returned) {
 enum type {
 	type_void,
 	type_i32,
+	type_f32,
 	type_string,
 };
 static char *type_names[] = {
 	[type_i32] = "i32",
+	[type_f32] = "f32",
 	[type_string] = "string",
 };
 static size_t type_sizes[] = {
 	[type_i32] = sizeof(int32_t),
+	[type_f32] = sizeof(float),
 	[type_string] = sizeof(char *),
 };
 
@@ -826,12 +829,15 @@ static enum type parse_type(char *type) {
 	if (streq(type, "i32")) {
 		return type_i32;
 	}
+	if (streq(type, "f32")) {
+		return type_f32;
+	}
 	if (streq(type, "string")) {
 		return type_string;
 	}
 
 	// TODO: Make sure to add any new types to this error message
-	grug_error("Types must be one of i32/string");
+	grug_error("The type '%s' must be changed to one of i32/f32/string", type);
 }
 
 static void init_game_fns(struct json_object fns) {
