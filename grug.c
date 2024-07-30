@@ -125,10 +125,10 @@ static jmp_buf error_jmp_buffer;
 
 //// UTILS
 
-#define TEMP_MAX_STRINGS_CHARACTERS 420420
+#define MAX_TEMP_STRINGS_CHARACTERS 420420
 #define BFD_HASH_BUCKET_SIZE 4051 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l345
 
-static char temp_strings[TEMP_MAX_STRINGS_CHARACTERS];
+static char temp_strings[MAX_TEMP_STRINGS_CHARACTERS];
 static size_t temp_strings_size;
 
 static void reset_utils(void) {
@@ -137,7 +137,7 @@ static void reset_utils(void) {
 
 // This string array gets reset by every regenerate_dll() call
 static char *push_temp_string(char *slice_start, size_t length) {
-	grug_assert(temp_strings_size + length < TEMP_MAX_STRINGS_CHARACTERS, "There are more than %d characters in the temp_strings array, exceeding TEMP_MAX_STRINGS_CHARACTERS", TEMP_MAX_STRINGS_CHARACTERS);
+	grug_assert(temp_strings_size + length < MAX_TEMP_STRINGS_CHARACTERS, "There are more than %d characters in the temp_strings array, exceeding MAX_TEMP_STRINGS_CHARACTERS", MAX_TEMP_STRINGS_CHARACTERS);
 
 	char *new_str = temp_strings + temp_strings_size;
 
@@ -2896,6 +2896,9 @@ static void print_ast(void) {
 
 //// COMPILING
 
+#define GAME_FN_PREFIX "game_fn_"
+
+#define MAX_USED_GAME_FN_SYMBOLS_CHARACTERS 420420
 #define MAX_SYMBOLS 420420
 #define MAX_CODES 420420
 #define MAX_DATA_STRINGS 420420
@@ -3063,6 +3066,9 @@ static char *used_game_fns[MAX_USED_GAME_FNS];
 static size_t used_game_fns_size;
 static u32 buckets_used_game_fns[BFD_HASH_BUCKET_SIZE];
 static u32 chains_used_game_fns[MAX_USED_GAME_FNS];
+
+static char used_game_fn_symbols[MAX_USED_GAME_FN_SYMBOLS_CHARACTERS];
+static size_t used_game_fn_symbols_size;
 
 struct fn_offset {
 	char *fn_name;
@@ -3262,11 +3268,30 @@ static bool has_used_game_fn(char *name) {
 	return true;
 }
 
+static char *push_used_game_fn_symbol(char *name) {
+	size_t length = strlen(name);
+	size_t game_fn_prefix_length = sizeof(GAME_FN_PREFIX) - 1;
+
+	grug_assert(used_game_fn_symbols_size + game_fn_prefix_length + length < MAX_USED_GAME_FN_SYMBOLS_CHARACTERS, "There are more than %d characters in the used_game_fn_symbols array, exceeding MAX_USED_GAME_FN_SYMBOLS_CHARACTERS", MAX_USED_GAME_FN_SYMBOLS_CHARACTERS);
+
+	char *symbol = used_game_fn_symbols + used_game_fn_symbols_size;
+
+	memcpy(symbol, GAME_FN_PREFIX, game_fn_prefix_length);
+	used_game_fn_symbols_size += game_fn_prefix_length;
+
+	for (size_t i = 0; i < length; i++) {
+		used_game_fn_symbols[used_game_fn_symbols_size++] = name[i];
+	}
+	used_game_fn_symbols[used_game_fn_symbols_size++] = '\0';
+
+	return symbol;
+}
+
 static void hash_used_game_fns(void) {
 	memset(buckets_used_game_fns, UINT32_MAX, BFD_HASH_BUCKET_SIZE * sizeof(u32));
 
 	for (size_t i = 0; i < game_fn_calls_size; i++) {
-		char *name = game_fn_calls[i].fn_name;
+		char *name = push_used_game_fn_symbol(game_fn_calls[i].fn_name);
 
 		if (has_used_game_fn(name)) {
 			continue;
@@ -3761,6 +3786,8 @@ static void compile_expr(struct expr expr) {
 						compile_unpadded_number(DEREF_RBP_TO_EAX);
 						compile_byte(-var->offset);
 						break;
+					case type_f32:
+						assert(false);
 					case type_string:
 						compile_unpadded_number(DEREF_RBP_TO_RAX);
 						compile_byte(-var->offset);
@@ -3780,6 +3807,8 @@ static void compile_expr(struct expr expr) {
 						compile_unpadded_number(DEREF_RAX_TO_EAX);
 						compile_byte(var->offset);
 						break;
+					case type_f32:
+						assert(false);
 					case type_string:
 						compile_unpadded_number(DEREF_RAX_TO_RAX);
 						compile_byte(var->offset);
@@ -3832,6 +3861,8 @@ static void compile_variable_statement(struct variable_statement variable_statem
 				compile_unpadded_number(MOV_EAX_TO_DEREF_RBP);
 				compile_byte(-var->offset);
 				break;
+			case type_f32:
+				assert(false);
 			case type_string:
 				compile_unpadded_number(MOV_RAX_TO_DEREF_RBP);
 				compile_byte(-var->offset);
@@ -3851,6 +3882,8 @@ static void compile_variable_statement(struct variable_statement variable_statem
 				compile_unpadded_number(MOV_EAX_TO_DEREF_R11);
 				compile_byte(var->offset);
 				break;
+			case type_f32:
+				assert(false);
 			case type_string:
 				compile_unpadded_number(MOV_RAX_TO_DEREF_R11);
 				compile_byte(var->offset);
@@ -3992,6 +4025,8 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 					MOV_R9D_TO_DEREF_RBP,
 				}[argument_index]);
 				break;
+			case type_f32:
+				assert(false);
 			case type_string:
 				compile_unpadded_number((enum code[]){
 					MOV_RSI_TO_DEREF_RBP,
@@ -4096,11 +4131,11 @@ static void hash_define_on_fns(void) {
 }
 
 static void init_define_fn_name(char *name) {
-	grug_assert(temp_strings_size + sizeof("define_") - 1 + strlen(name) < TEMP_MAX_STRINGS_CHARACTERS, "There are more than %d characters in the strings array, exceeding TEMP_MAX_STRINGS_CHARACTERS", TEMP_MAX_STRINGS_CHARACTERS);
+	grug_assert(temp_strings_size + sizeof("define_") - 1 + strlen(name) < MAX_TEMP_STRINGS_CHARACTERS, "There are more than %d characters in the strings array, exceeding MAX_TEMP_STRINGS_CHARACTERS", MAX_TEMP_STRINGS_CHARACTERS);
 
 	define_fn_name = temp_strings + temp_strings_size;
 
-	memcpy(temp_strings + temp_strings_size, "define_", sizeof("define_") - 1);
+	memcpy(define_fn_name, "define_", sizeof("define_") - 1);
 	temp_strings_size += sizeof("define_") - 1;
 
 	for (size_t i = 0; i < strlen(name); i++) {
@@ -4329,6 +4364,7 @@ static u32 chains_game_fn_offsets[MAX_GAME_FN_OFFSETS];
 
 static void reset_generate_shared_object(void) {
 	symbols_size = 0;
+	used_game_fn_symbols_size = 0;
 	data_symbols_size = 0;
 	shuffled_symbols_size = 0;
 	bytes_size = 0;
