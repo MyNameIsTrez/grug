@@ -3268,30 +3268,11 @@ static bool has_used_game_fn(char *name) {
 	return true;
 }
 
-static char *push_used_game_fn_symbol(char *name) {
-	size_t length = strlen(name);
-	size_t game_fn_prefix_length = sizeof(GAME_FN_PREFIX) - 1;
-
-	grug_assert(used_game_fn_symbols_size + game_fn_prefix_length + length < MAX_USED_GAME_FN_SYMBOLS_CHARACTERS, "There are more than %d characters in the used_game_fn_symbols array, exceeding MAX_USED_GAME_FN_SYMBOLS_CHARACTERS", MAX_USED_GAME_FN_SYMBOLS_CHARACTERS);
-
-	char *symbol = used_game_fn_symbols + used_game_fn_symbols_size;
-
-	memcpy(symbol, GAME_FN_PREFIX, game_fn_prefix_length);
-	used_game_fn_symbols_size += game_fn_prefix_length;
-
-	for (size_t i = 0; i < length; i++) {
-		used_game_fn_symbols[used_game_fn_symbols_size++] = name[i];
-	}
-	used_game_fn_symbols[used_game_fn_symbols_size++] = '\0';
-
-	return symbol;
-}
-
 static void hash_used_game_fns(void) {
 	memset(buckets_used_game_fns, UINT32_MAX, BFD_HASH_BUCKET_SIZE * sizeof(u32));
 
 	for (size_t i = 0; i < game_fn_calls_size; i++) {
-		char *name = push_used_game_fn_symbol(game_fn_calls[i].fn_name);
+		char *name = game_fn_calls[i].fn_name;
 
 		if (has_used_game_fn(name)) {
 			continue;
@@ -3352,11 +3333,30 @@ static void push_helper_fn_call(char *fn_name, size_t codes_offset) {
 	};
 }
 
+static char *push_used_game_fn_symbol(char *name) {
+	size_t length = strlen(name);
+	size_t game_fn_prefix_length = sizeof(GAME_FN_PREFIX) - 1;
+
+	grug_assert(used_game_fn_symbols_size + game_fn_prefix_length + length < MAX_USED_GAME_FN_SYMBOLS_CHARACTERS, "There are more than %d characters in the used_game_fn_symbols array, exceeding MAX_USED_GAME_FN_SYMBOLS_CHARACTERS", MAX_USED_GAME_FN_SYMBOLS_CHARACTERS);
+
+	char *symbol = used_game_fn_symbols + used_game_fn_symbols_size;
+
+	memcpy(symbol, GAME_FN_PREFIX, game_fn_prefix_length);
+	used_game_fn_symbols_size += game_fn_prefix_length;
+
+	for (size_t i = 0; i < length; i++) {
+		used_game_fn_symbols[used_game_fn_symbols_size++] = name[i];
+	}
+	used_game_fn_symbols[used_game_fn_symbols_size++] = '\0';
+
+	return symbol;
+}
+
 static void push_game_fn_call(char *fn_name, size_t codes_offset) {
 	grug_assert(game_fn_calls_size < MAX_GAME_FN_CALLS, "There are more than %d game function calls, exceeding MAX_GAME_FN_CALLS", MAX_GAME_FN_CALLS);
 
 	game_fn_calls[game_fn_calls_size++] = (struct fn_call){
-		.fn_name = fn_name,
+		.fn_name = push_used_game_fn_symbol(fn_name),
 		.codes_offset = codes_offset,
 	};
 }
