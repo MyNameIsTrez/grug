@@ -2682,7 +2682,7 @@ static void print_statements(struct statement *statements_offset, size_t stateme
 				grug_log("\"variable_name\":\"%s\",", statement.variable_statement.name);
 
 				if (statement.variable_statement.has_type) {
-					grug_log("\"variable_type\":\"%s\",", statement.variable_statement.type);
+					grug_log("\"variable_type\":\"%s\",", type_names[statement.variable_statement.type]);
 				}
 
 				if (statement.variable_statement.has_assignment) {
@@ -2756,7 +2756,7 @@ static void print_arguments(struct argument *arguments_offset, size_t argument_c
 		struct argument arg = arguments_offset[argument_index];
 
 		grug_log("\"name\":\"%s\",", arg.name);
-		grug_log("\"type\":\"%s\"", arg.type);
+		grug_log("\"type\":\"%s\"", type_names[arg.type]);
 
 		grug_log("}");
 	}
