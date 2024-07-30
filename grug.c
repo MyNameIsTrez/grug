@@ -47,6 +47,7 @@
 #include <elf.h>
 #include <errno.h>
 #include <limits.h>
+#include <math.h>
 #include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -119,6 +120,7 @@ typedef int32_t i32;
 typedef uint32_t u32;
 typedef int64_t i64;
 typedef uint64_t u64;
+typedef float f32;
 
 struct grug_error grug_error;
 static jmp_buf error_jmp_buffer;
@@ -1122,7 +1124,8 @@ enum token_type {
 	NEWLINES_TOKEN,
 	STRING_TOKEN,
 	WORD_TOKEN,
-	NUMBER_TOKEN,
+	i32_TOKEN,
+	f32_TOKEN,
 	COMMENT_TOKEN,
 };
 
@@ -1165,7 +1168,8 @@ static char *get_token_type_str[] = {
 	[NEWLINES_TOKEN] = "NEWLINES_TOKEN",
 	[STRING_TOKEN] = "STRING_TOKEN",
 	[WORD_TOKEN] = "WORD_TOKEN",
-	[NUMBER_TOKEN] = "NUMBER_TOKEN",
+	[i32_TOKEN] = "i32_TOKEN",
+	[f32_TOKEN] = "f32_TOKEN",
 	[COMMENT_TOKEN] = "COMMENT_TOKEN",
 };
 static struct token tokens[MAX_TOKENS_IN_FILE];
@@ -1413,10 +1417,15 @@ static void tokenize(char *grug_text) {
 				if (grug_text[i] == '.') {
 					grug_assert(!seen_period, "Encountered two '.' periods in a number at character %zu of the grug text file", i);
 					seen_period = true;
+					i++;
 				}
 			} while (isdigit(grug_text[i]));
 
-			push_token(NUMBER_TOKEN, str, i - old_i);
+			if (seen_period) {
+				push_token(f32_TOKEN, str, i - old_i);
+			} else {
+				push_token(i32_TOKEN, str, i - old_i);
+			}
 		} else if (grug_text[i] == '#') {
 			char *str = grug_text+i;
 			size_t old_i = i;
@@ -1495,11 +1504,12 @@ static void verify_and_trim_spaces(void) {
 
 					next_token = peek_token(i + 2);
 					switch (next_token.type) {
-						case OPEN_PARENTHESIS_TOKEN:
+						case OPEN_PARENTHESIS_TOKEN: // For example the inner open parenthesis in "foo(1, (2 + 3))"
 						case MINUS_TOKEN:
 						case STRING_TOKEN:
 						case WORD_TOKEN:
-						case NUMBER_TOKEN:
+						case i32_TOKEN:
+						case f32_TOKEN:
 							break;
 						default:
 							grug_error("Unexpected token type %s after the comma and space, at token index %zu", get_token_type_str[next_token.type], i + 2);
@@ -1588,8 +1598,8 @@ static void verify_and_trim_spaces(void) {
 						assert_spaces(i, depth * SPACES_PER_INDENT);
 						break;
 					case WORD_TOKEN:
-						break;
-					case NUMBER_TOKEN:
+					case i32_TOKEN:
+					case f32_TOKEN:
 						break;
 					case COMMENT_TOKEN:
 						// TODO: Ideally we'd assert there only ever being 1 space,
@@ -1608,7 +1618,8 @@ static void verify_and_trim_spaces(void) {
 			case STRING_TOKEN:
 			case PERIOD_TOKEN:
 			case WORD_TOKEN:
-			case NUMBER_TOKEN:
+			case i32_TOKEN:
+			case f32_TOKEN:
 			case COMMENT_TOKEN:
 				break;
 		}
@@ -1633,7 +1644,8 @@ static void verify_and_trim_spaces(void) {
 struct literal_expr {
 	union {
 		char *string;
-		i32 i32; // TODO: Support other number types
+		i32 i32;
+		f32 f32;
 	};
 };
 
@@ -1660,7 +1672,8 @@ struct expr {
 		FALSE_EXPR,
 		STRING_EXPR,
 		IDENTIFIER_EXPR,
-		NUMBER_EXPR,
+		i32_EXPR,
+		f32_EXPR,
 		UNARY_EXPR,
 		BINARY_EXPR,
 		LOGICAL_EXPR,
@@ -1680,7 +1693,8 @@ static char *get_expr_type_str[] = {
 	[FALSE_EXPR] = "FALSE_EXPR",
 	[STRING_EXPR] = "STRING_EXPR",
 	[IDENTIFIER_EXPR] = "IDENTIFIER_EXPR",
-	[NUMBER_EXPR] = "NUMBER_EXPR",
+	[i32_EXPR] = "i32_EXPR",
+	[f32_EXPR] = "f32_EXPR",
 	[UNARY_EXPR] = "UNARY_EXPR",
 	[BINARY_EXPR] = "BINARY_EXPR",
 	[LOGICAL_EXPR] = "LOGICAL_EXPR",
@@ -1895,7 +1909,7 @@ static void consume_1_newline(size_t *token_index_ptr) {
 	(*token_index_ptr)++;
 }
 
-// TODO: Use, or remove
+// TODO: Either use or remove this function
 // Inspiration: https://stackoverflow.com/a/12923949/13279557
 // static i64 str_to_i64(char *str) {
 // 	char *end;
@@ -1915,6 +1929,32 @@ static void consume_1_newline(size_t *token_index_ptr) {
 
 // 	return n;
 // }
+
+static f32 str_to_f32(char *str) {
+	char *end;
+    errno = 0;
+	float f = strtof(str, &end);
+
+	if (errno == ERANGE) {
+		if (f == HUGE_VALF) {
+			grug_error("The float '%s' is too big to fit in an f32", str);
+		} else if (f == 0) {
+			grug_error("The float '%s' is too small to fit in an f32", str);
+		}
+		// No need to check `f == -HUGE_VALF`, since the token can't ever start with a minus sign
+		grug_unreachable();
+	}
+
+	// An f32 token only gets created when it starts with a digit,
+	// so strtof() should at the very least have incremented `end` by 1
+	assert(str != end);
+
+	// This function can't ever have trailing characters,
+	// since the number was tokenized
+	assert(*end == '\0');
+
+	return f;
+}
 
 // Inspiration: https://stackoverflow.com/a/12923949/13279557
 static i32 str_to_i32(char *str) {
@@ -1968,10 +2008,15 @@ static struct expr parse_primary(size_t *i) {
 			expr.type = IDENTIFIER_EXPR;
 			expr.literal.string = token.str;
 			return expr;
-		case NUMBER_TOKEN:
+		case i32_TOKEN:
 			(*i)++;
-			expr.type = NUMBER_EXPR;
+			expr.type = i32_EXPR;
 			expr.literal.i32 = str_to_i32(token.str);
+			return expr;
+		case f32_TOKEN:
+			(*i)++;
+			expr.type = f32_EXPR;
+			expr.literal.f32 = str_to_f32(token.str);
 			return expr;
 		default:
 			grug_error("Expected a primary expression token, but got token type %s at token index %zu", get_token_type_str[token.type], *i);
@@ -2488,7 +2533,7 @@ static struct compound_literal parse_compound_literal(size_t *i) {
 		consume_token_type(i, ASSIGNMENT_TOKEN);
 
 		token = peek_token(*i);
-		grug_assert(token.type == STRING_TOKEN || token.type == NUMBER_TOKEN, "Expected token type STRING_TOKEN or NUMBER_TOKEN, but got %s at token index %zu", get_token_type_str[token.type], *i);
+		grug_assert(token.type == i32_TOKEN || token.type == f32_TOKEN || token.type == STRING_TOKEN, "Expected an i32/f32/string, but got %s at token index %zu", get_token_type_str[token.type], *i);
 		field.expr_value = parse_expression(i);
 		push_field(field);
 		compound_literal.field_count++;
@@ -2637,9 +2682,13 @@ static void print_expr(struct expr expr) {
 			grug_log(",");
 			grug_log("\"str\":\"%s\"", expr.literal.string);
 			break;
-		case NUMBER_EXPR:
+		case i32_EXPR:
 			grug_log(",");
 			grug_log("\"value\":%d", expr.literal.i32);
+			break;
+		case f32_EXPR:
+			grug_log(",");
+			grug_log("\"value\":%f", expr.literal.f32);
 			break;
 		case UNARY_EXPR:
 			grug_log(",");
@@ -3817,7 +3866,7 @@ static void compile_expr(struct expr expr) {
 			}
 			break;
 		}
-		case NUMBER_EXPR: {
+		case i32_EXPR: {
 			i32 n = expr.literal.i32;
 			if (n == 0) {
 				compile_unpadded_number(XOR_CLEAR_EAX);
@@ -3830,6 +3879,14 @@ static void compile_expr(struct expr expr) {
 			}
 			break;
 		}
+		case f32_EXPR:
+			compile_unpadded_number(MOV_TO_EAX);
+			unsigned char *bytes = (unsigned char *)&expr.literal.f32;
+			for (size_t i = 0; i < sizeof(float); i++) {
+				compile_byte(*bytes); // Little-endian
+				bytes++;
+			}
+			break;
 		case UNARY_EXPR:
 			compile_unary_expr(expr.unary);
 			break;
@@ -4054,7 +4111,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 }
 
 static void compile_returned_field(struct expr expr_value, size_t argument_index) {
-	if (expr_value.type == NUMBER_EXPR) {
+	if (expr_value.type == i32_EXPR) {
 		compile_unpadded_number((enum code[]){
 			MOV_TO_EDI,
 			MOV_TO_ESI,
@@ -4065,6 +4122,8 @@ static void compile_returned_field(struct expr expr_value, size_t argument_index
 		}[argument_index]);
 
 		compile_padded_number(expr_value.literal.i32, 4);
+	} else if (expr_value.type == f32_EXPR) {
+		assert(false);
 	} else if (expr_value.type == STRING_EXPR) {
 		compile_unpadded_number((enum code[]){
 			LEA_STRINGS_TO_RDI,
@@ -4080,7 +4139,7 @@ static void compile_returned_field(struct expr expr_value, size_t argument_index
 		compile_unpadded_number(PLACEHOLDER_32);
 	} else {
 		// TODO: Can modders somehow reach this?
-		grug_error("Only number and strings can be returned right now");
+		grug_error("Only i32, f32 and strings can be returned right now");
 	}
 }
 
