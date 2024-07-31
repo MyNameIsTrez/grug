@@ -20,10 +20,11 @@
 // 8. TOKENIZATION
 // 9. VERIFY AND TRIM SPACES
 // 10. PARSING
-// 11. PRINTING AST
-// 12. COMPILING
-// 13. LINKING
-// 14. HOT RELOADING
+// 11. FILLING RESULT TYPES
+// 12. PRINTING AST
+// 13. COMPILING
+// 14. LINKING
+// 15. HOT RELOADING
 //
 // ## Small example programs
 //
@@ -2630,6 +2631,16 @@ static void parse(void) {
 	grug_assert(seen_define_fn, "Every grug file requires exactly one define_ function");
 
 	hash_helper_fns();
+}
+
+//// FILLING RESULT TYPES
+
+static void fill_result_types(void) {
+	// TODO: Fill these too
+	// fill_define_fn();
+	// fill_global_variables();
+	// fill_on_fns();
+	// fill_helper_fns();
 }
 
 //// PRINTING AST
@@ -5613,6 +5624,7 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 #endif
 
 	parse();
+	fill_result_types();
 	grug_log("\n# AST (throw this into a JSON formatter)\n");
 #ifdef LOGGING
 	print_ast();

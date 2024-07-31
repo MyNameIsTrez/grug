@@ -22,10 +22,11 @@ You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
 8. TOKENIZATION
 9. VERIFY AND TRIM SPACES
 10. PARSING
-11. PRINTING AST
-12. COMPILING
-13. LINKING
-14. HOT RELOADING
+11. FILLING RESULT TYPES
+12. PRINTING AST
+13. COMPILING
+14. LINKING
+15. HOT RELOADING
 
 ## Small example programs
 
