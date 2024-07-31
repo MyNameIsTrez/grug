@@ -1124,8 +1124,8 @@ enum token_type {
 	NEWLINES_TOKEN,
 	STRING_TOKEN,
 	WORD_TOKEN,
-	i32_TOKEN,
-	f32_TOKEN,
+	I32_TOKEN,
+	F32_TOKEN,
 	COMMENT_TOKEN,
 };
 
@@ -1168,8 +1168,8 @@ static char *get_token_type_str[] = {
 	[NEWLINES_TOKEN] = "NEWLINES_TOKEN",
 	[STRING_TOKEN] = "STRING_TOKEN",
 	[WORD_TOKEN] = "WORD_TOKEN",
-	[i32_TOKEN] = "i32_TOKEN",
-	[f32_TOKEN] = "f32_TOKEN",
+	[I32_TOKEN] = "I32_TOKEN",
+	[F32_TOKEN] = "F32_TOKEN",
 	[COMMENT_TOKEN] = "COMMENT_TOKEN",
 };
 static struct token tokens[MAX_TOKENS_IN_FILE];
@@ -1422,9 +1422,9 @@ static void tokenize(char *grug_text) {
 
 			if (seen_period) {
 				grug_assert(grug_text[i - 1] != '.', "Missing digit after decimal point in '%.*s'", (int)(i - old_i), str);
-				push_token(f32_TOKEN, str, i - old_i);
+				push_token(F32_TOKEN, str, i - old_i);
 			} else {
-				push_token(i32_TOKEN, str, i - old_i);
+				push_token(I32_TOKEN, str, i - old_i);
 			}
 		} else if (grug_text[i] == '#') {
 			char *str = grug_text+i;
@@ -1508,8 +1508,8 @@ static void verify_and_trim_spaces(void) {
 						case MINUS_TOKEN:
 						case STRING_TOKEN:
 						case WORD_TOKEN:
-						case i32_TOKEN:
-						case f32_TOKEN:
+						case I32_TOKEN:
+						case F32_TOKEN:
 							break;
 						default:
 							grug_error("Unexpected token type %s after the comma and space, at token index %zu", get_token_type_str[next_token.type], i + 2);
@@ -1598,8 +1598,8 @@ static void verify_and_trim_spaces(void) {
 						assert_spaces(i, depth * SPACES_PER_INDENT);
 						break;
 					case WORD_TOKEN:
-					case i32_TOKEN:
-					case f32_TOKEN:
+					case I32_TOKEN:
+					case F32_TOKEN:
 						break;
 					case COMMENT_TOKEN:
 						// TODO: Ideally we'd assert there only ever being 1 space,
@@ -1618,8 +1618,8 @@ static void verify_and_trim_spaces(void) {
 			case STRING_TOKEN:
 			case PERIOD_TOKEN:
 			case WORD_TOKEN:
-			case i32_TOKEN:
-			case f32_TOKEN:
+			case I32_TOKEN:
+			case F32_TOKEN:
 			case COMMENT_TOKEN:
 				break;
 		}
@@ -1672,14 +1672,20 @@ struct expr {
 		FALSE_EXPR,
 		STRING_EXPR,
 		IDENTIFIER_EXPR,
-		i32_EXPR,
-		f32_EXPR,
+		I32_EXPR,
+		F32_EXPR,
 		UNARY_EXPR,
 		BINARY_EXPR,
 		LOGICAL_EXPR,
 		CALL_EXPR,
 		PARENTHESIZED_EXPR,
 	} type;
+	enum {
+		BOOL_RESULT,
+		STRING_RESULT,
+		I32_RESULT,
+		F32_RESULT,
+	} result_type;
 	union {
 		struct literal_expr literal;
 		struct unary_expr unary;
@@ -1693,8 +1699,8 @@ static char *get_expr_type_str[] = {
 	[FALSE_EXPR] = "FALSE_EXPR",
 	[STRING_EXPR] = "STRING_EXPR",
 	[IDENTIFIER_EXPR] = "IDENTIFIER_EXPR",
-	[i32_EXPR] = "i32_EXPR",
-	[f32_EXPR] = "f32_EXPR",
+	[I32_EXPR] = "I32_EXPR",
+	[F32_EXPR] = "F32_EXPR",
 	[UNARY_EXPR] = "UNARY_EXPR",
 	[BINARY_EXPR] = "BINARY_EXPR",
 	[LOGICAL_EXPR] = "LOGICAL_EXPR",
@@ -1989,34 +1995,43 @@ static struct expr parse_primary(size_t *i) {
 			expr.type = PARENTHESIZED_EXPR;
 			expr.parenthesized = push_expr(parse_expression(i));
 			consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
+			expr.result_type = expr.parenthesized->result_type;
 			return expr;
 		case TRUE_TOKEN:
 			(*i)++;
 			expr.type = TRUE_EXPR;
+			expr.result_type = BOOL_RESULT;
 			return expr;
 		case FALSE_TOKEN:
 			(*i)++;
 			expr.type = FALSE_EXPR;
+			expr.result_type = BOOL_RESULT;
 			return expr;
 		case STRING_TOKEN:
 			(*i)++;
 			expr.type = STRING_EXPR;
 			expr.literal.string = token.str;
+			expr.result_type = STRING_RESULT;
 			return expr;
 		case WORD_TOKEN:
 			(*i)++;
 			expr.type = IDENTIFIER_EXPR;
 			expr.literal.string = token.str;
+			// TODO: After the AST is done we can check whether this is a local/global variable,
+			// and assign .result_type its variable type.
+			// If it isn't a variable, but it is a function call, then the .result_type should be the function call's return type
 			return expr;
-		case i32_TOKEN:
+		case I32_TOKEN:
 			(*i)++;
-			expr.type = i32_EXPR;
+			expr.type = I32_EXPR;
 			expr.literal.i32 = str_to_i32(token.str);
+			expr.result_type = I32_RESULT;
 			return expr;
-		case f32_TOKEN:
+		case F32_TOKEN:
 			(*i)++;
-			expr.type = f32_EXPR;
+			expr.type = F32_EXPR;
 			expr.literal.f32 = str_to_f32(token.str);
+			expr.result_type = F32_RESULT;
 			return expr;
 		default:
 			grug_error("Expected a primary expression token, but got token type %s at token index %zu", get_token_type_str[token.type], *i);
@@ -2068,24 +2083,6 @@ static struct expr parse_call(size_t *i) {
 	return expr;
 }
 
-static struct expr parse_member(size_t *i) {
-	struct expr expr = parse_call(i);
-
-	while (true) {
-		struct token token = peek_token(*i);
-		if (token.type != PERIOD_TOKEN) {
-			break;
-		}
-		(*i)++;
-		expr.binary.left_expr = push_expr(expr);
-		expr.binary.operator = PERIOD_TOKEN;
-		expr.binary.right_expr = push_expr(parse_call(i));
-		expr.type = BINARY_EXPR;
-	}
-
-	return expr;
-}
-
 static struct expr parse_unary(size_t *i) {
 	struct token token = peek_token(*i);
 	if (token.type == MINUS_TOKEN
@@ -2100,7 +2097,7 @@ static struct expr parse_unary(size_t *i) {
 		return expr;
 	}
 
-	return parse_member(i);
+	return parse_call(i);
 }
 
 static struct expr parse_factor(size_t *i) {
@@ -2533,7 +2530,7 @@ static struct compound_literal parse_compound_literal(size_t *i) {
 		consume_token_type(i, ASSIGNMENT_TOKEN);
 
 		token = peek_token(*i);
-		grug_assert(token.type == i32_TOKEN || token.type == f32_TOKEN || token.type == STRING_TOKEN, "Expected an i32/f32/string, but got %s at token index %zu", get_token_type_str[token.type], *i);
+		grug_assert(token.type == I32_TOKEN || token.type == F32_TOKEN || token.type == STRING_TOKEN, "Expected an i32/f32/string, but got %s at token index %zu", get_token_type_str[token.type], *i);
 		field.expr_value = parse_expression(i);
 		push_field(field);
 		compound_literal.field_count++;
@@ -2682,11 +2679,11 @@ static void print_expr(struct expr expr) {
 			grug_log(",");
 			grug_log("\"str\":\"%s\"", expr.literal.string);
 			break;
-		case i32_EXPR:
+		case I32_EXPR:
 			grug_log(",");
 			grug_log("\"value\":%d", expr.literal.i32);
 			break;
-		case f32_EXPR:
+		case F32_EXPR:
 			grug_log(",");
 			grug_log("\"value\":%f", expr.literal.f32);
 			break;
@@ -3866,7 +3863,7 @@ static void compile_expr(struct expr expr) {
 			}
 			break;
 		}
-		case i32_EXPR: {
+		case I32_EXPR: {
 			i32 n = expr.literal.i32;
 			if (n == 0) {
 				compile_unpadded_number(XOR_CLEAR_EAX);
@@ -3879,7 +3876,7 @@ static void compile_expr(struct expr expr) {
 			}
 			break;
 		}
-		case f32_EXPR:
+		case F32_EXPR:
 			compile_unpadded_number(MOV_TO_EAX);
 			unsigned char *bytes = (unsigned char *)&expr.literal.f32;
 			for (size_t i = 0; i < sizeof(float); i++) {
@@ -4111,7 +4108,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 }
 
 static void compile_returned_field(struct expr expr_value, size_t argument_index) {
-	if (expr_value.type == i32_EXPR) {
+	if (expr_value.type == I32_EXPR) {
 		compile_unpadded_number((enum code[]){
 			MOV_TO_EDI,
 			MOV_TO_ESI,
@@ -4122,7 +4119,7 @@ static void compile_returned_field(struct expr expr_value, size_t argument_index
 		}[argument_index]);
 
 		compile_padded_number(expr_value.literal.i32, 4);
-	} else if (expr_value.type == f32_EXPR) {
+	} else if (expr_value.type == F32_EXPR) {
 		assert(false);
 	} else if (expr_value.type == STRING_EXPR) {
 		compile_unpadded_number((enum code[]){
