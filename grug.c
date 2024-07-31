@@ -1411,17 +1411,17 @@ static void tokenize(char *grug_text) {
 
 			bool seen_period = false;
 
-			do {
-				i++;
-
+			i++;
+			while (isdigit(grug_text[i]) || grug_text[i] == '.') {
 				if (grug_text[i] == '.') {
 					grug_assert(!seen_period, "Encountered two '.' periods in a number at character %zu of the grug text file", i);
 					seen_period = true;
-					i++;
 				}
-			} while (isdigit(grug_text[i]));
+				i++;
+			}
 
 			if (seen_period) {
+				grug_assert(grug_text[i - 1] != '.', "Missing digit after decimal point in '%.*s'", (int)(i - old_i), str);
 				push_token(f32_TOKEN, str, i - old_i);
 			} else {
 				push_token(i32_TOKEN, str, i - old_i);
