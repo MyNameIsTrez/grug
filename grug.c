@@ -2960,22 +2960,22 @@ static void reset_filling(void) {
 	memset(buckets_global_variables, UINT32_MAX, MAX_GLOBAL_VARIABLES_IN_FILE * sizeof(u32));
 }
 
-static void fill_expr(struct expr expr);
+static void fill_expr(struct expr *expr);
 
 static void fill_parenthesized_expr(struct expr *parenthesized_expr) {
-	fill_expr(*parenthesized_expr);
+	fill_expr(parenthesized_expr);
 }
 
-static void fill_call_expr(struct expr expr) {
-	struct call_expr call_expr = expr.call;
+static void fill_call_expr(struct expr *expr) {
+	struct call_expr call_expr = expr->call;
 
 	for (size_t argument_index = 0; argument_index < call_expr.argument_count; argument_index++) {
-		fill_expr(call_expr.arguments[argument_index]);
+		fill_expr(&call_expr.arguments[argument_index]);
 	}
 
 	// TODO: Support functions returning values
 	// This will require checking on fns and game fns
-	expr.result_type = type_void;
+	expr->result_type = type_void;
 
 	// char *name = expr.call_expr.fn_name;
 
@@ -2996,32 +2996,34 @@ static void fill_call_expr(struct expr expr) {
 }
 
 static void fill_binary_expr(struct binary_expr binary_expr) {
-	fill_expr(*binary_expr.left_expr);
-	fill_expr(*binary_expr.right_expr);
+	fill_expr(binary_expr.left_expr);
+	fill_expr(binary_expr.right_expr);
+
+	grug_assert(binary_expr.left_expr->result_type != type_string || binary_expr.operator != PLUS_TOKEN, "You can't use any operator on a string, like %s in this case", get_token_type_str[binary_expr.operator]);
 }
 
 static struct variable *get_local_variable(char *name);
 static struct variable *get_global_variable(char *name);
 
-static void fill_expr(struct expr expr) {
-	switch (expr.type) {
+static void fill_expr(struct expr *expr) {
+	switch (expr->type) {
 		case TRUE_EXPR:
 		case FALSE_EXPR:
-			expr.result_type = type_bool;
+			expr->result_type = type_bool;
 			break;
 		case STRING_EXPR:
-			expr.result_type = type_string;
+			expr->result_type = type_string;
 			break;
 		case IDENTIFIER_EXPR: {
-			struct variable *var = get_local_variable(expr.literal.string);
+			struct variable *var = get_local_variable(expr->literal.string);
 			if (var) {
-				expr.result_type = var->type;
+				expr->result_type = var->type;
 				return;
 			}
 
-			var = get_global_variable(expr.literal.string);
+			var = get_global_variable(expr->literal.string);
 			if (var) {
-				expr.result_type = var->type;
+				expr->result_type = var->type;
 				return;
 			}
 
@@ -3031,23 +3033,23 @@ static void fill_expr(struct expr expr) {
 			break;
 		}
 		case I32_EXPR:
-			expr.result_type = type_i32;
+			expr->result_type = type_i32;
 			break;
 		case F32_EXPR:
-			expr.result_type = type_f32;
+			expr->result_type = type_f32;
 			break;
 		case UNARY_EXPR:
-			fill_expr(*expr.unary.expr);
+			fill_expr(expr->unary.expr);
 			break;
 		case BINARY_EXPR:
 		case LOGICAL_EXPR:
-			fill_binary_expr(expr.binary);
+			fill_binary_expr(expr->binary);
 			break;
 		case CALL_EXPR:
 			fill_call_expr(expr);
 			break;
 		case PARENTHESIZED_EXPR:
-			fill_parenthesized_expr(expr.parenthesized);
+			fill_parenthesized_expr(expr->parenthesized);
 			break;
 	}
 }
@@ -3059,14 +3061,14 @@ static void fill_statements(struct statement *statements_offset, size_t statemen
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
 				if (statement.variable_statement.has_assignment) {
-					fill_expr(*statement.variable_statement.assignment_expr);
+					fill_expr(statement.variable_statement.assignment_expr);
 				}
 				break;
 			case CALL_STATEMENT:
-				fill_call_expr(*statement.call_statement.expr);
+				fill_call_expr(statement.call_statement.expr);
 				break;
 			case IF_STATEMENT:
-				fill_expr(statement.if_statement.condition);
+				fill_expr(&statement.if_statement.condition);
 
 				fill_statements(statement.if_statement.if_body_statements, statement.if_statement.if_body_statement_count);
 
@@ -3077,11 +3079,11 @@ static void fill_statements(struct statement *statements_offset, size_t statemen
 				break;
 			case RETURN_STATEMENT:
 				if (statement.return_statement.has_value) {
-					fill_expr(*statement.return_statement.value);
+					fill_expr(statement.return_statement.value);
 				}
 				break;
 			case WHILE_STATEMENT:
-				fill_expr(statement.while_statement.condition);
+				fill_expr(&statement.while_statement.condition);
 
 				fill_statements(statement.while_statement.body_statements, statement.while_statement.body_statement_count);
 
