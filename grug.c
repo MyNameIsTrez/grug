@@ -755,16 +755,19 @@ void json(char *json_file_path, struct json_node *returned) {
 
 enum type {
 	type_void,
+	type_bool,
 	type_i32,
 	type_f32,
 	type_string,
 };
 static char *type_names[] = {
+	[type_bool] = "bool",
 	[type_i32] = "i32",
 	[type_f32] = "f32",
 	[type_string] = "string",
 };
 static size_t type_sizes[] = {
+	[type_bool] = sizeof(bool),
 	[type_i32] = sizeof(int32_t),
 	[type_f32] = sizeof(float),
 	[type_string] = sizeof(char *),
@@ -1681,12 +1684,7 @@ struct expr {
 		CALL_EXPR,
 		PARENTHESIZED_EXPR,
 	} type;
-	enum {
-		BOOL_RESULT,
-		STRING_RESULT,
-		I32_RESULT,
-		F32_RESULT,
-	} result_type;
+	enum type result_type;
 	union {
 		struct literal_expr literal;
 		struct unary_expr unary;
@@ -1996,43 +1994,34 @@ static struct expr parse_primary(size_t *i) {
 			expr.type = PARENTHESIZED_EXPR;
 			expr.parenthesized = push_expr(parse_expression(i));
 			consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
-			expr.result_type = expr.parenthesized->result_type;
 			return expr;
 		case TRUE_TOKEN:
 			(*i)++;
 			expr.type = TRUE_EXPR;
-			expr.result_type = BOOL_RESULT;
 			return expr;
 		case FALSE_TOKEN:
 			(*i)++;
 			expr.type = FALSE_EXPR;
-			expr.result_type = BOOL_RESULT;
 			return expr;
 		case STRING_TOKEN:
 			(*i)++;
 			expr.type = STRING_EXPR;
 			expr.literal.string = token.str;
-			expr.result_type = STRING_RESULT;
 			return expr;
 		case WORD_TOKEN:
 			(*i)++;
 			expr.type = IDENTIFIER_EXPR;
 			expr.literal.string = token.str;
-			// TODO: After the AST is done we can check whether this is a local/global variable,
-			// and assign .result_type its variable type.
-			// If it isn't a variable, but it is a function call, then the .result_type should be the function call's return type
 			return expr;
 		case I32_TOKEN:
 			(*i)++;
 			expr.type = I32_EXPR;
 			expr.literal.i32 = str_to_i32(token.str);
-			expr.result_type = I32_RESULT;
 			return expr;
 		case F32_TOKEN:
 			(*i)++;
 			expr.type = F32_EXPR;
 			expr.literal.f32 = str_to_f32(token.str);
-			expr.result_type = F32_RESULT;
 			return expr;
 		default:
 			grug_error("Expected a primary expression token, but got token type %s at token index %zu", get_token_type_str[token.type], *i);
@@ -2762,10 +2751,9 @@ static void print_statements(struct statement *statements_offset, size_t stateme
 				break;
 			case RETURN_STATEMENT:
 				if (statement.return_statement.has_value) {
-					struct expr return_expr = *statement.return_statement.value;
 					grug_log(",");
 					grug_log("\"expr\":{");
-					print_expr(return_expr);
+					print_expr(*statement.return_statement.value);
 					grug_log("}");
 				}
 				break;
@@ -2943,11 +2931,166 @@ static void print_ast(void) {
 
 //// FILLING RESULT TYPES
 
+static void fill_expr(struct expr expr);
+
+static void fill_parenthesized_expr(struct expr *parenthesized_expr) {
+	fill_expr(*parenthesized_expr);
+}
+
+static void fill_call_expr(struct expr expr) {
+	struct call_expr call_expr = expr.call;
+
+	for (size_t argument_index = 0; argument_index < call_expr.argument_count; argument_index++) {
+		fill_expr(call_expr.arguments[argument_index]);
+	}
+
+	// TODO: Support functions returning values
+	// This will require checking on fns and game fns
+	expr.result_type = type_void;
+
+	// char *name = expr.call_expr.fn_name;
+
+	// struct helper_fn *helper_fn = get_helper_fn(name);
+	// if (helper_fn) {
+	// 	expr.result_type = helper_fn->;
+	// 	return;
+	// }
+
+	// struct game_fn *game_fn = get_game_fn(name);
+	// if (game_fn) {
+	// 	expr.result_type = game_fn->;
+	// 	return;
+	// }
+
+	// TODO: Throw that the fn does not exist
+	// assert(false);
+}
+
+static void fill_binary_expr(struct binary_expr binary_expr) {
+	fill_expr(*binary_expr.left_expr);
+	fill_expr(*binary_expr.right_expr);
+}
+
+static void fill_expr(struct expr expr) {
+	switch (expr.type) {
+		case TRUE_EXPR:
+		case FALSE_EXPR:
+			expr.result_type = type_bool;
+			break;
+		case STRING_EXPR:
+			expr.result_type = type_string;
+			break;
+		case IDENTIFIER_EXPR: {
+			struct variable *var = get_local_variable(expr.literal.string);
+			if (var) {
+				expr.result_type = var->type;
+				return;
+			}
+
+			var = get_global_variable(expr.literal.string);
+			if (var) {
+				expr.result_type = var->type;
+				return;
+			}
+
+			// TODO: Throw that the variable doesn't exist
+			assert(false);
+
+			break;
+		}
+		case I32_EXPR:
+			expr.result_type = type_i32;
+			break;
+		case F32_EXPR:
+			expr.result_type = type_f32;
+			break;
+		case UNARY_EXPR:
+			fill_expr(*expr.unary.expr);
+			break;
+		case BINARY_EXPR:
+		case LOGICAL_EXPR:
+			fill_binary_expr(expr.binary);
+			break;
+		case CALL_EXPR:
+			fill_call_expr(expr);
+			break;
+		case PARENTHESIZED_EXPR:
+			fill_parenthesized_expr(expr.parenthesized);
+			break;
+	}
+}
+
+static void fill_statements(struct statement *statements_offset, size_t statement_count) {
+	for (size_t statement_index = 0; statement_index < statement_count; statement_index++) {
+		struct statement statement = statements_offset[statement_index];
+
+		switch (statement.type) {
+			case VARIABLE_STATEMENT:
+				if (statement.variable_statement.has_assignment) {
+					fill_expr(*statement.variable_statement.assignment_expr);
+				}
+				break;
+			case CALL_STATEMENT:
+				fill_call_expr(*statement.call_statement.expr);
+				break;
+			case IF_STATEMENT:
+				fill_expr(statement.if_statement.condition);
+
+				fill_statements(statement.if_statement.if_body_statements, statement.if_statement.if_body_statement_count);
+
+				if (statement.if_statement.else_body_statement_count > 0) {
+					fill_statements(statement.if_statement.else_body_statements, statement.if_statement.else_body_statement_count);
+				}
+
+				break;
+			case RETURN_STATEMENT:
+				if (statement.return_statement.has_value) {
+					fill_expr(*statement.return_statement.value);
+				}
+				break;
+			case WHILE_STATEMENT:
+				fill_expr(statement.while_statement.condition);
+
+				fill_statements(statement.while_statement.body_statements, statement.while_statement.body_statement_count);
+
+				break;
+			case BREAK_STATEMENT:
+				break;
+			case CONTINUE_STATEMENT:
+				break;
+		}
+
+		grug_log("}");
+	}
+}
+
+static void init_local_variables() {
+	variables_size = 0;
+	memset(buckets_variables, UINT32_MAX, MAX_VARIABLES_PER_FUNCTION * sizeof(u32));
+
+	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
+		struct argument arg = fn_arguments[argument_index];
+		add_local_variable(arg.name, arg.type);
+	}
+
+	add_variables_in_statements(body_statements, body_statement_count);
+}
+
+static void fill_on_fns(void) {
+	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
+		struct on_fn fn = on_fns[fn_index];
+
+		init_local_variables();
+
+		fill_statements(fn.body_statements, fn.body_statement_count);
+	}
+}
+
 static void fill_result_types(void) {
-	// TODO: Fill these too
+	// TODO: Fill the rest too
 	// fill_define_fn();
 	// fill_global_variables();
-	// fill_on_fns();
+	fill_on_fns();
 	// fill_helper_fns();
 }
 
@@ -3850,28 +3993,29 @@ static void compile_expr(struct expr expr) {
 						compile_byte(-var->offset);
 						break;
 				}
-			} else {
-				var = get_global_variable(expr.literal.string);
-
-				compile_unpadded_number(DEREF_RBP_TO_RAX);
-				compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
-
-				// TODO: Support any 32 bit offset, instead of only 8 bits
-				switch (var->type) {
-					case type_void:
-						grug_unreachable();
-					case type_i32:
-						compile_unpadded_number(DEREF_RAX_TO_EAX);
-						compile_byte(var->offset);
-						break;
-					case type_f32:
-						assert(false);
-					case type_string:
-						compile_unpadded_number(DEREF_RAX_TO_RAX);
-						compile_byte(var->offset);
-						break;
-				}
+				return;
 			}
+
+			compile_unpadded_number(DEREF_RBP_TO_RAX);
+			compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
+
+			// TODO: Support any 32 bit offset, instead of only 8 bits
+			var = get_global_variable(expr.literal.string);
+			switch (var->type) {
+				case type_void:
+					grug_unreachable();
+				case type_i32:
+					compile_unpadded_number(DEREF_RAX_TO_EAX);
+					compile_byte(var->offset);
+					break;
+				case type_f32:
+					assert(false);
+				case type_string:
+					compile_unpadded_number(DEREF_RAX_TO_RAX);
+					compile_byte(var->offset);
+					break;
+			}
+
 			break;
 		}
 		case I32_EXPR: {
@@ -3933,27 +4077,27 @@ static void compile_variable_statement(struct variable_statement variable_statem
 				compile_byte(-var->offset);
 				break;
 		}
-	} else {
-		var = get_global_variable(variable_statement.name);
+		return;
+	}
 
-		compile_unpadded_number(DEREF_RBP_TO_R11);
-		compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
+	compile_unpadded_number(DEREF_RBP_TO_R11);
+	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 
-		// TODO: Support any 32 bit offset, instead of only 8 bits
-		switch (var->type) {
-			case type_void:
-				grug_unreachable();
-			case type_i32:
-				compile_unpadded_number(MOV_EAX_TO_DEREF_R11);
-				compile_byte(var->offset);
-				break;
-			case type_f32:
-				assert(false);
-			case type_string:
-				compile_unpadded_number(MOV_RAX_TO_DEREF_R11);
-				compile_byte(var->offset);
-				break;
-		}
+	// TODO: Support any 32 bit offset, instead of only 8 bits
+	var = get_global_variable(variable_statement.name);
+	switch (var->type) {
+		case type_void:
+			grug_unreachable();
+		case type_i32:
+			compile_unpadded_number(MOV_EAX_TO_DEREF_R11);
+			compile_byte(var->offset);
+			break;
+		case type_f32:
+			assert(false);
+		case type_string:
+			compile_unpadded_number(MOV_RAX_TO_DEREF_R11);
+			compile_byte(var->offset);
+			break;
 	}
 }
 
@@ -4034,18 +4178,20 @@ static void add_variables_in_statements(struct statement *statements_offset, siz
 }
 
 static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
-	variables_size = 0;
-	memset(buckets_variables, UINT32_MAX, MAX_VARIABLES_PER_FUNCTION * sizeof(u32));
-
 	// Reserve space for the secret global variables pointer
 	stack_frame_bytes = GLOBAL_VARIABLES_POINTER_SIZE;
 
-	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
-		struct argument arg = fn_arguments[argument_index];
-		add_local_variable(arg.name, arg.type);
-	}
+	// variables_size = 0;
+	// memset(buckets_variables, UINT32_MAX, MAX_VARIABLES_PER_FUNCTION * sizeof(u32));
 
-	add_variables_in_statements(body_statements, body_statement_count);
+	// for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
+	// 	struct argument arg = fn_arguments[argument_index];
+	// 	add_local_variable(arg.name, arg.type);
+	// }
+
+	// add_variables_in_statements(body_statements, body_statement_count);
+
+	init_local_variables(body_statements, body_statement_count, );
 
 	// Function prologue
 	compile_byte(PUSH_RBP);
@@ -4459,6 +4605,10 @@ static void overwrite_64(u64 n, size_t bytes_offset) {
 }
 
 static struct on_fn *get_on_fn(char *name) {
+	if (on_fns_size == 0) {
+		return NULL;
+	}
+
 	u32 i = buckets_on_fns[elf_hash(name) % on_fns_size];
 
 	while (true) {
@@ -4505,7 +4655,7 @@ static void patch_rela_dyn(void) {
 
 	size_t bytes_offset = rela_dyn_offset;
 	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
-		struct on_fn *on_fn = on_fns_size > 0 ? get_on_fn(grug_define_entity->on_functions[i].name) : NULL;
+		struct on_fn *on_fn = get_on_fn(grug_define_entity->on_functions[i].name);
 		if (on_fn) {
 			size_t on_fn_index = on_fn - on_fns;
 			size_t symbol_index = on_fns_symbol_offset + on_fn_index;
@@ -4867,7 +5017,7 @@ static void push_data(void) {
 	// "on_fns" function addresses
 	size_t previous_on_fn_index = 0;
 	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
-		struct on_fn *on_fn = on_fns_size > 0 ? get_on_fn(grug_define_entity->on_functions[i].name) : NULL;
+		struct on_fn *on_fn = get_on_fn(grug_define_entity->on_functions[i].name);
 		if (on_fn) {
 			size_t on_fn_index = on_fn - on_fns;
 			grug_assert(previous_on_fn_index <= on_fn_index, "The function '%s' was in the wrong order, according to the entity '%s' in mod_api.json", on_fn->fn_name, grug_define_entity->name);
@@ -5049,7 +5199,7 @@ static void push_rela_dyn(void) {
 	rela_dyn_offset = bytes_size;
 
 	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
-		struct on_fn *on_fn = on_fns_size > 0 ? get_on_fn(grug_define_entity->on_functions[i].name) : NULL;
+		struct on_fn *on_fn = get_on_fn(grug_define_entity->on_functions[i].name);
 		if (on_fn) {
 			push_rela(PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64);
 		}
