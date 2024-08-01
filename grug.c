@@ -2999,6 +2999,7 @@ static void fill_binary_expr(struct binary_expr binary_expr) {
 	fill_expr(binary_expr.left_expr);
 	fill_expr(binary_expr.right_expr);
 
+	// TODO: Add tests for also not being able to use unary operators on strings
 	grug_assert(binary_expr.left_expr->result_type != type_string || binary_expr.operator != PLUS_TOKEN, "You can't use any operator on a string, like %s in this case", get_token_type_str[binary_expr.operator]);
 }
 
@@ -3364,6 +3365,7 @@ enum code {
 	SETLT_AL = 0xc09c0f, // setl al
 	SETLE_AL = 0xc09e0f, // setle al
 
+	POP_RAX = 0x58, // pop rax
 	POP_R11 = 0x5b41, // pop r11
 
 	POP_RDI = 0x5f, // pop rdi
