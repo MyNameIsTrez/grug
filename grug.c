@@ -20,8 +20,8 @@
 // 8. TOKENIZATION
 // 9. VERIFY AND TRIM SPACES
 // 10. PARSING
-// 11. FILLING RESULT TYPES
-// 12. PRINTING AST
+// 11. PRINTING AST
+// 12. FILLING RESULT TYPES
 // 13. COMPILING
 // 14. LINKING
 // 15. HOT RELOADING
@@ -2633,16 +2633,6 @@ static void parse(void) {
 	hash_helper_fns();
 }
 
-//// FILLING RESULT TYPES
-
-static void fill_result_types(void) {
-	// TODO: Fill these too
-	// fill_define_fn();
-	// fill_global_variables();
-	// fill_on_fns();
-	// fill_helper_fns();
-}
-
 //// PRINTING AST
 
 static void print_expr(struct expr expr);
@@ -2949,6 +2939,16 @@ static void print_ast(void) {
 	print_helper_fns();
 
 	grug_log("}\n");
+}
+
+//// FILLING RESULT TYPES
+
+static void fill_result_types(void) {
+	// TODO: Fill these too
+	// fill_define_fn();
+	// fill_global_variables();
+	// fill_on_fns();
+	// fill_helper_fns();
 }
 
 //// COMPILING
