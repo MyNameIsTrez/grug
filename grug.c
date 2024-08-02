@@ -6097,11 +6097,12 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, struct
 
 				strncpy(grug_error.path, entry_path, sizeof(grug_error.path));
 
-				if (old_file) {
+				if (old_file && old_file->dll) {
 					modified.old_dll = old_file->dll;
 					if (dlclose(old_file->dll)) {
 						print_dlerror("dlclose");
 					}
+					old_file->dll = NULL;
 				}
 
 				if (needs_regeneration) {
