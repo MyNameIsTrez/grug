@@ -84,7 +84,7 @@ static bool streq(char *a, char *b);
 
 #define grug_error(...) {\
 	int ret = snprintf(grug_error.msg, sizeof(grug_error.msg), __VA_ARGS__);\
-	assert(ret >= 0);\
+	assert(ret >= 0); /* snprintf() to our static msg string can't ever fail */ \
 	\
 	grug_error.line_number = -1; /* TODO: Change this to the .grug file's line number */\
 	grug_error.grug_c_line_number = __LINE__;\
@@ -3045,8 +3045,7 @@ static void fill_expr(struct expr *expr) {
 				return;
 			}
 
-			// TODO: Throw that the variable doesn't exist
-			assert(false);
+			grug_error("The variable '%s' does not exist", expr->literal.string);
 
 			break;
 		}
@@ -4121,11 +4120,10 @@ static void compile_expr(struct expr expr) {
 						grug_unreachable();
 					case type_bool:
 					case type_i32:
+					case type_f32:
 						compile_unpadded_number(DEREF_RBP_TO_EAX);
 						compile_byte(-var->offset);
 						break;
-					case type_f32:
-						assert(false);
 					case type_string:
 						compile_unpadded_number(DEREF_RBP_TO_RAX);
 						compile_byte(-var->offset);
@@ -4144,11 +4142,10 @@ static void compile_expr(struct expr expr) {
 					grug_unreachable();
 				case type_bool:
 				case type_i32:
+				case type_f32:
 					compile_unpadded_number(DEREF_RAX_TO_EAX);
 					compile_byte(var->offset);
 					break;
-				case type_f32:
-					assert(false);
 				case type_string:
 					compile_unpadded_number(DEREF_RAX_TO_RAX);
 					compile_byte(var->offset);
@@ -4207,11 +4204,10 @@ static void compile_variable_statement(struct variable_statement variable_statem
 				grug_unreachable();
 			case type_bool:
 			case type_i32:
+			case type_f32:
 				compile_unpadded_number(MOV_EAX_TO_DEREF_RBP);
 				compile_byte(-var->offset);
 				break;
-			case type_f32:
-				assert(false);
 			case type_string:
 				compile_unpadded_number(MOV_RAX_TO_DEREF_RBP);
 				compile_byte(-var->offset);
@@ -4230,11 +4226,10 @@ static void compile_variable_statement(struct variable_statement variable_statem
 			grug_unreachable();
 		case type_bool:
 		case type_i32:
+		case type_f32:
 			compile_unpadded_number(MOV_EAX_TO_DEREF_R11);
 			compile_byte(var->offset);
 			break;
-		case type_f32:
-			assert(false);
 		case type_string:
 			compile_unpadded_number(MOV_RAX_TO_DEREF_R11);
 			compile_byte(var->offset);
