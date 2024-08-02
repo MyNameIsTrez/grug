@@ -1527,6 +1527,8 @@ static void verify_and_trim_spaces(void) {
 					switch (next_token.type) {
 						case OPEN_PARENTHESIS_TOKEN: // For example the inner open parenthesis in "foo(1, (2 + 3))"
 						case MINUS_TOKEN:
+						case TRUE_TOKEN:
+						case FALSE_TOKEN:
 						case STRING_TOKEN:
 						case WORD_TOKEN:
 						case I32_TOKEN:
@@ -3016,7 +3018,7 @@ static void fill_binary_expr(struct binary_expr binary_expr) {
 	fill_expr(binary_expr.right_expr);
 
 	// TODO: Add tests for also not being able to use unary operators on strings
-	grug_assert(binary_expr.left_expr->result_type != type_string || binary_expr.operator != PLUS_TOKEN, "You can't use any operator on a string, like %s in this case", get_token_type_str[binary_expr.operator]);
+	grug_assert(binary_expr.left_expr->result_type != type_string, "You can't use any operator on a string, like %s in this case", get_token_type_str[binary_expr.operator]);
 }
 
 static struct variable *get_local_variable(char *name);
