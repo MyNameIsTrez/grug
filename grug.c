@@ -832,6 +832,9 @@ static void push_grug_argument(struct grug_argument argument) {
 }
 
 static enum type parse_type(char *type) {
+	if (streq(type, "bool")) {
+		return type_bool;
+	}
 	if (streq(type, "i32")) {
 		return type_i32;
 	}
@@ -843,7 +846,7 @@ static enum type parse_type(char *type) {
 	}
 
 	// TODO: Make sure to add any new types to this error message
-	grug_error("The type '%s' must be changed to one of i32/f32/string", type);
+	grug_error("The type '%s' must be changed to one of bool/i32/f32/string", type);
 }
 
 static void init_game_fns(struct json_object fns) {
@@ -2520,7 +2523,7 @@ static struct compound_literal parse_compound_literal(size_t *i) {
 		consume_token_type(i, ASSIGNMENT_TOKEN);
 
 		token = peek_token(*i);
-		grug_assert(token.type == I32_TOKEN || token.type == F32_TOKEN || token.type == STRING_TOKEN, "Expected an i32/f32/string, but got %s at token index %zu", get_token_type_str[token.type], *i);
+		grug_assert(token.type == TRUE_TOKEN || token.type == FALSE_TOKEN || token.type == I32_TOKEN || token.type == F32_TOKEN || token.type == STRING_TOKEN, "Expected a bool/i32/f32/string, but got %s at token index %zu", get_token_type_str[token.type], *i);
 		field.expr_value = parse_expression(i);
 		push_field(field);
 		compound_literal.field_count++;
@@ -3295,109 +3298,120 @@ static void fill_result_types(void) {
 #define PLACEHOLDER_32 0xEFBEADDE
 #define PLACEHOLDER_64 0xEFBEADDEEFBEADDE
 
-enum code {
-	CALL = 0xe8, // call foo
-	RET = 0xc3, // ret
-	MOV_TO_DEREF_RDI = 0x47c7, // mov dword rdi[n], n
+// Start of code enums
 
-	PUSH_RAX = 0x50, // push rax
-	PUSH_RBP = 0x55, // push rbp
-	PUSH_32_BITS = 0x68, // push n
+#define CALL 0xe8 // call foo
+#define RET 0xc3 // ret
+#define MOV_TO_DEREF_RDI 0x47c7 // mov dword rdi[n], n
 
-	MOV_RSP_TO_RBP = 0xe58948, // mov rbp, rsp
-	SUB_RSP_8_BITS = 0xec8348, // sub rsp, n
-	SUB_RSP_32_BITS = 0xec8148, // sub rsp, n
-	ADD_RSP_8_BITS = 0xc48348, // add rsp, n
+#define PUSH_RAX 0x50 // push rax
+#define PUSH_RBP 0x55 // push rbp
+#define PUSH_32_BITS 0x68 // push n
 
-	MOV_ESI_TO_DEREF_RBP = 0x7589, // mov rbp[n], esi
-	MOV_EDX_TO_DEREF_RBP = 0x5589, // mov rbp[n], edx
-	MOV_ECX_TO_DEREF_RBP = 0x4d89, // mov rbp[n], ecx
-	MOV_R8D_TO_DEREF_RBP = 0x458944, // mov rbp[n], r8d
-	MOV_R9D_TO_DEREF_RBP = 0x4d8944, // mov rbp[n], r9d
+#define MOV_RSP_TO_RBP 0xe58948 // mov rbp, rsp
+#define SUB_RSP_8_BITS 0xec8348 // sub rsp, n
+#define SUB_RSP_32_BITS 0xec8148 // sub rsp, n
+#define ADD_RSP_8_BITS 0xc48348 // add rsp, n
 
-	MOV_RDI_TO_DEREF_RBP = 0x7d8948, // mov rbp[n], rdi
-	MOV_RSI_TO_DEREF_RBP = 0x758948, // mov rbp[n], rsi
-	MOV_RDX_TO_DEREF_RBP = 0x558948, // mov rbp[n], rdx
-	MOV_RCX_TO_DEREF_RBP = 0x4d8948, // mov rbp[n], rcx
-	MOV_R8_TO_DEREF_RBP = 0x45894c, // mov rbp[n], r8
-	MOV_R9_TO_DEREF_RBP = 0x4d894c, // mov rbp[n], r9
+#define MOV_ESI_TO_DEREF_RBP 0x7589 // mov rbp[n], esi
+#define MOV_EDX_TO_DEREF_RBP 0x5589 // mov rbp[n], edx
+#define MOV_ECX_TO_DEREF_RBP 0x4d89 // mov rbp[n], ecx
+#define MOV_R8D_TO_DEREF_RBP 0x458944 // mov rbp[n], r8d
+#define MOV_R9D_TO_DEREF_RBP 0x4d8944 // mov rbp[n], r9d
 
-	DEREF_RBP_TO_EAX = 0x458b, // mov eax, rbp[n]
-	DEREF_RBP_TO_RAX = 0x458b48, // mov rax, rbp[n]
+#define MOV_RDI_TO_DEREF_RBP 0x7d8948 // mov rbp[n], rdi
+#define MOV_RSI_TO_DEREF_RBP 0x758948 // mov rbp[n], rsi
+#define MOV_RDX_TO_DEREF_RBP 0x558948 // mov rbp[n], rdx
+#define MOV_RCX_TO_DEREF_RBP 0x4d8948 // mov rbp[n], rcx
+#define MOV_R8_TO_DEREF_RBP 0x45894c // mov rbp[n], r8
+#define MOV_R9_TO_DEREF_RBP 0x4d894c // mov rbp[n], r9
 
-	MOV_EAX_TO_DEREF_RBP = 0x4589, // mov rbp[n], eax
-	MOV_RAX_TO_DEREF_RBP = 0x458948, // mov rbp[n], rax
+#define DEREF_RBP_TO_EAX 0x458b // mov eax, rbp[n]
+#define DEREF_RBP_TO_RAX 0x458b48 // mov rax, rbp[n]
 
-	DEREF_RBP_TO_R11 = 0x5d8b4c, // mov r11, rbp[n]
+#define MOV_EAX_TO_DEREF_RBP 0x4589 // mov rbp[n], eax
+#define MOV_RAX_TO_DEREF_RBP 0x458948 // mov rbp[n], rax
 
-	DEREF_RAX_TO_EAX = 0x408b, // mov eax, rax[n]
-	DEREF_RAX_TO_RAX = 0x408b48, // mov rax, rax[n]
+#define DEREF_RBP_TO_R11 0x5d8b4c // mov r11, rbp[n]
 
-	MOV_EAX_TO_DEREF_R11 = 0x438941, // mov r11[n], eax
-	MOV_RAX_TO_DEREF_R11 = 0x438949, // mov r11[n], rax
+#define DEREF_RAX_TO_EAX 0x408b // mov eax, rax[n]
+#define DEREF_RAX_TO_RAX 0x408b48 // mov rax, rax[n]
 
-	MOV_RBP_TO_RSP = 0xec8948, // mov rsp, rbp
-	POP_RBP = 0x5d, // pop rbp
+#define MOV_EAX_TO_DEREF_R11 0x438941 // mov r11[n], eax
+#define MOV_RAX_TO_DEREF_R11 0x438949 // mov r11[n], rax
 
-	ADD_R11_TO_RAX = 0xd8014c, // add rax, r11
-	SUBTRACT_R11_FROM_RAX = 0xd8294c, // sub rax, r11
-	MULTIPLY_RAX_BY_R11 = 0xebf749, // imul r11
+#define MOV_RBP_TO_RSP 0xec8948 // mov rsp, rbp
+#define POP_RBP 0x5d // pop rbp
 
-	CQO_CLEAR_BEFORE_DIVISION = 0x9948, // cqo
-	DIVIDE_RAX_BY_R11 = 0xfbf749, // idiv r11
-	MOV_RDX_TO_RAX = 0xd08948, // mov rax, rdx
+#define ADD_R11_TO_RAX 0xd8014c // add rax, r11
+#define SUBTRACT_R11_FROM_RAX 0xd8294c // sub rax, r11
+#define MULTIPLY_RAX_BY_R11 0xebf749 // imul r11
 
-	CMP_RAX_WITH_R11 = 0xd8394c, // cmp rax, r11
+#define CQO_CLEAR_BEFORE_DIVISION 0x9948 // cqo
+#define DIVIDE_RAX_BY_R11 0xfbf749 // idiv r11
+#define MOV_RDX_TO_RAX 0xd08948 // mov rax, rdx
 
-	NEGATE_RAX = 0xd8f748, // neg rax
+#define CMP_RAX_WITH_R11 0xd8394c // cmp rax, r11
 
-	TEST_RAX_IS_ZERO = 0xc08548, // test rax, rax
+#define NEGATE_RAX 0xd8f748 // neg rax
 
-	JE_8_BIT_OFFSET = 0x74, // je $+0xn
-	JNE_8_BIT_OFFSET = 0x75, // jne $+0xn
-	JE_32_BIT_OFFSET = 0x840f, // je strict $+0xn
-	JMP_32_BIT_OFFSET = 0xe9, // jmp $+0xn
+#define TEST_RAX_IS_ZERO 0xc08548 // test rax, rax
 
-	SETE_AL = 0xc0940f, // sete al
-	SETNE_AL = 0xc0950f, // setne al
-	SETGT_AL = 0xc09f0f, // setg al
-	SETGE_AL = 0xc09d0f, // setge al
-	SETLT_AL = 0xc09c0f, // setl al
-	SETLE_AL = 0xc09e0f, // setle al
+#define JE_8_BIT_OFFSET 0x74 // je $+0xn
+#define JNE_8_BIT_OFFSET 0x75 // jne $+0xn
+#define JE_32_BIT_OFFSET 0x840f // je strict $+0xn
+#define JMP_32_BIT_OFFSET 0xe9 // jmp $+0xn
 
-	POP_RAX = 0x58, // pop rax
-	POP_R11 = 0x5b41, // pop r11
+#define SETE_AL 0xc0940f // sete al
+#define SETNE_AL 0xc0950f // setne al
+#define SETGT_AL 0xc09f0f // setg al
+#define SETGE_AL 0xc09d0f // setge al
+#define SETLT_AL 0xc09c0f // setl al
+#define SETLE_AL 0xc09e0f // setle al
 
-	POP_RDI = 0x5f, // pop rdi
-	POP_RSI = 0x5e, // pop rsi
-	POP_RDX = 0x5a, // pop rdx
-	POP_RCX = 0x59, // pop rcx
-	POP_R8 = 0x5841, // pop r8
-	POP_R9 = 0x5941, // pop r9
+#define POP_RAX 0x58 // pop rax
+#define POP_R11 0x5b41 // pop r11
 
-	XOR_CLEAR_EAX = 0xc031, // xor eax, eax
-    LEA_STRINGS_TO_RAX = 0x58d48, // lea rax, strings[rel n]
+#define POP_RDI 0x5f // pop rdi
+#define POP_RSI 0x5e // pop rsi
+#define POP_RDX 0x5a // pop rdx
+#define POP_RCX 0x59 // pop rcx
+#define POP_R8 0x5841 // pop r8
+#define POP_R9 0x5941 // pop r9
 
-	MOV_TO_EAX = 0xb8, // mov eax, n
+#define XOR_CLEAR_EAX 0xc031 // xor eax, eax
+#define LEA_STRINGS_TO_RAX 0x58d48 // lea rax, strings[rel n]
 
-	MOV_TO_EDI = 0xbf, // mov rdi, n
-	MOV_TO_ESI = 0xbe, // mov rsi, n
-	MOV_TO_EDX = 0xba, // mov rdx, n
-	MOV_TO_ECX = 0xb9, // mov rcx, n
-	MOV_TO_R8D = 0xb841, // mov r8, n
-	MOV_TO_R9D = 0xb941, // mov r9, n
+#define MOV_EAX_TO_XMM0 0xc06e0f66 // movd xmm0, eax
+#define MOV_EAX_TO_XMM1 0xc86e0f66 // movd xmm1, eax
+#define MOV_EAX_TO_XMM2 0xd06e0f66 // movd xmm2, eax
+#define MOV_EAX_TO_XMM3 0xd86e0f66 // movd xmm3, eax
+#define MOV_EAX_TO_XMM4 0xe06e0f66 // movd xmm4, eax
+#define MOV_EAX_TO_XMM5 0xe86e0f66 // movd xmm5, eax
+#define MOV_EAX_TO_XMM6 0xf06e0f66 // movd xmm6, eax
+#define MOV_EAX_TO_XMM7 0xf86e0f66 // movd xmm7, eax
 
-	LEA_STRINGS_TO_RDI = 0x3d8d48, // lea rdi, strings[rel n]
-	LEA_STRINGS_TO_RSI = 0x358d48, // lea rsi, strings[rel n]
-	LEA_STRINGS_TO_RDX = 0x158d48, // lea rdx, strings[rel n]
-	LEA_STRINGS_TO_RCX = 0x0d8d48, // lea rcx, strings[rel n]
-	LEA_STRINGS_TO_R8 = 0x058d4c, // lea r8, strings[rel n]
-	LEA_STRINGS_TO_R9 = 0x0d8d4c, // lea r9, strings[rel n]
+#define MOV_TO_EAX 0xb8 // mov eax, n
 
-	NOP_32_BITS = 0x401f0f, // no nasm equivalent
-	PUSH_REL = 0x35ff, // TODO: what nasm is this?
-	JMP_REL = 0x25ff, // TODO: what nasm is this?
-};
+#define MOV_TO_EDI 0xbf // mov rdi, n
+#define MOV_TO_ESI 0xbe // mov rsi, n
+#define MOV_TO_EDX 0xba // mov rdx, n
+#define MOV_TO_ECX 0xb9 // mov rcx, n
+#define MOV_TO_R8D 0xb841 // mov r8, n
+#define MOV_TO_R9D 0xb941 // mov r9, n
+
+#define LEA_STRINGS_TO_RDI 0x3d8d48 // lea rdi, strings[rel n]
+#define LEA_STRINGS_TO_RSI 0x358d48 // lea rsi, strings[rel n]
+#define LEA_STRINGS_TO_RDX 0x158d48 // lea rdx, strings[rel n]
+#define LEA_STRINGS_TO_RCX 0x0d8d48 // lea rcx, strings[rel n]
+#define LEA_STRINGS_TO_R8 0x058d4c // lea r8, strings[rel n]
+#define LEA_STRINGS_TO_R9 0x0d8d4c // lea r9, strings[rel n]
+
+#define NOP_32_BITS 0x401f0f // no nasm equivalent
+#define PUSH_REL 0x35ff // TODO: what nasm is this?
+#define JMP_REL 0x25ff // TODO: what nasm is this?
+
+// End of code enums
 
 struct data_string_code {
 	char *string;
@@ -3660,40 +3674,80 @@ static void compile_unpadded_number(u64 n) {
 	}
 }
 
-static void stack_pop_arguments(size_t argument_count) {
-	if (argument_count == 0) {
+static void stack_pop_arguments(struct expr *fn_arguments, size_t argument_count, bool gets_global_variables_pointer) {
+	if (!gets_global_variables_pointer && argument_count == 0) {
 		return;
 	}
 
-	// TODO: Support more arguments
-	grug_assert(argument_count <= 6, "Currently grug only supports up to 6 function arguments");
+	// `integer` here refers to the classification type:
+	// "integer types and pointers which use the general purpose registers"
+	// See https://stackoverflow.com/a/57861992/13279557
+	size_t integer_argument_count = 0;
+	if (gets_global_variables_pointer) {
+		integer_argument_count++;
+	}
 
-	assert(stack_size >= argument_count);
-	stack_size -= argument_count;
+	size_t float_argument_count = 0;
 
-	stack_frame_bytes -= sizeof(uint64_t) * argument_count;
+	for (size_t i = 0; i < argument_count; i++) {
+		struct expr argument = fn_arguments[i];
 
-	switch (argument_count) {
-		case 6:
-			compile_unpadded_number(POP_R9);
-			__attribute__((__fallthrough__));
-		case 5:
-			compile_unpadded_number(POP_R8);
-			__attribute__((__fallthrough__));
-		case 4:
-			compile_byte(POP_RCX);
-			__attribute__((__fallthrough__));
-		case 3:
-			compile_byte(POP_RDX);
-			__attribute__((__fallthrough__));
-		case 2:
-			compile_byte(POP_RSI);
-			__attribute__((__fallthrough__));
-		case 1:
-			compile_byte(POP_RDI);
-			return;
-		default:
-			grug_unreachable();
+		if (argument.result_type == type_f32) {
+			float_argument_count++;
+		} else {
+			integer_argument_count++;
+		}
+	}
+
+	grug_assert(integer_argument_count <= 6, "Currently grug only supports up to six bool/i32/string arguments");
+	grug_assert(float_argument_count <= 8, "Currently grug only supports up to eight f32 arguments");
+
+	size_t argument_count_including_globals_ptr = argument_count;
+	if (gets_global_variables_pointer) {
+		argument_count_including_globals_ptr++;
+	}
+
+	assert(stack_size >= argument_count_including_globals_ptr);
+	stack_size -= argument_count_including_globals_ptr;
+
+	// u64 is the size of the RAX register that gets pushed for every argument
+	stack_frame_bytes -= sizeof(u64) * argument_count_including_globals_ptr;
+
+	for (size_t i = argument_count; i > 0;) {
+		struct expr argument = fn_arguments[--i];
+
+		if (argument.result_type == type_f32) {
+			compile_byte(POP_RAX);
+
+			u32 movs[] = {
+				MOV_EAX_TO_XMM0,
+				MOV_EAX_TO_XMM1,
+				MOV_EAX_TO_XMM2,
+				MOV_EAX_TO_XMM3,
+				MOV_EAX_TO_XMM4,
+				MOV_EAX_TO_XMM5,
+				MOV_EAX_TO_XMM6,
+				MOV_EAX_TO_XMM7,
+			};
+
+			compile_unpadded_number(movs[--float_argument_count]);
+		} else {
+			u16 pops[] = {
+				POP_RDI,
+				POP_RSI,
+				POP_RDX,
+				POP_RCX,
+				POP_R8,
+				POP_R9,
+			};
+
+			compile_unpadded_number(pops[--integer_argument_count]);
+		}
+	}
+
+	if (gets_global_variables_pointer) {
+		// Pop the secret global variables pointer argument
+		compile_byte(POP_RDI);
 	}
 }
 
@@ -3709,7 +3763,7 @@ static void stack_pop_r11(void) {
 	--stack_size;
 
 	compile_unpadded_number(POP_R11);
-	stack_frame_bytes -= sizeof(uint64_t);
+	stack_frame_bytes -= sizeof(u64);
 }
 
 static void stack_push_rax(void) {
@@ -3717,7 +3771,7 @@ static void stack_push_rax(void) {
 	stack_size++;
 
 	compile_byte(PUSH_RAX);
-	stack_frame_bytes += sizeof(uint64_t);
+	stack_frame_bytes += sizeof(u64);
 }
 
 static void compile_expr(struct expr expr);
@@ -3809,8 +3863,7 @@ static size_t get_padding(void) {
 }
 
 static void compile_call_expr(struct call_expr call_expr) {
-	size_t popped_argument_count = call_expr.argument_count;
-
+	bool gets_global_variables_pointer = false;
 	if (is_helper_fn(call_expr.fn_name)) {
 		// Push the secret global variables pointer argument
 		compile_unpadded_number(DEREF_RBP_TO_RAX);
@@ -3818,7 +3871,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 		stack_push_rax();
 
 		// The secret global variables pointer argument will need to get popped
-		popped_argument_count++;
+		gets_global_variables_pointer = true;
 	}
 
 	for (size_t i = 0; i < call_expr.argument_count; i++) {
@@ -3831,7 +3884,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 		stack_push_rax();
 	}
 
-	stack_pop_arguments(popped_argument_count);
+	stack_pop_arguments(call_expr.arguments, call_expr.argument_count, gets_global_variables_pointer);
 
 	// Ensures the call will be 16-byte aligned
 	size_t padding = get_padding();
@@ -4223,9 +4276,11 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 
 	// Function prologue
 	compile_byte(PUSH_RBP);
+
 	// Deliberately leaving this out, so we don't have to worry about adding 8
 	// after turning stack_frame_bytes into a multiple of 16
-	// stack_frame_bytes += sizeof(uint64_t);
+	// stack_frame_bytes += sizeof(u64);
+
 	compile_unpadded_number(MOV_RSP_TO_RBP);
 
 	// Make space in the stack for the arguments and variables
@@ -4257,7 +4312,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 				grug_unreachable();
 			case type_bool:
 			case type_i32:
-				compile_unpadded_number((enum code[]){
+				compile_unpadded_number((u32[]){
 					MOV_ESI_TO_DEREF_RBP,
 					MOV_EDX_TO_DEREF_RBP,
 					MOV_ECX_TO_DEREF_RBP,
@@ -4268,7 +4323,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 			case type_f32:
 				assert(false);
 			case type_string:
-				compile_unpadded_number((enum code[]){
+				compile_unpadded_number((u32[]){
 					MOV_RSI_TO_DEREF_RBP,
 					MOV_RDX_TO_DEREF_RBP,
 					MOV_RCX_TO_DEREF_RBP,
@@ -4295,7 +4350,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 
 static void compile_returned_field(struct expr expr_value, size_t argument_index) {
 	if (expr_value.type == I32_EXPR) {
-		compile_unpadded_number((enum code[]){
+		compile_unpadded_number((u16[]){
 			MOV_TO_EDI,
 			MOV_TO_ESI,
 			MOV_TO_EDX,
@@ -4308,7 +4363,7 @@ static void compile_returned_field(struct expr expr_value, size_t argument_index
 	} else if (expr_value.type == F32_EXPR) {
 		assert(false);
 	} else if (expr_value.type == STRING_EXPR) {
-		compile_unpadded_number((enum code[]){
+		compile_unpadded_number((u32[]){
 			LEA_STRINGS_TO_RDI,
 			LEA_STRINGS_TO_RSI,
 			LEA_STRINGS_TO_RDX,
@@ -4672,12 +4727,12 @@ static void hash_on_fns(void) {
 // Needed future text_offset
 static void patch_rela_dyn(void) {
 	size_t return_type_data_size = strlen(define_fn.return_type) + 1;
-	size_t globals_size_data_size = sizeof(uint64_t);
+	size_t globals_size_data_size = sizeof(u64);
 	size_t on_fn_data_offset = return_type_data_size + globals_size_data_size;
 
-	size_t excess = on_fn_data_offset % sizeof(uint64_t); // Alignment
+	size_t excess = on_fn_data_offset % sizeof(u64); // Alignment
 	if (excess > 0) {
-		on_fn_data_offset += sizeof(uint64_t) - excess;
+		on_fn_data_offset += sizeof(u64) - excess;
 	}
 
 	size_t bytes_offset = rela_dyn_offset;
@@ -5581,12 +5636,12 @@ static void init_data_offsets(void) {
 	offset += strlen(define_fn.return_type) + 1;
 
 	// "globals_size" symbol
-	size_t excess = offset % sizeof(uint64_t); // Alignment
+	size_t excess = offset % sizeof(u64); // Alignment
 	if (excess > 0) {
-		offset += sizeof(uint64_t) - excess;
+		offset += sizeof(u64) - excess;
 	}
 	data_offsets[i++] = offset;
-	offset += sizeof(uint64_t);
+	offset += sizeof(u64);
 
 	// "on_fns" function address symbols
 	data_offsets[i] = offset; // This can deliberately be overwritten by the loop
