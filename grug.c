@@ -5838,8 +5838,6 @@ static size_t reloads_capacity;
 static void regenerate_dll(char *grug_path, char *dll_path) {
 	grug_log("# Regenerating %s\n", dll_path);
 
-	strncpy(grug_error.filename, grug_path, sizeof(grug_error.filename));
-
 	static bool parsed_mod_api_json = false;
 	if (!parsed_mod_api_json) {
 		parse_mod_api_json();
@@ -5885,6 +5883,7 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
+	strncpy(grug_error.filename, grug_path, sizeof(grug_error.filename));
 	regenerate_dll(grug_path, dll_path);
 	return false;
 }
@@ -5909,7 +5908,7 @@ static void try_create_parent_dirs(char *file_path) {
 
 static void print_dlerror(char *function_name) {
 	char *err = dlerror();
-	grug_assert(err, "dlerror was asked to find an error string, but it couldn't find one");
+	grug_assert(err, "dlerror() was asked to find an error string, but it couldn't find one");
 	grug_error("%s: %s", function_name, err);
 }
 
@@ -6081,6 +6080,8 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, struct
 
 			if (needs_regeneration || !old_file) {
 				struct grug_modified modified = {0};
+
+				strncpy(grug_error.filename, entry_path, sizeof(grug_error.filename));
 
 				if (old_file) {
 					modified.old_dll = old_file->dll;
