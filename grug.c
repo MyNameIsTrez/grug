@@ -3501,6 +3501,7 @@ static void reset_compiling(void) {
 	game_fn_calls_size = 0;
 	helper_fn_calls_size = 0;
 	used_game_fns_size = 0;
+	used_game_fn_symbols_size = 0;
 	helper_fn_offsets_size = 0;
 	assert(stack_size == 0);
 	assert(start_of_loop_jump_offsets_size == 0);
@@ -4667,7 +4668,6 @@ static u32 chains_game_fn_offsets[MAX_GAME_FN_OFFSETS];
 
 static void reset_generate_shared_object(void) {
 	symbols_size = 0;
-	used_game_fn_symbols_size = 0;
 	data_symbols_size = 0;
 	shuffled_symbols_size = 0;
 	bytes_size = 0;
