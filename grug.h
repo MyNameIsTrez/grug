@@ -38,12 +38,13 @@ struct grug_modified {
 	grug_init_globals_fn_t init_globals_fn;
 	char *define_type;
 	void *on_fns;
+	char path[4096];
 };
 
 struct grug_error {
 	bool has_changed;
 	char msg[420];
-	char filename[4096];
+	char path[4096];
 	int line_number;
 	int grug_c_line_number;
 };

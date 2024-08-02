@@ -91,11 +91,11 @@ static bool streq(char *a, char *b);
 	\
 	grug_error.has_changed =\
 	    !streq(grug_error.msg, previous_grug_error.msg)\
-	 || !streq(grug_error.filename, previous_grug_error.filename)\
+	 || !streq(grug_error.path, previous_grug_error.path)\
 	 || grug_error.line_number != previous_grug_error.line_number;\
 	\
 	strncpy(previous_grug_error.msg, grug_error.msg, sizeof(previous_grug_error.msg));\
-	strncpy(previous_grug_error.filename, grug_error.filename, sizeof(previous_grug_error.filename));\
+	strncpy(previous_grug_error.path, grug_error.path, sizeof(previous_grug_error.path));\
 	previous_grug_error.line_number = grug_error.line_number;\
 	\
 	longjmp(error_jmp_buffer, 1);\
@@ -5883,7 +5883,7 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
-	strncpy(grug_error.filename, grug_path, sizeof(grug_error.filename));
+	strncpy(grug_error.path, grug_path, sizeof(grug_error.path));
 	regenerate_dll(grug_path, dll_path);
 	return false;
 }
@@ -6081,7 +6081,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, struct
 			if (needs_regeneration || !old_file) {
 				struct grug_modified modified = {0};
 
-				strncpy(grug_error.filename, entry_path, sizeof(grug_error.filename));
+				strncpy(grug_error.path, entry_path, sizeof(grug_error.path));
 
 				if (old_file) {
 					modified.old_dll = old_file->dll;
@@ -6147,6 +6147,7 @@ static void reload_modified_mods(char *mods_dir_path, char *dll_dir_path, struct
 					modified.init_globals_fn = file.init_globals_fn;
 					modified.define_type = file.define_type;
 					modified.on_fns = file.on_fns;
+					strncpy(modified.path, entry_path, sizeof(modified.path));
 					push_reload(modified);
 				}
 			}
