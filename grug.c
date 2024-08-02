@@ -80,11 +80,24 @@
 // https://eklitzke.org/path-max-is-tricky
 #define STUPID_MAX_PATH 4096
 
+static bool streq(char *a, char *b);
+
 #define grug_error(...) {\
 	int ret = snprintf(grug_error.msg, sizeof(grug_error.msg), __VA_ARGS__);\
 	assert(ret >= 0);\
-	grug_error.filename = __FILE__;\
-	grug_error.line_number = __LINE__;\
+	\
+	grug_error.line_number = -1; /* TODO: Change this to the .grug file's line number */\
+	grug_error.grug_c_line_number = __LINE__;\
+	\
+	grug_error.has_changed =\
+	    !streq(grug_error.msg, previous_grug_error.msg)\
+	 || !streq(grug_error.filename, previous_grug_error.filename)\
+	 || grug_error.line_number != previous_grug_error.line_number;\
+	\
+	strncpy(previous_grug_error.msg, grug_error.msg, sizeof(previous_grug_error.msg));\
+	strncpy(previous_grug_error.filename, grug_error.filename, sizeof(previous_grug_error.filename));\
+	previous_grug_error.line_number = grug_error.line_number;\
+	\
 	longjmp(error_jmp_buffer, 1);\
 }
 
@@ -124,6 +137,7 @@ typedef uint64_t u64;
 typedef float f32;
 
 struct grug_error grug_error;
+struct grug_error previous_grug_error;
 static jmp_buf error_jmp_buffer;
 
 //// UTILS
@@ -5829,6 +5843,8 @@ static size_t reloads_capacity;
 
 static void regenerate_dll(char *grug_path, char *dll_path) {
 	grug_log("# Regenerating %s\n", dll_path);
+
+	strncpy(grug_error.filename, grug_path, sizeof(grug_error.filename));
 
 	static bool parsed_mod_api_json = false;
 	if (!parsed_mod_api_json) {

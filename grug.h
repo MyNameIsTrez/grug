@@ -41,9 +41,11 @@ struct grug_modified {
 };
 
 struct grug_error {
+	bool has_changed;
 	char msg[420];
-	char *filename;
+	char filename[4096];
 	int line_number;
+	int grug_c_line_number;
 };
 
 extern struct grug_mod_dir grug_mods;
