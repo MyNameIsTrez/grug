@@ -896,12 +896,12 @@ static void init_game_fns(struct json_object fns) {
 			} else {
 				grug_assert(streq(field->key, "arguments"), "\"game_functions\" its second field was something other than \"return_type\" and \"arguments\"");
 			}
+		} else {
+			grug_fn.return_type = type_void;
 		}
 
 		if ((!seen_return_type && fn.field_count > 1) || fn.field_count > 2) {
 			grug_assert(streq(field->key, "arguments"), "\"game_functions\" its second or third field was something other than \"arguments\"");
-
-			grug_fn.return_type = type_void;
 
 			grug_assert(field->value->type == JSON_NODE_ARRAY, "\"game_functions\" its function arguments must be arrays");
 			struct json_node *value = field->value->data.array.values;
@@ -1826,7 +1826,7 @@ struct helper_fn {
 	char *fn_name;
 	struct argument *arguments;
 	size_t argument_count;
-	char *return_type;
+	enum type return_type;
 	struct statement *body_statements;
 	size_t body_statement_count;
 };
@@ -1853,16 +1853,16 @@ static void reset_parsing(void) {
 	global_variable_statements_size = 0;
 }
 
-static bool is_helper_fn(char *name) {
+static struct helper_fn *get_helper_fn(char *name) {
 	if (helper_fns_size == 0) {
-		return false;
+		return NULL;
 	}
 
 	u32 i = buckets_helper_fns[elf_hash(name) % helper_fns_size];
 
 	while (true) {
 		if (i == UINT32_MAX) {
-			return false;
+			return NULL;
 		}
 
 		if (streq(name, helper_fns[i].fn_name)) {
@@ -1872,7 +1872,7 @@ static bool is_helper_fn(char *name) {
 		i = chains_helper_fns[i];
 	}
 
-	return true;
+	return helper_fns + i;
 }
 
 static void hash_helper_fns(void) {
@@ -2480,7 +2480,7 @@ static void parse_helper_fn(size_t *i) {
 	token = peek_token(*i);
 	if (token.type == WORD_TOKEN) {
 		(*i)++;
-		fn.return_type = token.str;
+		fn.return_type = parse_type(token.str);
 	}
 
 	fn.body_statements = parse_statements(i, &fn.body_statement_count);
@@ -3403,6 +3403,8 @@ static void fill_result_types(void) {
 #define MOV_EAX_TO_XMM6 0xf06e0f66 // movd xmm6, eax
 #define MOV_EAX_TO_XMM7 0xf86e0f66 // movd xmm7, eax
 
+#define MOV_XMM0_TO_EAX 0xc07e0f66 // movd eax, xmm0
+
 #define MOV_TO_EAX 0xb8 // mov eax, n
 
 #define MOV_TO_EDI 0xbf // mov rdi, n
@@ -3585,16 +3587,16 @@ static void hash_used_game_fns(void) {
 	}
 }
 
-static bool is_game_fn(char *name) {
+static struct grug_game_function *get_grug_game_fn(char *name) {
 	if (grug_game_functions_size == 0) {
-		return false;
+		return NULL;
 	}
 
 	u32 i = buckets_game_fns[elf_hash(name) % grug_game_functions_size];
 
 	while (true) {
 		if (i == UINT32_MAX) {
-			return false;
+			return NULL;
 		}
 
 		if (streq(name, grug_game_functions[i].name)) {
@@ -3604,7 +3606,7 @@ static bool is_game_fn(char *name) {
 		i = chains_game_fns[i];
 	}
 
-	return true;
+	return grug_game_functions + i;
 }
 
 static void hash_game_fns(void) {
@@ -3877,7 +3879,7 @@ static size_t get_padding(void) {
 
 static void compile_call_expr(struct call_expr call_expr) {
 	bool gets_global_variables_pointer = false;
-	if (is_helper_fn(call_expr.fn_name)) {
+	if (get_helper_fn(call_expr.fn_name)) {
 		// Push the secret global variables pointer argument
 		compile_unpadded_number(DEREF_RBP_TO_RAX);
 		compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
@@ -3910,14 +3912,22 @@ static void compile_call_expr(struct call_expr call_expr) {
 	compile_byte(CALL);
 
 	char *fn_name = call_expr.fn_name;
-	if (is_game_fn(fn_name)) {
+
+	bool returns_float = false;
+	struct grug_game_function *game_fn = get_grug_game_fn(fn_name);
+	if (game_fn) {
 		push_game_fn_call(fn_name, codes_size);
-	} else if (is_helper_fn(fn_name)) {
-		push_helper_fn_call(fn_name, codes_size);
-	} else if (starts_with(fn_name, "helper_")) {
-		grug_error("The helper function '%s' does not exist", fn_name);
+		returns_float = game_fn->return_type == type_f32;
 	} else {
-		grug_error("The game function '%s' does not exist", fn_name);
+		struct helper_fn *helper_fn = get_helper_fn(fn_name);
+		if (helper_fn) {
+			push_helper_fn_call(fn_name, codes_size);
+			returns_float = helper_fn->return_type == type_f32;
+		} else if (starts_with(fn_name, "helper_")) {
+			grug_error("The helper function '%s' does not exist", fn_name);
+		} else {
+			grug_error("The game function '%s' does not exist", fn_name);
+		}
 	}
 	compile_unpadded_number(PLACEHOLDER_32);
 
@@ -3928,6 +3938,10 @@ static void compile_call_expr(struct call_expr call_expr) {
 		compile_unpadded_number(ADD_RSP_8_BITS);
 		compile_byte(padding);
 		stack_frame_bytes += padding;
+	}
+
+	if (returns_float) {
+		compile_unpadded_number(MOV_XMM0_TO_EAX);
 	}
 }
 
