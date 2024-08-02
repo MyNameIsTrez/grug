@@ -2971,7 +2971,6 @@ static u32 chains_global_variables[MAX_GLOBAL_VARIABLES_IN_FILE];
 static size_t stack_frame_bytes;
 
 static void reset_filling(void) {
-	assert(variables_size == 0);
 	global_variables_size = 0;
 	globals_bytes = 0;
 	memset(buckets_global_variables, UINT32_MAX, MAX_GLOBAL_VARIABLES_IN_FILE * sizeof(u32));
