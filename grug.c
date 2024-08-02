@@ -86,7 +86,7 @@ static bool streq(char *a, char *b);
 	int ret = snprintf(grug_error.msg, sizeof(grug_error.msg), __VA_ARGS__);\
 	assert(ret >= 0); /* snprintf() to our static msg string can't ever fail */ \
 	\
-	grug_error.line_number = -1; /* TODO: Change this to the .grug file's line number */\
+	grug_error.line_number = 0; /* TODO: Change this to the .grug file's line number */\
 	grug_error.grug_c_line_number = __LINE__;\
 	\
 	grug_error.has_changed =\
@@ -5892,6 +5892,16 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 	generate_shared_object(grug_path, dll_path);
 }
 
+// Resetting previous_grug_error is necessary for this edge case:
+// 1. Add a typo to a mod, causing a compilation error
+// 2. Remove the typo, causing it to compile again
+// 3. Add the exact same typo to the same line; we want this to show the earlier error again
+static void reset_previous_grug_error(void) {
+	previous_grug_error.msg[0] = '\0';
+	previous_grug_error.path[0] = '\0';
+	previous_grug_error.line_number = 0;
+}
+
 // Returns whether an error occurred
 bool grug_test_regenerate_dll(char *grug_path, char *dll_path) {
 	if (setjmp(error_jmp_buffer)) {
@@ -5899,6 +5909,7 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path) {
 	}
 	strncpy(grug_error.path, grug_path, sizeof(grug_error.path));
 	regenerate_dll(grug_path, dll_path);
+	reset_previous_grug_error();
 	return false;
 }
 
@@ -6234,6 +6245,9 @@ bool grug_regenerate_modified_mods(void) {
 	}
 
 	reload_modified_mods(MODS_DIR_PATH, DLL_DIR_PATH, &grug_mods);
+
+	reset_previous_grug_error();
+
 	return false;
 }
 
