@@ -683,21 +683,20 @@ static void json_push_token(enum json_token_type type, size_t offset, size_t len
 
 static void json_tokenize(void) {
 	size_t i = 0;
-	bool in_string = false;
-	size_t string_start_index;
 
 	while (i < json_text_size) {
 		if (json_text[i] == '"') {
-			if (in_string) {
-				json_push_token(
-					TOKEN_TYPE_STRING,
-					string_start_index + 1,
-					i - string_start_index - 1
-				);
-			} else {
-				string_start_index = i;
-			}
-			in_string = !in_string;
+			size_t string_start_index = i;
+
+			while (++i < json_text_size && json_text[i] != '"') {}
+
+			json_assert(json_text[i] == '"', JSON_ERROR_UNCLOSED_STRING);
+
+			push_token(
+				TOKEN_TYPE_STRING,
+				string_start_index + 1,
+				i - string_start_index - 1
+			);
 		} else if (json_text[i] == '[') {
 			json_push_token(TOKEN_TYPE_ARRAY_OPEN, i, 1);
 		} else if (json_text[i] == ']') {
@@ -710,13 +709,11 @@ static void json_tokenize(void) {
 			json_push_token(TOKEN_TYPE_COMMA, i, 1);
 		} else if (json_text[i] == ':') {
 			json_push_token(TOKEN_TYPE_COLON, i, 1);
-		} else if (!isspace(json_text[i]) && !in_string) {
+		} else if (!isspace(json_text[i])) {
 			json_error(JSON_ERROR_UNRECOGNIZED_CHARACTER);
 		}
 		i++;
 	}
-
-	json_assert(!in_string, JSON_ERROR_UNCLOSED_STRING);
 }
 
 static void json_read_text(char *json_file_path) {
