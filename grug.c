@@ -3393,6 +3393,13 @@ static void fill_result_types(void) {
 #define XOR_CLEAR_EAX 0xc031 // xor eax, eax
 #define LEA_STRINGS_TO_RAX 0x58d48 // lea rax, strings[rel n]
 
+#define XOR_CLEAR_EDI 0xff31 // xor edi, edi
+#define XOR_CLEAR_ESI 0xf631 // xor esi, esi
+#define XOR_CLEAR_EDX 0xd231 // xor edx, edx
+#define XOR_CLEAR_ECX 0xc931 // xor ecx, ecx
+#define XOR_CLEAR_R8D 0xc03145 // xor r8d, r8d
+#define XOR_CLEAR_R9D 0xc93145 // xor r9d, r9d
+
 #define MOV_EAX_TO_XMM0 0xc06e0f66 // movd xmm0, eax
 #define MOV_EAX_TO_XMM1 0xc86e0f66 // movd xmm1, eax
 #define MOV_EAX_TO_XMM2 0xd06e0f66 // movd xmm2, eax
@@ -3406,12 +3413,12 @@ static void fill_result_types(void) {
 
 #define MOV_TO_EAX 0xb8 // mov eax, n
 
-#define MOV_TO_EDI 0xbf // mov rdi, n
-#define MOV_TO_ESI 0xbe // mov rsi, n
-#define MOV_TO_EDX 0xba // mov rdx, n
-#define MOV_TO_ECX 0xb9 // mov rcx, n
-#define MOV_TO_R8D 0xb841 // mov r8, n
-#define MOV_TO_R9D 0xb941 // mov r9, n
+#define MOV_TO_EDI 0xbf // mov edi, n
+#define MOV_TO_ESI 0xbe // mov esi, n
+#define MOV_TO_EDX 0xba // mov edx, n
+#define MOV_TO_ECX 0xb9 // mov ecx, n
+#define MOV_TO_R8D 0xb841 // mov r8d, n
+#define MOV_TO_R9D 0xb941 // mov r9d, n
 
 #define LEA_STRINGS_TO_RDI 0x3d8d48 // lea rdi, strings[rel n]
 #define LEA_STRINGS_TO_RSI 0x358d48 // lea rsi, strings[rel n]
@@ -4371,35 +4378,67 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 }
 
 static void compile_returned_field(struct expr expr_value, size_t argument_index) {
-	if (expr_value.type == I32_EXPR) {
-		compile_unpadded_number((u16[]){
-			MOV_TO_EDI,
-			MOV_TO_ESI,
-			MOV_TO_EDX,
-			MOV_TO_ECX,
-			MOV_TO_R8D,
-			MOV_TO_R9D,
-		}[argument_index]);
+	switch (expr_value.type) {
+		case STRING_EXPR:
+			compile_unpadded_number((u32[]){
+				LEA_STRINGS_TO_RDI,
+				LEA_STRINGS_TO_RSI,
+				LEA_STRINGS_TO_RDX,
+				LEA_STRINGS_TO_RCX,
+				LEA_STRINGS_TO_R8,
+				LEA_STRINGS_TO_R9,
+			}[argument_index]);
 
-		compile_padded_number(expr_value.literal.i32, 4);
-	} else if (expr_value.type == F32_EXPR) {
-		assert(false);
-	} else if (expr_value.type == STRING_EXPR) {
-		compile_unpadded_number((u32[]){
-			LEA_STRINGS_TO_RDI,
-			LEA_STRINGS_TO_RSI,
-			LEA_STRINGS_TO_RDX,
-			LEA_STRINGS_TO_RCX,
-			LEA_STRINGS_TO_R8,
-			LEA_STRINGS_TO_R9,
-		}[argument_index]);
+			// RIP-relative address of data string
+			push_data_string_code(expr_value.literal.string, codes_size);
+			compile_unpadded_number(PLACEHOLDER_32);
+			break;
+		case IDENTIFIER_EXPR:
+			grug_error("The define function can't return variables");
+		case TRUE_EXPR:
+			compile_unpadded_number((u16[]){
+				MOV_TO_EDI,
+				MOV_TO_ESI,
+				MOV_TO_EDX,
+				MOV_TO_ECX,
+				MOV_TO_R8D,
+				MOV_TO_R9D,
+			}[argument_index]);
 
-		// RIP-relative address of data string
-		push_data_string_code(expr_value.literal.string, codes_size);
-		compile_unpadded_number(PLACEHOLDER_32);
-	} else {
-		// TODO: Can modders somehow reach this?
-		grug_error("Only i32, f32 and strings can be returned right now");
+			compile_padded_number(1, 4);
+			break;
+		case FALSE_EXPR:
+			compile_unpadded_number((u32[]){
+				XOR_CLEAR_EDI,
+				XOR_CLEAR_ESI,
+				XOR_CLEAR_EDX,
+				XOR_CLEAR_ECX,
+				XOR_CLEAR_R8D,
+				XOR_CLEAR_R9D,
+			}[argument_index]);
+			break;
+		case I32_EXPR:
+			compile_unpadded_number((u16[]){
+				MOV_TO_EDI,
+				MOV_TO_ESI,
+				MOV_TO_EDX,
+				MOV_TO_ECX,
+				MOV_TO_R8D,
+				MOV_TO_R9D,
+			}[argument_index]);
+
+			compile_padded_number(expr_value.literal.i32, 4);
+			break;
+		case F32_EXPR:
+			assert(false);
+		case UNARY_EXPR:
+		case BINARY_EXPR:
+		case LOGICAL_EXPR:
+		case PARENTHESIZED_EXPR:
+			// TODO: Support these
+			grug_error("Currently grug doesn't support having the define function return unary/binary/logical/parenthesized expressions");
+		case CALL_EXPR:
+			grug_error("The define function's returned fields can't call functions"); // Since those calls might use uninitialized global variables
 	}
 }
 
