@@ -692,7 +692,7 @@ static void json_tokenize(void) {
 
 			json_assert(json_text[i] == '"', JSON_ERROR_UNCLOSED_STRING);
 
-			push_token(
+			json_push_token(
 				TOKEN_TYPE_STRING,
 				string_start_index + 1,
 				i - string_start_index - 1
