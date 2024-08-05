@@ -819,6 +819,8 @@ static size_t grug_define_functions_size;
 
 struct grug_game_function grug_game_functions[MAX_GRUG_FUNCTIONS];
 static size_t grug_game_functions_size;
+static u32 buckets_game_fns[MAX_GRUG_FUNCTIONS];
+static u32 chains_game_fns[MAX_GRUG_FUNCTIONS];
 
 struct grug_argument grug_arguments[MAX_GRUG_ARGUMENTS];
 static size_t grug_arguments_size;
@@ -831,6 +833,42 @@ static void push_grug_on_function(struct grug_on_function fn) {
 static void push_grug_entity(struct grug_entity fn) {
 	grug_assert(grug_define_functions_size < MAX_GRUG_FUNCTIONS, "There are more than %d define_ functions in mod_api.json, exceeding MAX_GRUG_FUNCTIONS", MAX_GRUG_FUNCTIONS);
 	grug_define_functions[grug_define_functions_size++] = fn;
+}
+
+static struct grug_game_function *get_grug_game_fn(char *name) {
+	if (grug_game_functions_size == 0) {
+		return NULL;
+	}
+
+	u32 i = buckets_game_fns[elf_hash(name) % grug_game_functions_size];
+
+	while (true) {
+		if (i == UINT32_MAX) {
+			return NULL;
+		}
+
+		if (streq(name, grug_game_functions[i].name)) {
+			break;
+		}
+
+		i = chains_game_fns[i];
+	}
+
+	return grug_game_functions + i;
+}
+
+static void hash_game_fns(void) {
+	memset(buckets_game_fns, UINT32_MAX, grug_game_functions_size * sizeof(u32));
+
+	for (size_t i = 0; i < grug_game_functions_size; i++) {
+		char *name = grug_game_functions[i].name;
+
+		u32 bucket_index = elf_hash(name) % grug_game_functions_size;
+
+		chains_game_fns[i] = buckets_game_fns[bucket_index];
+
+		buckets_game_fns[bucket_index] = i;
+	}
 }
 
 static void push_grug_game_function(struct grug_game_function fn) {
@@ -932,6 +970,8 @@ static void init_game_fns(struct json_object fns) {
 
 		push_grug_game_function(grug_fn);
 	}
+
+	hash_game_fns();
 }
 
 static void init_on_fns(struct json_object fns) {
@@ -2978,10 +3018,6 @@ static void reset_filling(void) {
 
 static void fill_expr(struct expr *expr);
 
-static void fill_parenthesized_expr(struct expr *parenthesized_expr) {
-	fill_expr(parenthesized_expr);
-}
-
 static void fill_call_expr(struct expr *expr) {
 	struct call_expr call_expr = expr->call;
 
@@ -2989,34 +3025,99 @@ static void fill_call_expr(struct expr *expr) {
 		fill_expr(&call_expr.arguments[argument_index]);
 	}
 
-	// TODO: Support functions returning values
-	// This will require checking on fns and game fns
-	expr->result_type = type_void;
+	char *name = expr->call.fn_name;
 
-	// char *name = expr.call_expr.fn_name;
+	struct helper_fn *helper_fn = get_helper_fn(name);
+	if (helper_fn) {
+		expr->result_type = helper_fn->return_type;
+		return;
+	}
 
-	// struct helper_fn *helper_fn = get_helper_fn(name);
-	// if (helper_fn) {
-	// 	expr.result_type = helper_fn->;
-	// 	return;
-	// }
+	struct grug_game_function *game_fn = get_grug_game_fn(name);
+	if (game_fn) {
+		expr->result_type = game_fn->return_type;
+		return;
+	}
 
-	// struct game_fn *game_fn = get_game_fn(name);
-	// if (game_fn) {
-	// 	expr.result_type = game_fn->;
-	// 	return;
-	// }
-
-	// TODO: Throw that the fn does not exist
-	// assert(false);
+	if (starts_with(name, "helper_")) {
+		grug_error("The helper function '%s' does not exist", name);
+	} else {
+		grug_error("The game function '%s' does not exist", name);
+	}
 }
 
-static void fill_binary_expr(struct binary_expr binary_expr) {
+static void fill_binary_expr(struct expr *expr) {
+	assert(expr->type == BINARY_EXPR || expr->type == LOGICAL_EXPR);
+	struct binary_expr binary_expr = expr->binary;
+
 	fill_expr(binary_expr.left_expr);
 	fill_expr(binary_expr.right_expr);
 
 	// TODO: Add tests for also not being able to use unary operators on strings
 	grug_assert(binary_expr.left_expr->result_type != type_string, "You can't use any operator on a string, like %s in this case", get_token_type_str[binary_expr.operator]);
+
+	grug_assert(binary_expr.left_expr->result_type == binary_expr.right_expr->result_type, "The left and right operand of a binary expression ('%s') must have the same type, but got %s and %s", get_token_type_str[binary_expr.operator], type_names[binary_expr.left_expr->result_type], type_names[binary_expr.right_expr->result_type]);
+
+	switch (binary_expr.operator) {
+		case EQUALS_TOKEN:
+		case NOT_EQUALS_TOKEN:
+			grug_assert(binary_expr.left_expr->result_type != type_string, "'%s' operator does not expect string", get_token_type_str[binary_expr.operator]);
+			expr->result_type = type_bool;
+			break;
+
+		case GREATER_OR_EQUAL_TOKEN:
+		case GREATER_TOKEN:
+		case LESS_OR_EQUAL_TOKEN:
+		case LESS_TOKEN:
+			grug_assert(binary_expr.left_expr->result_type == type_i32 || binary_expr.left_expr->result_type == type_f32, "'%s' operator expects i32 or f32", get_token_type_str[binary_expr.operator]);
+			expr->result_type = type_bool;
+			break;
+
+		case AND_TOKEN:
+		case OR_TOKEN:
+			grug_assert(binary_expr.left_expr->result_type == type_bool, "'%s' operator expects bool", get_token_type_str[binary_expr.operator]);
+			expr->result_type = type_bool;
+			break;
+
+		case PLUS_TOKEN:
+		case MINUS_TOKEN:
+		case MULTIPLICATION_TOKEN:
+		case DIVISION_TOKEN:
+			grug_assert(binary_expr.left_expr->result_type == type_i32 || binary_expr.left_expr->result_type == type_f32, "'%s' operator expects i32 or f32", get_token_type_str[binary_expr.operator]);
+			expr->result_type = binary_expr.left_expr->result_type;
+			break;
+
+		case REMAINDER_TOKEN:
+			grug_assert(binary_expr.left_expr->result_type == type_i32, "'%%' operator expects i32");
+			expr->result_type = type_i32;
+			break;
+
+		case OPEN_PARENTHESIS_TOKEN:
+		case CLOSE_PARENTHESIS_TOKEN:
+		case OPEN_BRACE_TOKEN:
+		case CLOSE_BRACE_TOKEN:
+		case COMMA_TOKEN:
+		case COLON_TOKEN:
+		case PERIOD_TOKEN:
+		case ASSIGNMENT_TOKEN:
+		case NOT_TOKEN:
+		case TRUE_TOKEN:
+		case FALSE_TOKEN:
+		case IF_TOKEN:
+		case ELSE_TOKEN:
+		case WHILE_TOKEN:
+		case BREAK_TOKEN:
+		case RETURN_TOKEN:
+		case CONTINUE_TOKEN:
+		case SPACES_TOKEN:
+		case NEWLINES_TOKEN:
+		case STRING_TOKEN:
+		case WORD_TOKEN:
+		case I32_TOKEN:
+		case F32_TOKEN:
+		case COMMENT_TOKEN:
+			grug_unreachable();
+	}
 }
 
 static struct variable *get_local_variable(char *name);
@@ -3056,16 +3157,18 @@ static void fill_expr(struct expr *expr) {
 			break;
 		case UNARY_EXPR:
 			fill_expr(expr->unary.expr);
+			expr->result_type = expr->unary.expr->result_type;
 			break;
 		case BINARY_EXPR:
 		case LOGICAL_EXPR:
-			fill_binary_expr(expr->binary);
+			fill_binary_expr(expr);
 			break;
 		case CALL_EXPR:
 			fill_call_expr(expr);
 			break;
 		case PARENTHESIZED_EXPR:
-			fill_parenthesized_expr(expr->parenthesized);
+			fill_expr(expr->parenthesized);
+			expr->result_type = expr->parenthesized->result_type;
 			break;
 	}
 }
@@ -3410,6 +3513,9 @@ static void fill_result_types(void) {
 #define MOV_EAX_TO_XMM6 0xf06e0f66 // movd xmm6, eax
 #define MOV_EAX_TO_XMM7 0xf86e0f66 // movd xmm7, eax
 
+#define MOV_R11D_TO_XMM1 0xcb6e0f4166 // movd xmm1, r11d
+#define ADD_XMM1_TO_XMM0 0xc1580ff3 // addss xmm0, xmm1
+
 #define MOV_XMM0_TO_EAX 0xc07e0f66 // movd eax, xmm0
 
 #define MOV_TO_EAX 0xb8 // mov eax, n
@@ -3469,9 +3575,6 @@ static struct fn_call game_fn_calls[MAX_GAME_FN_CALLS];
 static size_t game_fn_calls_size;
 static struct fn_call helper_fn_calls[MAX_HELPER_FN_CALLS];
 static size_t helper_fn_calls_size;
-
-static u32 buckets_game_fns[MAX_GRUG_FUNCTIONS];
-static u32 chains_game_fns[MAX_GRUG_FUNCTIONS];
 
 static char *used_game_fns[MAX_USED_GAME_FNS];
 static size_t used_game_fns_size;
@@ -3591,42 +3694,6 @@ static void hash_used_game_fns(void) {
 		chains_used_game_fns[used_game_fns_size] = buckets_used_game_fns[bucket_index];
 
 		buckets_used_game_fns[bucket_index] = used_game_fns_size++;
-	}
-}
-
-static struct grug_game_function *get_grug_game_fn(char *name) {
-	if (grug_game_functions_size == 0) {
-		return NULL;
-	}
-
-	u32 i = buckets_game_fns[elf_hash(name) % grug_game_functions_size];
-
-	while (true) {
-		if (i == UINT32_MAX) {
-			return NULL;
-		}
-
-		if (streq(name, grug_game_functions[i].name)) {
-			break;
-		}
-
-		i = chains_game_fns[i];
-	}
-
-	return grug_game_functions + i;
-}
-
-static void hash_game_fns(void) {
-	memset(buckets_game_fns, UINT32_MAX, grug_game_functions_size * sizeof(u32));
-
-	for (size_t i = 0; i < grug_game_functions_size; i++) {
-		char *name = grug_game_functions[i].name;
-
-		u32 bucket_index = elf_hash(name) % grug_game_functions_size;
-
-		chains_game_fns[i] = buckets_game_fns[bucket_index];
-
-		buckets_game_fns[bucket_index] = i;
 	}
 }
 
@@ -3930,10 +3997,8 @@ static void compile_call_expr(struct call_expr call_expr) {
 		if (helper_fn) {
 			push_helper_fn_call(fn_name, codes_size);
 			returns_float = helper_fn->return_type == type_f32;
-		} else if (starts_with(fn_name, "helper_")) {
-			grug_error("The helper function '%s' does not exist", fn_name);
 		} else {
-			grug_error("The game function '%s' does not exist", fn_name);
+			grug_unreachable();
 		}
 	}
 	compile_unpadded_number(PLACEHOLDER_32);
@@ -3993,7 +4058,10 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 	}
 }
 
-static void compile_binary_expr(struct binary_expr binary_expr) {
+static void compile_binary_expr(struct expr expr) {
+	assert(expr.type == BINARY_EXPR);
+	struct binary_expr binary_expr = expr.binary;
+
 	compile_expr(*binary_expr.right_expr);
 	stack_push_rax();
 	compile_expr(*binary_expr.left_expr);
@@ -4001,7 +4069,14 @@ static void compile_binary_expr(struct binary_expr binary_expr) {
 
 	switch (binary_expr.operator) {
 		case PLUS_TOKEN:
-			compile_unpadded_number(ADD_R11_TO_RAX);
+			if (expr.result_type == type_i32) {
+				compile_unpadded_number(ADD_R11_TO_RAX);
+			} else {
+				compile_unpadded_number(MOV_EAX_TO_XMM0);
+				compile_unpadded_number(MOV_R11D_TO_XMM1);
+				compile_unpadded_number(ADD_XMM1_TO_XMM0);
+				compile_unpadded_number(MOV_XMM0_TO_EAX);
+			}
 			break;
 		case MINUS_TOKEN:
 			compile_unpadded_number(SUBTRACT_R11_FROM_RAX);
@@ -4200,7 +4275,7 @@ static void compile_expr(struct expr expr) {
 			compile_unary_expr(expr.unary);
 			break;
 		case BINARY_EXPR:
-			compile_binary_expr(expr.binary);
+			compile_binary_expr(expr);
 			break;
 		case LOGICAL_EXPR:
 			compile_logical_expr(expr.binary);
@@ -4526,8 +4601,6 @@ static void compile(void) {
 	}
 
 	init_data_strings();
-
-	hash_game_fns();
 
 	size_t text_offset_index = 0;
 	size_t text_offset = 0;
