@@ -83,8 +83,9 @@
 static bool streq(char *a, char *b);
 
 #define grug_error(...) {\
-	int ret = snprintf(grug_error.msg, sizeof(grug_error.msg), __VA_ARGS__);\
-	assert(ret >= 0); /* snprintf() to our static msg string can't ever fail */ \
+	if (snprintf(grug_error.msg, sizeof(grug_error.msg), __VA_ARGS__) < 0) {\
+		abort();\
+	}\
 	\
 	grug_error.line_number = 0; /* TODO: Change this to the .grug file's line number */\
 	grug_error.grug_c_line_number = __LINE__;\
@@ -5945,7 +5946,8 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
-	strncpy(grug_error.path, grug_path, sizeof(grug_error.path));
+	strncpy(grug_error.path, grug_path, sizeof(grug_error.path) - 1);
+	grug_error.path[sizeof(grug_error.path) - 1] = '\0';
 	regenerate_dll(grug_path, dll_path);
 	reset_previous_grug_error();
 	return false;
