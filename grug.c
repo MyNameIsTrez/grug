@@ -3918,6 +3918,7 @@ static void stack_pop_arguments(struct expr *fn_arguments, size_t argument_count
 		}
 	}
 
+	// TODO: This should be `<= 5` for helper fns
 	grug_assert(integer_argument_count <= 6, "Currently grug only supports up to six bool/i32/string arguments");
 	grug_assert(float_argument_count <= 8, "Currently grug only supports up to eight f32 arguments");
 
@@ -4558,6 +4559,11 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 	compile_unpadded_number(MOV_RDI_TO_DEREF_RBP);
 	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 
+	size_t integer_argument_index = 0;
+	size_t float_argument_index = 0;
+
+	// TODO: Add err and ok test for max i32 and f32 arguments
+
 	// Move the rest of the arguments
 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
 		struct argument arg = fn_arguments[argument_index];
@@ -4574,7 +4580,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 					MOV_ECX_TO_DEREF_RBP,
 					MOV_R8D_TO_DEREF_RBP,
 					MOV_R9D_TO_DEREF_RBP,
-				}[argument_index]);
+				}[integer_argument_index]);
 				break;
 			case type_f32:
 				compile_unpadded_number((u32[]){
@@ -4586,7 +4592,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 					MOV_XMM5_TO_DEREF_RBP,
 					MOV_XMM6_TO_DEREF_RBP,
 					MOV_XMM7_TO_DEREF_RBP,
-				}[argument_index]);
+				}[float_argument_index]);
 				break;
 			case type_string:
 				compile_unpadded_number((u32[]){
@@ -4595,7 +4601,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 					MOV_RCX_TO_DEREF_RBP,
 					MOV_R8_TO_DEREF_RBP,
 					MOV_R9_TO_DEREF_RBP,
-				}[argument_index]);
+				}[integer_argument_index]);
 				break;
 		}
 
@@ -4603,6 +4609,12 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 		// TODO: Support offset >= 256 bytes, and add a test for it
 		grug_assert(offset < 256, "Currently grug doesn't allow function arguments to use more than 256 bytes in the function's stack frame, so use fewer arguments for the time being");
 		compile_byte(-offset);
+
+		if (arg.type == type_f32) {
+			float_argument_index++;
+		} else {
+			integer_argument_index++;
+		}
 	}
 
 	compile_statements(body_statements, body_statement_count);
