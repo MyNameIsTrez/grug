@@ -3580,11 +3580,11 @@ static void fill_result_types(void) {
 #define POP_RBP 0x5d // pop rbp
 
 #define ADD_R11_TO_RAX 0xd8014c // add rax, r11
-#define SUBTRACT_R11_FROM_RAX 0xd8294c // sub rax, r11
-#define MULTIPLY_RAX_BY_R11 0xebf749 // imul r11
+#define SUB_R11_FROM_RAX 0xd8294c // sub rax, r11
+#define MUL_RAX_BY_R11 0xebf749 // imul r11
 
 #define CQO_CLEAR_BEFORE_DIVISION 0x9948 // cqo
-#define DIVIDE_RAX_BY_R11 0xfbf749 // idiv r11
+#define DIV_RAX_BY_R11 0xfbf749 // idiv r11
 #define MOV_RDX_TO_RAX 0xd08948 // mov rax, rdx
 
 #define CMP_RAX_WITH_R11 0xd8394c // cmp rax, r11
@@ -3635,7 +3635,11 @@ static void fill_result_types(void) {
 #define MOV_EAX_TO_XMM7 0xf86e0f66 // movd xmm7, eax
 
 #define MOV_R11D_TO_XMM1 0xcb6e0f4166 // movd xmm1, r11d
+
 #define ADD_XMM1_TO_XMM0 0xc1580ff3 // addss xmm0, xmm1
+#define SUB_XMM1_FROM_XMM0 0xc15c0ff3 // subss xmm0, xmm1
+#define MUL_XMM0_WITH_XMM1 0xc1590ff3 // mulss xmm0, xmm1
+#define DIV_XMM0_BY_XMM1 0xc15e0ff3 // divss xmm0, xmm1
 
 #define MOV_XMM0_TO_EAX 0xc07e0f66 // movd eax, xmm0
 
@@ -4196,18 +4200,39 @@ static void compile_binary_expr(struct expr expr) {
 			}
 			break;
 		case MINUS_TOKEN:
-			compile_unpadded_number(SUBTRACT_R11_FROM_RAX);
+			if (expr.result_type == type_i32) {
+				compile_unpadded_number(SUB_R11_FROM_RAX);
+			} else {
+				compile_unpadded_number(MOV_EAX_TO_XMM0);
+				compile_unpadded_number(MOV_R11D_TO_XMM1);
+				compile_unpadded_number(SUB_XMM1_FROM_XMM0);
+				compile_unpadded_number(MOV_XMM0_TO_EAX);
+			}
 			break;
 		case MULTIPLICATION_TOKEN:
-			compile_unpadded_number(MULTIPLY_RAX_BY_R11);
+			if (expr.result_type == type_i32) {
+				compile_unpadded_number(MUL_RAX_BY_R11);
+			} else {
+				compile_unpadded_number(MOV_EAX_TO_XMM0);
+				compile_unpadded_number(MOV_R11D_TO_XMM1);
+				compile_unpadded_number(MUL_XMM0_WITH_XMM1);
+				compile_unpadded_number(MOV_XMM0_TO_EAX);
+			}
 			break;
 		case DIVISION_TOKEN:
-			compile_unpadded_number(CQO_CLEAR_BEFORE_DIVISION);
-			compile_unpadded_number(DIVIDE_RAX_BY_R11);
+			if (expr.result_type == type_i32) {
+				compile_unpadded_number(CQO_CLEAR_BEFORE_DIVISION);
+				compile_unpadded_number(DIV_RAX_BY_R11);
+			} else {
+				compile_unpadded_number(MOV_EAX_TO_XMM0);
+				compile_unpadded_number(MOV_R11D_TO_XMM1);
+				compile_unpadded_number(DIV_XMM0_BY_XMM1);
+				compile_unpadded_number(MOV_XMM0_TO_EAX);
+			}
 			break;
 		case REMAINDER_TOKEN:
 			compile_unpadded_number(CQO_CLEAR_BEFORE_DIVISION);
-			compile_unpadded_number(DIVIDE_RAX_BY_R11);
+			compile_unpadded_number(DIV_RAX_BY_R11);
 			compile_unpadded_number(MOV_RDX_TO_RAX);
 			break;
 		case EQUALS_TOKEN:
