@@ -3010,6 +3010,9 @@ static u32 chains_global_variables[MAX_GLOBAL_VARIABLES_IN_FILE];
 
 static size_t stack_frame_bytes;
 
+static enum type fn_return_type;
+static char *filled_fn_name;
+
 static void reset_filling(void) {
 	global_variables_size = 0;
 	globals_bytes = 0;
@@ -3199,6 +3202,11 @@ static void fill_statements(struct statement *statements_offset, size_t statemen
 			case RETURN_STATEMENT:
 				if (statement.return_statement.has_value) {
 					fill_expr(statement.return_statement.value);
+
+					grug_assert(fn_return_type != type_void, "Helper function '%s' wasn't supposed to return any value", filled_fn_name);
+					grug_assert(statement.return_statement.value->result_type == fn_return_type, "Helper function '%s' was supposed to return %s", filled_fn_name, type_names[fn_return_type]);
+				} else {
+					grug_assert(fn_return_type == type_void, "Helper function '%s' was supposed to return a value of type %s", filled_fn_name, type_names[fn_return_type]);
 				}
 				break;
 			case WHILE_STATEMENT:
@@ -3314,12 +3322,25 @@ static void init_local_variables(struct argument *fn_arguments, size_t argument_
 }
 
 static void fill_helper_fns(void) {
-	// TODO: Implement
+	for (size_t fn_index = 0; fn_index < helper_fns_size; fn_index++) {
+		struct helper_fn fn = helper_fns[fn_index];
+
+		fn_return_type = fn.return_type;
+		filled_fn_name = fn.fn_name;
+
+		init_local_variables(fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count);
+
+		fill_statements(fn.body_statements, fn.body_statement_count);
+	}
 }
 
 static void fill_on_fns(void) {
+	fn_return_type = type_void;
+
 	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
 		struct on_fn fn = on_fns[fn_index];
+
+		filled_fn_name = fn.fn_name;
 
 		init_local_variables(fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count);
 
