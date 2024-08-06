@@ -3009,6 +3009,11 @@ static size_t stack_frame_bytes;
 static enum type fn_return_type;
 static char *filled_fn_name;
 
+static struct grug_entity *grug_define_entity;
+
+static u32 buckets_define_on_fns[MAX_ON_FNS_IN_FILE];
+static u32 chains_define_on_fns[MAX_ON_FNS_IN_FILE];
+
 static void reset_filling(void) {
 	global_variables_size = 0;
 	globals_bytes = 0;
@@ -3060,7 +3065,7 @@ static void fill_call_expr(struct expr *expr) {
 	}
 
 	if (starts_with(name, "helper_")) {
-		grug_error("The helper function '%s' does not exist", name);
+		grug_error("The function '%s' does not exist", name);
 	} else {
 		grug_error("The game function '%s' does not exist", name);
 	}
@@ -3220,10 +3225,10 @@ static void fill_statements(struct statement *statements_offset, size_t statemen
 				if (statement.return_statement.has_value) {
 					fill_expr(statement.return_statement.value);
 
-					grug_assert(fn_return_type != type_void, "Helper function '%s' wasn't supposed to return any value", filled_fn_name);
-					grug_assert(statement.return_statement.value->result_type == fn_return_type, "Helper function '%s' was supposed to return %s", filled_fn_name, type_names[fn_return_type]);
+					grug_assert(fn_return_type != type_void, "Function '%s' wasn't supposed to return any value", filled_fn_name);
+					grug_assert(statement.return_statement.value->result_type == fn_return_type, "Function '%s' was supposed to return %s", filled_fn_name, type_names[fn_return_type]);
 				} else {
-					grug_assert(fn_return_type == type_void, "Helper function '%s' was supposed to return a value of type %s", filled_fn_name, type_names[fn_return_type]);
+					grug_assert(fn_return_type == type_void, "Function '%s' was supposed to return a value of type %s", filled_fn_name, type_names[fn_return_type]);
 				}
 				break;
 			case WHILE_STATEMENT:
@@ -3349,7 +3354,43 @@ static void fill_helper_fns(void) {
 
 		fill_statements(fn.body_statements, fn.body_statement_count);
 
-		grug_assert(fn.body_statements[fn.body_statement_count - 1].type == RETURN_STATEMENT || fn_return_type == type_void, "Helper function '%s' was supposed to return %s", filled_fn_name, type_names[fn_return_type]);
+		grug_assert(fn.body_statements[fn.body_statement_count - 1].type == RETURN_STATEMENT || fn_return_type == type_void, "Function '%s' was supposed to return %s", filled_fn_name, type_names[fn_return_type]);
+	}
+}
+
+static struct grug_on_function *get_define_on_fn(char *name) {
+	if (grug_define_entity->on_function_count == 0) {
+		return NULL;
+	}
+
+	u32 i = buckets_define_on_fns[elf_hash(name) % grug_define_entity->on_function_count];
+
+	while (true) {
+		if (i == UINT32_MAX) {
+			return NULL;
+		}
+
+		if (streq(name, grug_define_entity->on_functions[i].name)) {
+			break;
+		}
+
+		i = chains_define_on_fns[i];
+	}
+
+	return grug_define_entity->on_functions + i;
+}
+
+static void hash_define_on_fns(void) {
+	memset(buckets_define_on_fns, UINT32_MAX, grug_define_entity->on_function_count * sizeof(u32));
+
+	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
+		char *name = grug_define_entity->on_functions[i].name;
+
+		u32 bucket_index = elf_hash(name) % grug_define_entity->on_function_count;
+
+		chains_define_on_fns[i] = buckets_define_on_fns[bucket_index];
+
+		buckets_define_on_fns[bucket_index] = i;
 	}
 }
 
@@ -3359,9 +3400,31 @@ static void fill_on_fns(void) {
 	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
 		struct on_fn fn = on_fns[fn_index];
 
-		filled_fn_name = fn.fn_name;
+		char *name = fn.fn_name;
+		filled_fn_name = name;
 
-		init_local_variables(fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count);
+		struct grug_on_function *define_on_fn = get_define_on_fn(on_fns[fn_index].fn_name);
+
+		grug_assert(define_on_fn, "The function '%s' was not was not declared by entity '%s' in mod_api.json", on_fns[fn_index].fn_name, define_fn.return_type);
+
+		struct argument *args = fn.arguments;
+		size_t arg_count = fn.argument_count;
+
+		struct argument *params = define_on_fn->arguments;
+		size_t param_count = define_on_fn->argument_count;
+
+		grug_assert(arg_count >= param_count, "Function '%s' expected the parameter '%s' with type %s", name, params[arg_count].name, type_names[params[arg_count].type]);
+
+		grug_assert(arg_count <= param_count, "Function '%s' got an unexpected extra parameter '%s' with type %s", name, args[param_count].name, type_names[args[param_count].type]);
+
+		for (size_t argument_index = 0; argument_index < arg_count; argument_index++) {
+			enum type arg_type = args[argument_index].type;
+			struct argument param = params[argument_index];
+
+			grug_assert(arg_type == param.type, "Function '%s' its '%s' parameter was supposed to have the type %s, but was %s", name, param.name, type_names[param.type], type_names[arg_type]);
+		}
+
+		init_local_variables(args, arg_count, fn.body_statements, fn.body_statement_count);
 
 		fill_statements(fn.body_statements, fn.body_statement_count);
 	}
@@ -3373,6 +3436,16 @@ static void fill_global_variables(void) {
 
 static void fill_define_fn(void) {
 	// TODO: Implement
+}
+
+// TODO: This could be turned O(1) with a hash map
+static struct grug_entity *get_grug_define_entity(char *return_type) {
+	for (size_t i = 0; i < grug_define_functions_size; i++) {
+		if (streq(return_type, grug_define_functions[i].name)) {
+			return grug_define_functions + i;
+		}
+	}
+	return NULL;
 }
 
 static struct variable *get_global_variable(char *name) {
@@ -3422,6 +3495,14 @@ static void fill_result_types(void) {
 
 		add_global_variable(global_variable.name, global_variable.type);
 	}
+
+	grug_define_entity = get_grug_define_entity(define_fn.return_type);
+
+	grug_assert(grug_define_entity, "The entity '%s' was not declared by mod_api.json", define_fn.return_type);
+
+	grug_assert(grug_define_entity->argument_count == define_fn.returned_compound_literal.field_count, "The entity '%s' expects %zu fields, but got %zu", grug_define_entity->name, grug_define_entity->argument_count, define_fn.returned_compound_literal.field_count);
+
+	hash_define_on_fns();
 
 	fill_define_fn();
 	fill_global_variables();
@@ -3591,10 +3672,6 @@ static u8 codes[MAX_CODES];
 static size_t codes_size;
 
 static char *define_fn_name;
-static struct grug_entity *grug_define_entity;
-
-static u32 buckets_define_on_fns[MAX_ON_FNS_IN_FILE];
-static u32 chains_define_on_fns[MAX_ON_FNS_IN_FILE];
 
 static char *data_strings[MAX_DATA_STRINGS];
 static size_t data_strings_size;
@@ -4572,38 +4649,6 @@ static void init_data_strings(void) {
 	}
 }
 
-static struct grug_on_function *get_define_on_fn(char *name) {
-	u32 i = buckets_define_on_fns[elf_hash(name) % grug_define_entity->on_function_count];
-
-	while (true) {
-		if (i == UINT32_MAX) {
-			return NULL;
-		}
-
-		if (streq(name, grug_define_entity->on_functions[i].name)) {
-			break;
-		}
-
-		i = chains_define_on_fns[i];
-	}
-
-	return grug_define_entity->on_functions + i;
-}
-
-static void hash_define_on_fns(void) {
-	memset(buckets_define_on_fns, UINT32_MAX, grug_define_entity->on_function_count * sizeof(u32));
-
-	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
-		char *name = grug_define_entity->on_functions[i].name;
-
-		u32 bucket_index = elf_hash(name) % grug_define_entity->on_function_count;
-
-		chains_define_on_fns[i] = buckets_define_on_fns[bucket_index];
-
-		buckets_define_on_fns[bucket_index] = i;
-	}
-}
-
 static void init_define_fn_name(char *name) {
 	grug_assert(temp_strings_size + sizeof("define_") - 1 + strlen(name) < MAX_TEMP_STRINGS_CHARACTERS, "There are more than %d characters in the strings array, exceeding MAX_TEMP_STRINGS_CHARACTERS", MAX_TEMP_STRINGS_CHARACTERS);
 
@@ -4618,27 +4663,10 @@ static void init_define_fn_name(char *name) {
 	temp_strings[temp_strings_size++] = '\0';
 }
 
-static struct grug_entity *compile_get_entity(char *return_type) {
-	for (size_t i = 0; i < grug_define_functions_size; i++) {
-		if (streq(return_type, grug_define_functions[i].name)) {
-			return grug_define_functions + i;
-		}
-	}
-	return NULL;
-}
-
 static void compile(void) {
 	reset_compiling();
 
-	// Getting the used define fn's grug_entity
-	grug_define_entity = compile_get_entity(define_fn.return_type);
-	grug_assert(grug_define_entity, "The entity '%s' was not declared by mod_api.json", define_fn.return_type);
-	grug_assert(grug_define_entity->argument_count == define_fn.returned_compound_literal.field_count, "The entity '%s' expects %zu fields, but got %zu", grug_define_entity->name, grug_define_entity->argument_count, define_fn.returned_compound_literal.field_count);
 	init_define_fn_name(grug_define_entity->name);
-	hash_define_on_fns();
-	for (size_t on_fn_index = 0; on_fn_index < on_fns_size; on_fn_index++) {
-		grug_assert(grug_define_entity->on_function_count > 0 && get_define_on_fn(on_fns[on_fn_index].fn_name), "The function '%s' was not was not declared by entity '%s' in mod_api.json", on_fns[on_fn_index].fn_name, define_fn.return_type);
-	}
 
 	init_data_strings();
 
