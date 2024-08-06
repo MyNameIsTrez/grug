@@ -787,13 +787,13 @@ static size_t type_sizes[] = {
 
 struct grug_on_function {
 	char *name;
-	struct grug_argument *arguments;
+	struct argument *arguments;
 	size_t argument_count;
 };
 
 struct grug_entity {
 	char *name;
-	struct grug_argument *arguments;
+	struct argument *arguments;
 	size_t argument_count;
 	struct grug_on_function *on_functions;
 	size_t on_function_count;
@@ -802,11 +802,11 @@ struct grug_entity {
 struct grug_game_function {
 	char *name;
 	enum type return_type;
-	struct grug_argument *arguments;
+	struct argument *arguments;
 	size_t argument_count;
 };
 
-struct grug_argument {
+struct argument {
 	char *name;
 	enum type type;
 };
@@ -822,7 +822,7 @@ static size_t grug_game_functions_size;
 static u32 buckets_game_fns[MAX_GRUG_FUNCTIONS];
 static u32 chains_game_fns[MAX_GRUG_FUNCTIONS];
 
-struct grug_argument grug_arguments[MAX_GRUG_ARGUMENTS];
+struct argument grug_arguments[MAX_GRUG_ARGUMENTS];
 static size_t grug_arguments_size;
 
 static void push_grug_on_function(struct grug_on_function fn) {
@@ -876,7 +876,7 @@ static void push_grug_game_function(struct grug_game_function fn) {
 	grug_game_functions[grug_game_functions_size++] = fn;
 }
 
-static void push_grug_argument(struct grug_argument argument) {
+static void push_grug_argument(struct argument argument) {
 	grug_assert(grug_arguments_size < MAX_GRUG_ARGUMENTS, "There are more than %d grug arguments, exceeding MAX_GRUG_ARGUMENTS", MAX_GRUG_ARGUMENTS);
 	grug_arguments[grug_arguments_size++] = argument;
 }
@@ -947,7 +947,7 @@ static void init_game_fns(struct json_object fns) {
 			grug_assert(grug_fn.argument_count > 0, "\"game_functions\" its \"arguments\" array must not be empty (just remove the \"arguments\" key entirely)");
 
 			for (size_t argument_index = 0; argument_index < grug_fn.argument_count; argument_index++) {
-				struct grug_argument grug_arg;
+				struct argument grug_arg;
 
 				grug_assert(value->type == JSON_NODE_OBJECT, "\"game_functions\" its function arguments must only contain objects");
 				grug_assert(value->data.object.field_count == 2, "\"game_functions\" its function arguments must only contain a name and type field");
@@ -1005,7 +1005,7 @@ static void init_on_fns(struct json_object fns) {
 			grug_fn.argument_count = field->value->data.array.value_count;
 
 			for (size_t argument_index = 0; argument_index < grug_fn.argument_count; argument_index++) {
-				struct grug_argument grug_arg;
+				struct argument grug_arg;
 
 				grug_assert(value->type == JSON_NODE_OBJECT, "\"on_functions\" its function arguments must only contain objects");
 				grug_assert(value->data.object.field_count == 2, "\"on_functions\" its function arguments must only contain a name and type field");
@@ -1061,7 +1061,7 @@ static void init_entities(struct json_object entities) {
 				entity.argument_count = field->value->data.array.value_count;
 
 				for (size_t argument_index = 0; argument_index < entity.argument_count; argument_index++) {
-					struct grug_argument grug_arg;
+					struct argument grug_arg;
 
 					grug_assert(value->type == JSON_NODE_OBJECT, "\"entities\" its arguments must only contain objects");
 					grug_assert(value->data.object.field_count == 2, "\"entities\" its arguments must only contain a name and type field");
@@ -1839,10 +1839,6 @@ static char *get_statement_type_str[] = {
 static struct statement statements[MAX_STATEMENTS_IN_FILE];
 static size_t statements_size;
 
-struct argument {
-	enum type type;
-	char *name;
-};
 static struct argument arguments[MAX_ARGUMENTS_IN_FILE];
 static size_t arguments_size;
 
@@ -3021,6 +3017,21 @@ static void reset_filling(void) {
 
 static void fill_expr(struct expr *expr);
 
+static void check_arguments(struct argument *params, size_t param_count, struct call_expr call_expr) {
+	char *name = call_expr.fn_name;
+
+	grug_assert(call_expr.argument_count >= param_count, "Function call '%s' expected the argument '%s' with type %s", name, params[call_expr.argument_count].name, type_names[params[call_expr.argument_count].type]);
+
+	grug_assert(call_expr.argument_count <= param_count, "Function call '%s' got an unexpected extra argument with type %s", name, type_names[call_expr.arguments[param_count].result_type]);
+
+	for (size_t argument_index = 0; argument_index < call_expr.argument_count; argument_index++) {
+		enum type arg_type = call_expr.arguments[argument_index].result_type;
+		struct argument param = params[argument_index];
+
+		grug_assert(arg_type == param.type, "Function call '%s' expected the type %s for argument '%s', but got %s", name, type_names[param.type], param.name, type_names[arg_type]);
+	}
+}
+
 static void fill_call_expr(struct expr *expr) {
 	struct call_expr call_expr = expr->call;
 
@@ -3033,12 +3044,18 @@ static void fill_call_expr(struct expr *expr) {
 	struct helper_fn *helper_fn = get_helper_fn(name);
 	if (helper_fn) {
 		expr->result_type = helper_fn->return_type;
+
+		check_arguments(helper_fn->arguments, helper_fn->argument_count, call_expr);
+
 		return;
 	}
 
 	struct grug_game_function *game_fn = get_grug_game_fn(name);
 	if (game_fn) {
 		expr->result_type = game_fn->return_type;
+
+		check_arguments(game_fn->arguments, game_fn->argument_count, call_expr);
+
 		return;
 	}
 
@@ -3331,6 +3348,8 @@ static void fill_helper_fns(void) {
 		init_local_variables(fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count);
 
 		fill_statements(fn.body_statements, fn.body_statement_count);
+
+		grug_assert(fn.body_statements[fn.body_statement_count - 1].type == RETURN_STATEMENT || fn_return_type == type_void, "Helper function '%s' was supposed to return %s", filled_fn_name, type_names[fn_return_type]);
 	}
 }
 
