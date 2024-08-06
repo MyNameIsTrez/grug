@@ -3555,6 +3555,15 @@ static void fill_result_types(void) {
 #define MOV_R8D_TO_DEREF_RBP 0x458944 // mov rbp[n], r8d
 #define MOV_R9D_TO_DEREF_RBP 0x4d8944 // mov rbp[n], r9d
 
+#define MOV_XMM0_TO_DEREF_RBP 0x45110ff3 // movss rbp[n], xmm0
+#define MOV_XMM1_TO_DEREF_RBP 0x4d110ff3 // movss rbp[n], xmm1
+#define MOV_XMM2_TO_DEREF_RBP 0x55110ff3 // movss rbp[n], xmm2
+#define MOV_XMM3_TO_DEREF_RBP 0x5d110ff3 // movss rbp[n], xmm3
+#define MOV_XMM4_TO_DEREF_RBP 0x65110ff3 // movss rbp[n], xmm4
+#define MOV_XMM5_TO_DEREF_RBP 0x6d110ff3 // movss rbp[n], xmm5
+#define MOV_XMM6_TO_DEREF_RBP 0x75110ff3 // movss rbp[n], xmm6
+#define MOV_XMM7_TO_DEREF_RBP 0x7d110ff3 // movss rbp[n], xmm7
+
 #define MOV_RDI_TO_DEREF_RBP 0x7d8948 // mov rbp[n], rdi
 #define MOV_RSI_TO_DEREF_RBP 0x758948 // mov rbp[n], rsi
 #define MOV_RDX_TO_DEREF_RBP 0x558948 // mov rbp[n], rdx
@@ -4568,7 +4577,17 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 				}[argument_index]);
 				break;
 			case type_f32:
-				assert(false);
+				compile_unpadded_number((u32[]){
+					MOV_XMM0_TO_DEREF_RBP,
+					MOV_XMM1_TO_DEREF_RBP,
+					MOV_XMM2_TO_DEREF_RBP,
+					MOV_XMM3_TO_DEREF_RBP,
+					MOV_XMM4_TO_DEREF_RBP,
+					MOV_XMM5_TO_DEREF_RBP,
+					MOV_XMM6_TO_DEREF_RBP,
+					MOV_XMM7_TO_DEREF_RBP,
+				}[argument_index]);
+				break;
 			case type_string:
 				compile_unpadded_number((u32[]){
 					MOV_RSI_TO_DEREF_RBP,
