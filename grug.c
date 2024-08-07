@@ -3624,6 +3624,7 @@ static void fill_result_types(void) {
 #define POP_R8 0x5841 // pop r8
 #define POP_R9 0x5941 // pop r9
 
+#define XOR_EAX_BY_N 0x35 // xor eax, n
 #define XOR_CLEAR_EAX 0xc031 // xor eax, eax
 #define LEA_STRINGS_TO_RAX 0x58d48 // lea rax, strings[rel n]
 
@@ -4290,7 +4291,12 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 	switch (unary_expr.operator) {
 		case MINUS_TOKEN:
 			compile_expr(*unary_expr.expr);
-			compile_unpadded_number(NEGATE_RAX);
+			if (unary_expr.expr->result_type == type_i32) {
+				compile_unpadded_number(NEGATE_RAX);
+			} else {
+				compile_unpadded_number(XOR_EAX_BY_N);
+				compile_padded_number(0x80000000, 4);
+			}
 			break;
 		case NOT_TOKEN:
 			compile_expr(*unary_expr.expr);
