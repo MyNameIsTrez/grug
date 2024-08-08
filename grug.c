@@ -1783,7 +1783,6 @@ struct variable_statement {
 	enum type type;
 	bool has_type;
 	struct expr *assignment_expr;
-	bool has_assignment;
 };
 
 struct call_statement {
@@ -2304,6 +2303,7 @@ static struct statement parse_if_statement(size_t *i) {
 static struct variable_statement parse_variable_statement(size_t *i) {
 	struct variable_statement variable_statement = {0};
 
+	size_t name_token_index = *i;
 	struct token name_token = consume_token(i);
 	variable_statement.name = name_token.str;
 
@@ -2312,21 +2312,17 @@ static struct variable_statement parse_variable_statement(size_t *i) {
 		(*i)++;
 
 		struct token type_token = consume_token(i);
-		grug_assert(type_token.type == WORD_TOKEN, "Expected a word token after the colon at token index %zu", *i - 3);
+		grug_assert(type_token.type == WORD_TOKEN, "Expected a word token after the colon at token index %zu", name_token_index);
 
 		variable_statement.has_type = true;
 		variable_statement.type = parse_type(type_token.str);
 	}
 
 	token = peek_token(*i);
-	if (variable_statement.has_type) {
-		grug_assert(token.type == ASSIGNMENT_TOKEN, "The variable '%s' was given a type, but should also be given an initial value at token index %zu", variable_statement.name, *i - 3);
-	}
-	if (token.type == ASSIGNMENT_TOKEN) {
-		(*i)++;
-		variable_statement.has_assignment = true;
-		variable_statement.assignment_expr = push_expr(parse_expression(i));
-	}
+	grug_assert(token.type == ASSIGNMENT_TOKEN, "The variable '%s' was not assigned a value at token index %zu", variable_statement.name, name_token_index);
+
+	(*i)++;
+	variable_statement.assignment_expr = push_expr(parse_expression(i));
 
 	return variable_statement;
 }
@@ -2774,11 +2770,9 @@ static void print_statements(struct statement *statements_offset, size_t stateme
 					grug_log("\"variable_type\":\"%s\",", type_names[statement.variable_statement.type]);
 				}
 
-				if (statement.variable_statement.has_assignment) {
-					grug_log("\"assignment\":{");
-					print_expr(*statement.variable_statement.assignment_expr);
-					grug_log("}");
-				}
+				grug_log("\"assignment\":{");
+				print_expr(*statement.variable_statement.assignment_expr);
+				grug_log("}");
 
 				break;
 			case CALL_STATEMENT:
@@ -2870,7 +2864,7 @@ static void print_helper_fns(void) {
 
 		grug_log(",");
 		if (fn.return_type) {
-			grug_log("\"return_type\":\"%s\",", fn.return_type);
+			grug_log("\"return_type\":\"%s\",", type_names[fn.return_type]);
 		}
 
 		grug_log("\"statements\":[");
@@ -3148,6 +3142,14 @@ static void fill_binary_expr(struct expr *expr) {
 static struct variable *get_local_variable(char *name);
 static struct variable *get_global_variable(char *name);
 
+static struct variable *get_variable(char *name) {
+	struct variable *var = get_local_variable(name);
+	if (!var) {
+		var = get_global_variable(name);
+	}
+	return var;
+}
+
 static void fill_expr(struct expr *expr) {
 	switch (expr->type) {
 		case TRUE_EXPR:
@@ -3158,13 +3160,7 @@ static void fill_expr(struct expr *expr) {
 			expr->result_type = type_string;
 			break;
 		case IDENTIFIER_EXPR: {
-			struct variable *var = get_local_variable(expr->literal.string);
-			if (var) {
-				expr->result_type = var->type;
-				return;
-			}
-
-			var = get_global_variable(expr->literal.string);
+			struct variable *var = get_variable(expr->literal.string);
 			if (var) {
 				expr->result_type = var->type;
 				return;
@@ -3213,9 +3209,13 @@ static void fill_statements(struct statement *statements_offset, size_t statemen
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
-				if (statement.variable_statement.has_assignment) {
-					fill_expr(statement.variable_statement.assignment_expr);
-				}
+				fill_expr(statement.variable_statement.assignment_expr);
+
+				struct variable *var = get_variable(statement.variable_statement.name);
+
+				grug_assert(var, "The variable '%s' does not exist", statement.variable_statement.name);
+
+				grug_assert(var->type == statement.variable_statement.assignment_expr->result_type, "Can't assign bool to 'a', which has type f32");
 				break;
 			case CALL_STATEMENT:
 				fill_call_expr(statement.call_statement.expr);
@@ -3319,8 +3319,8 @@ static void add_local_variable(char *name, enum type type) {
 	// TODO: Print the exact grug file path, function and line number
 	grug_assert(variables_size < MAX_VARIABLES_PER_FUNCTION, "There are more than %d variables in a function, exceeding MAX_VARIABLES_PER_FUNCTION", MAX_VARIABLES_PER_FUNCTION);
 
-	grug_assert(!get_local_variable(name), "The variable '%s' shadows an earlier local variable with the same name, so change the name of either of them", name);
-	grug_assert(!get_global_variable(name), "The variable '%s' shadows an earlier global variable with the same name, so change the name of either of them", name);
+	grug_assert(!get_local_variable(name), "The local variable '%s' shadows an earlier local variable with the same name, so change the name of either of them", name);
+	grug_assert(!get_global_variable(name), "The local variable '%s' shadows an earlier global variable with the same name, so change the name of either of them", name);
 
 	stack_frame_bytes += type_sizes[type];
 
@@ -3440,7 +3440,15 @@ static void fill_on_fns(void) {
 }
 
 static void fill_global_variables(void) {
-	// TODO: Implement
+	for (size_t i = 0; i < global_variable_statements_size; i++) {
+		struct global_variable_statement global = global_variable_statements[i];
+
+		fill_expr(&global.assignment_expr);
+		// TODO: don't allow calling functions
+		// TODO: don't allow using other globals?
+
+		grug_assert(global.type == global.assignment_expr.result_type, "Can't assign %s to '%s', which has type %s", type_names[global.assignment_expr.result_type], global.name, type_names[global.type]);
+	}
 }
 
 static void fill_define_fn(void) {
@@ -3479,7 +3487,7 @@ static void add_global_variable(char *name, enum type type) {
 	// TODO: Print the exact grug file path, function and line number
 	grug_assert(global_variables_size < MAX_GLOBAL_VARIABLES_IN_FILE, "There are more than %d global variables in a grug file, exceeding MAX_GLOBAL_VARIABLES_IN_FILE", MAX_GLOBAL_VARIABLES_IN_FILE);
 
-	grug_assert(!get_global_variable(name), "The variable '%s' shadows an earlier global variable with the same name, so change the name of either of them", name);
+	grug_assert(!get_global_variable(name), "The global variable '%s' shadows an earlier global variable with the same name, so change the name of either of them", name);
 
 	global_variables[global_variables_size] = (struct variable){
 		.name = name,
