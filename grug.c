@@ -3183,6 +3183,15 @@ static void fill_expr(struct expr *expr) {
 		case UNARY_EXPR:
 			fill_expr(expr->unary.expr);
 			expr->result_type = expr->unary.expr->result_type;
+
+			if (expr->unary.operator == NOT_TOKEN) {
+				grug_assert(expr->result_type == type_bool, "Found 'not' before %s, but it can only be put before a bool", type_names[expr->result_type]);
+			} else if (expr->unary.operator == MINUS_TOKEN) {
+				grug_assert(expr->result_type == type_i32 || expr->result_type == type_f32, "Found '-' before %s, but it can only be put before an i32 or f32", type_names[expr->result_type]);
+			} else {
+				grug_unreachable();
+			}
+
 			break;
 		case BINARY_EXPR:
 		case LOGICAL_EXPR:
