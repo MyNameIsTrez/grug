@@ -3209,13 +3209,25 @@ static void fill_statements(struct statement *statements_offset, size_t statemen
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
+				// This has to happen before the add_local_variable() we do below,
+				// because `a: i32 = a` should not compile
 				fill_expr(statement.variable_statement.assignment_expr);
 
 				struct variable *var = get_variable(statement.variable_statement.name);
 
-				grug_assert(var, "The variable '%s' does not exist", statement.variable_statement.name);
+				grug_assert(!var, "The variable '%s' already exists", statement.variable_statement.name);
+
+				// TODO: In order to pass tests_err/variable_assignment_before_definition,
+				// TODO: move the code that stores all local variables in a map at
+				// TODO: the very start to this point right here
+				// TODO: Keep in mind that all parameters *do* exist since the start!
+				assert(false);
+				// if (statement.variable_statement.has_type) {
+				// 	add_local_variable(statement.variable_statement.name, statement.variable_statement.type);
+				// }
 
 				grug_assert(var->type == statement.variable_statement.assignment_expr->result_type, "Can't assign bool to 'a', which has type f32");
+
 				break;
 			case CALL_STATEMENT:
 				fill_call_expr(statement.call_statement.expr);
@@ -3278,41 +3290,6 @@ static struct variable *get_local_variable(char *name) {
 	return variables + i;
 }
 
-static void add_local_variable(char *name, enum type type);
-
-static void add_variables_in_statements(struct statement *statements_offset, size_t statement_count) {
-	for (size_t statement_index = 0; statement_index < statement_count; statement_index++) {
-		struct statement statement = statements_offset[statement_index];
-
-		switch (statement.type) {
-			case VARIABLE_STATEMENT:
-				if (statement.variable_statement.has_type) {
-					add_local_variable(statement.variable_statement.name, statement.variable_statement.type);
-				}
-				break;
-			case CALL_STATEMENT:
-				break;
-			case IF_STATEMENT:
-				add_variables_in_statements(statement.if_statement.if_body_statements, statement.if_statement.if_body_statement_count);
-
-				if (statement.if_statement.else_body_statement_count > 0) {
-					add_variables_in_statements(statement.if_statement.else_body_statements, statement.if_statement.else_body_statement_count);
-				}
-
-				break;
-			case RETURN_STATEMENT:
-				break;
-			case WHILE_STATEMENT:
-				add_variables_in_statements(statement.while_statement.body_statements, statement.while_statement.body_statement_count);
-				break;
-			case BREAK_STATEMENT:
-				break;
-			case CONTINUE_STATEMENT:
-				break;
-		}
-	}
-}
-
 static struct variable *get_global_variable(char *name);
 
 static void add_local_variable(char *name, enum type type) {
@@ -3337,7 +3314,7 @@ static void add_local_variable(char *name, enum type type) {
 	buckets_variables[bucket_index] = variables_size++;
 }
 
-static void init_local_variables(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
+static void init_argument_variables(struct argument *fn_arguments, size_t argument_count) {
 	variables_size = 0;
 	memset(buckets_variables, UINT32_MAX, MAX_VARIABLES_PER_FUNCTION * sizeof(u32));
 
@@ -3348,8 +3325,6 @@ static void init_local_variables(struct argument *fn_arguments, size_t argument_
 		struct argument arg = fn_arguments[argument_index];
 		add_local_variable(arg.name, arg.type);
 	}
-
-	add_variables_in_statements(body_statements, body_statement_count);
 }
 
 static void fill_helper_fns(void) {
@@ -3359,7 +3334,7 @@ static void fill_helper_fns(void) {
 		fn_return_type = fn.return_type;
 		filled_fn_name = fn.fn_name;
 
-		init_local_variables(fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count);
+		init_argument_variables(fn.arguments, fn.argument_count);
 
 		fill_statements(fn.body_statements, fn.body_statement_count);
 
@@ -3433,7 +3408,7 @@ static void fill_on_fns(void) {
 			grug_assert(arg_type == param.type, "Function '%s' its '%s' parameter was supposed to have the type %s, but was %s", name, param.name, type_names[param.type], type_names[arg_type]);
 		}
 
-		init_local_variables(args, arg_count, fn.body_statements, fn.body_statement_count);
+		init_argument_variables(args, arg_count);
 
 		fill_statements(fn.body_statements, fn.body_statement_count);
 	}
@@ -4514,6 +4489,8 @@ static void compile_statements(struct statement *statements_offset, size_t state
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
+				// TODO: Variables need to be added *here*
+				assert(false);
 				compile_variable_statement(statement.variable_statement);
 				break;
 			case CALL_STATEMENT:
@@ -4552,7 +4529,7 @@ static void compile_statements(struct statement *statements_offset, size_t state
 }
 
 static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
-	init_local_variables(fn_arguments, argument_count, body_statements, body_statement_count);
+	init_argument_variables(fn_arguments, argument_count);
 
 	// Function prologue
 	compile_byte(PUSH_RBP);
