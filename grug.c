@@ -3462,7 +3462,17 @@ static void fill_global_variables(void) {
 }
 
 static void fill_define_fn(void) {
-	// TODO: Implement
+	size_t field_count = define_fn.returned_compound_literal.field_count;
+
+	for (size_t i = 0; i < field_count; i++) {
+		struct expr *field = &define_fn.returned_compound_literal.fields[i].expr_value;
+
+		// TODO: Throw in a similar way to fill_on_fns when there's a mismatch between the mod_api.json and the field
+
+		// TODO: Throw if any expr contains a call to a function
+
+		fill_expr(field);
+	}
 }
 
 // TODO: This could be turned O(1) with a hash map
@@ -3634,6 +3644,13 @@ static void fill_result_types(void) {
 #define MOV_EAX_TO_XMM5 0xe86e0f66 // movd xmm5, eax
 #define MOV_EAX_TO_XMM6 0xf06e0f66 // movd xmm6, eax
 #define MOV_EAX_TO_XMM7 0xf86e0f66 // movd xmm7, eax
+
+#define MOV_RAX_TO_RDI 0xc78948 // mov rdi, rax
+#define MOV_RAX_TO_RSI 0xc68948 // mov rsi, rax
+#define MOV_RAX_TO_RDX 0xc28948 // mov rdx, rax
+#define MOV_RAX_TO_RCX 0xc18948 // mov rcx, rax
+#define MOV_RAX_TO_R8 0xc08949 // mov r8, rax
+#define MOV_RAX_TO_R9 0xc18949 // mov r9, rax
 
 #define MOV_R11D_TO_XMM1 0xcb6e0f4166 // movd xmm1, r11d
 
@@ -3931,7 +3948,7 @@ static void stack_pop_arguments(struct expr *fn_arguments, size_t argument_count
 		if (argument.result_type == type_f32) {
 			compile_byte(POP_RAX);
 
-			u32 movs[] = {
+			static u32 movs[] = {
 				MOV_EAX_TO_XMM0,
 				MOV_EAX_TO_XMM1,
 				MOV_EAX_TO_XMM2,
@@ -3944,7 +3961,7 @@ static void stack_pop_arguments(struct expr *fn_arguments, size_t argument_count
 
 			compile_unpadded_number(movs[--float_argument_count]);
 		} else {
-			u16 pops[] = {
+			static u16 pops[] = {
 				POP_RDI,
 				POP_RSI,
 				POP_RDX,
@@ -4706,68 +4723,62 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 	compile_byte(RET);
 }
 
-static void compile_returned_field(struct expr expr_value, size_t argument_index) {
-	switch (expr_value.type) {
-		case STRING_EXPR:
-			compile_unpadded_number((u32[]){
-				LEA_STRINGS_TO_RDI,
-				LEA_STRINGS_TO_RSI,
-				LEA_STRINGS_TO_RDX,
-				LEA_STRINGS_TO_RCX,
-				LEA_STRINGS_TO_R8,
-				LEA_STRINGS_TO_R9,
-			}[argument_index]);
+static void compile_define_fn_returned_fields(void) {
+	size_t field_count = define_fn.returned_compound_literal.field_count;
 
-			// RIP-relative address of data string
-			push_data_string_code(expr_value.literal.string, codes_size);
-			compile_unpadded_number(PLACEHOLDER_32);
-			break;
-		case IDENTIFIER_EXPR:
-			grug_error("The define function can't return variables");
-		case TRUE_EXPR:
-			compile_unpadded_number((u16[]){
-				MOV_TO_EDI,
-				MOV_TO_ESI,
-				MOV_TO_EDX,
-				MOV_TO_ECX,
-				MOV_TO_R8D,
-				MOV_TO_R9D,
-			}[argument_index]);
+	// `integer` here refers to the classification type:
+	// "integer types and pointers which use the general purpose registers"
+	// See https://stackoverflow.com/a/57861992/13279557
+	size_t integer_field_count = 0;
 
-			compile_padded_number(1, 4);
-			break;
-		case FALSE_EXPR:
-			compile_unpadded_number((u32[]){
-				XOR_CLEAR_EDI,
-				XOR_CLEAR_ESI,
-				XOR_CLEAR_EDX,
-				XOR_CLEAR_ECX,
-				XOR_CLEAR_R8D,
-				XOR_CLEAR_R9D,
-			}[argument_index]);
-			break;
-		case I32_EXPR:
-			compile_unpadded_number((u16[]){
-				MOV_TO_EDI,
-				MOV_TO_ESI,
-				MOV_TO_EDX,
-				MOV_TO_ECX,
-				MOV_TO_R8D,
-				MOV_TO_R9D,
-			}[argument_index]);
+	size_t float_field_count = 0;
 
-			compile_padded_number(expr_value.literal.i32, 4);
-			break;
-		case F32_EXPR:
-			assert(false);
-		case UNARY_EXPR:
-		case BINARY_EXPR:
-		case LOGICAL_EXPR:
-		case PARENTHESIZED_EXPR:
-			// TODO: Support these
-			grug_error("Currently grug doesn't support having the define function return unary/binary/logical/parenthesized expressions");
-		case CALL_EXPR:
-			grug_error("The define function's returned fields can't call functions"); // Since those calls might use uninitialized global variables
+	for (size_t i = 0; i < field_count; i++) {
+		struct expr field = define_fn.returned_compound_literal.fields[i].expr_value;
+
+		if (field.result_type == type_f32) {
+			float_field_count++;
+		} else {
+			integer_field_count++;
+		}
+	}
+
+	// TODO: Add tests for these
+	grug_assert(integer_field_count <= 6, "Currently grug only supports returning up to six bool/i32/string fields from the define function");
+	grug_assert(float_field_count <= 8, "Currently grug only supports returning up to eight f32 fields from the define function");
+
+	// TODO: Does padding have to be added before and subtracted after the call?
+
+	for (size_t i = field_count; i > 0;) {
+		struct expr field = define_fn.returned_compound_literal.fields[--i].expr_value;
+
+		compile_expr(field);
+
+		if (field.result_type == type_f32) {
+			static u32 movs[] = {
+				MOV_EAX_TO_XMM0,
+				MOV_EAX_TO_XMM1,
+				MOV_EAX_TO_XMM2,
+				MOV_EAX_TO_XMM3,
+				MOV_EAX_TO_XMM4,
+				MOV_EAX_TO_XMM5,
+				MOV_EAX_TO_XMM6,
+				MOV_EAX_TO_XMM7,
+			};
+
+			compile_unpadded_number(movs[--float_field_count]);
+		} else {
+			static u32 movs[] = {
+				MOV_RAX_TO_RDI,
+				MOV_RAX_TO_RSI,
+				MOV_RAX_TO_RDX,
+				MOV_RAX_TO_RCX,
+				MOV_RAX_TO_R8,
+				MOV_RAX_TO_R9,
+			};
+
+			compile_unpadded_number(movs[--integer_field_count]);
+		}
 	}
 }
 
@@ -4811,17 +4822,14 @@ static void compile(void) {
 
 	// define()
 	size_t field_count = define_fn.returned_compound_literal.field_count;
-	// TODO: Support more arguments
-	grug_assert(field_count <= 6, "Currently grug only supports up to 6 function arguments");
 	for (size_t field_index = 0; field_index < field_count; field_index++) {
 		struct field field = define_fn.returned_compound_literal.fields[field_index];
 
 		grug_assert(streq(field.key, grug_define_entity->arguments[field_index].name), "Field %zu named '%s' that you're returning from your define function must be renamed to '%s', according to the entity '%s' in mod_api.json", field_index + 1, field.key, grug_define_entity->arguments[field_index].name, grug_define_entity->name);
 
 		// TODO: Verify that the argument has the same type as the one in grug_define_entity
-
-		compile_returned_field(field.expr_value, field_index);
 	}
+	compile_define_fn_returned_fields();
 	compile_byte(CALL);
 	push_game_fn_call(define_fn_name, codes_size);
 	compile_unpadded_number(PLACEHOLDER_32);
