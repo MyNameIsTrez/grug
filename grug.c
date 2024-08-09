@@ -3600,6 +3600,11 @@ static void fill_result_types(void) {
 #define SETLT_AL 0xc09c0f // setl al
 #define SETLE_AL 0xc09e0f // setle al
 
+#define SETA_AL 0xc0970f // seta al (set if above)
+#define SETAE_AL 0xc0930f // setae al (set if above or equal)
+#define SETB_AL 0xc0920f // setb al (set if below)
+#define SETBE_AL 0xc0960f // setbe al (set if below or equal)
+
 #define POP_RAX 0x58 // pop rax
 #define POP_R11 0x5b41 // pop r11
 
@@ -4261,28 +4266,60 @@ static void compile_binary_expr(struct expr expr) {
 			}
 			break;
 		case GREATER_OR_EQUAL_TOKEN:
-			compile_unpadded_number(CMP_RAX_WITH_R11);
-			compile_unpadded_number(MOV_TO_EAX);
-			compile_padded_number(0, 4);
-			compile_unpadded_number(SETGE_AL);
+			if (binary_expr.left_expr->result_type == type_bool || binary_expr.left_expr->result_type == type_i32) {
+				compile_unpadded_number(CMP_RAX_WITH_R11);
+				compile_unpadded_number(MOV_TO_EAX);
+				compile_padded_number(0, 4);
+				compile_unpadded_number(SETGE_AL);
+			} else {
+				compile_unpadded_number(MOV_EAX_TO_XMM0);
+				compile_unpadded_number(MOV_R11D_TO_XMM1);
+				compile_unpadded_number(XOR_CLEAR_EAX);
+				compile_unpadded_number(ORDERED_CMP_XMM0_WITH_XMM1);
+				compile_unpadded_number(SETAE_AL);
+			}
 			break;
 		case GREATER_TOKEN:
-			compile_unpadded_number(CMP_RAX_WITH_R11);
-			compile_unpadded_number(MOV_TO_EAX);
-			compile_padded_number(0, 4);
-			compile_unpadded_number(SETGT_AL);
+			if (binary_expr.left_expr->result_type == type_bool || binary_expr.left_expr->result_type == type_i32) {
+				compile_unpadded_number(CMP_RAX_WITH_R11);
+				compile_unpadded_number(MOV_TO_EAX);
+				compile_padded_number(0, 4);
+				compile_unpadded_number(SETGT_AL);
+			} else {
+				compile_unpadded_number(MOV_EAX_TO_XMM0);
+				compile_unpadded_number(MOV_R11D_TO_XMM1);
+				compile_unpadded_number(XOR_CLEAR_EAX);
+				compile_unpadded_number(ORDERED_CMP_XMM0_WITH_XMM1);
+				compile_unpadded_number(SETA_AL);
+			}
 			break;
 		case LESS_OR_EQUAL_TOKEN:
-			compile_unpadded_number(CMP_RAX_WITH_R11);
-			compile_unpadded_number(MOV_TO_EAX);
-			compile_padded_number(0, 4);
-			compile_unpadded_number(SETLE_AL);
+			if (binary_expr.left_expr->result_type == type_bool || binary_expr.left_expr->result_type == type_i32) {
+				compile_unpadded_number(CMP_RAX_WITH_R11);
+				compile_unpadded_number(MOV_TO_EAX);
+				compile_padded_number(0, 4);
+				compile_unpadded_number(SETLE_AL);
+			} else {
+				compile_unpadded_number(MOV_EAX_TO_XMM0);
+				compile_unpadded_number(MOV_R11D_TO_XMM1);
+				compile_unpadded_number(XOR_CLEAR_EAX);
+				compile_unpadded_number(ORDERED_CMP_XMM0_WITH_XMM1);
+				compile_unpadded_number(SETBE_AL);
+			}
 			break;
 		case LESS_TOKEN:
-			compile_unpadded_number(CMP_RAX_WITH_R11);
-			compile_unpadded_number(MOV_TO_EAX);
-			compile_padded_number(0, 4);
-			compile_unpadded_number(SETLT_AL);
+			if (binary_expr.left_expr->result_type == type_bool || binary_expr.left_expr->result_type == type_i32) {
+				compile_unpadded_number(CMP_RAX_WITH_R11);
+				compile_unpadded_number(MOV_TO_EAX);
+				compile_padded_number(0, 4);
+				compile_unpadded_number(SETLT_AL);
+			} else {
+				compile_unpadded_number(MOV_EAX_TO_XMM0);
+				compile_unpadded_number(MOV_R11D_TO_XMM1);
+				compile_unpadded_number(XOR_CLEAR_EAX);
+				compile_unpadded_number(ORDERED_CMP_XMM0_WITH_XMM1);
+				compile_unpadded_number(SETB_AL);
+			}
 			break;
 		default:
 			grug_unreachable();
