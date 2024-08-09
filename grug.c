@@ -3139,8 +3139,66 @@ static void fill_binary_expr(struct expr *expr) {
 	}
 }
 
-static struct variable *get_local_variable(char *name);
-static struct variable *get_global_variable(char *name);
+static struct variable *get_global_variable(char *name) {
+	u32 i = buckets_global_variables[elf_hash(name) % MAX_GLOBAL_VARIABLES_IN_FILE];
+
+	while (true) {
+		if (i == UINT32_MAX) {
+			return NULL;
+		}
+
+		if (streq(name, global_variables[i].name)) {
+			break;
+		}
+
+		i = chains_global_variables[i];
+	}
+
+	return global_variables + i;
+}
+
+static void add_global_variable(char *name, enum type type) {
+	// TODO: Print the exact grug file path, function and line number
+	grug_assert(global_variables_size < MAX_GLOBAL_VARIABLES_IN_FILE, "There are more than %d global variables in a grug file, exceeding MAX_GLOBAL_VARIABLES_IN_FILE", MAX_GLOBAL_VARIABLES_IN_FILE);
+
+	grug_assert(!get_global_variable(name), "The global variable '%s' shadows an earlier global variable with the same name, so change the name of either of them", name);
+
+	global_variables[global_variables_size] = (struct variable){
+		.name = name,
+		.type = type,
+		.offset = globals_bytes,
+	};
+
+	globals_bytes += type_sizes[type];
+
+	u32 bucket_index = elf_hash(name) % MAX_GLOBAL_VARIABLES_IN_FILE;
+
+	chains_global_variables[global_variables_size] = buckets_global_variables[bucket_index];
+
+	buckets_global_variables[bucket_index] = global_variables_size++;
+}
+
+static struct variable *get_local_variable(char *name) {
+	if (variables_size == 0) {
+		return NULL;
+	}
+
+	u32 i = buckets_variables[elf_hash(name) % MAX_VARIABLES_PER_FUNCTION];
+
+	while (true) {
+		if (i == UINT32_MAX) {
+			return NULL;
+		}
+
+		if (streq(name, variables[i].name)) {
+			break;
+		}
+
+		i = chains_variables[i];
+	}
+
+	return variables + i;
+}
 
 static struct variable *get_variable(char *name) {
 	struct variable *var = get_local_variable(name);
@@ -3203,6 +3261,28 @@ static void fill_expr(struct expr *expr) {
 	}
 }
 
+static void add_local_variable(char *name, enum type type) {
+	// TODO: Print the exact grug file path, function and line number
+	grug_assert(variables_size < MAX_VARIABLES_PER_FUNCTION, "There are more than %d variables in a function, exceeding MAX_VARIABLES_PER_FUNCTION", MAX_VARIABLES_PER_FUNCTION);
+
+	grug_assert(!get_local_variable(name), "The local variable '%s' shadows an earlier local variable with the same name, so change the name of either of them", name);
+	grug_assert(!get_global_variable(name), "The local variable '%s' shadows an earlier global variable with the same name, so change the name of either of them", name);
+
+	stack_frame_bytes += type_sizes[type];
+
+	variables[variables_size] = (struct variable){
+		.name = name,
+		.type = type,
+		.offset = stack_frame_bytes, // This field is unused by the section "FILLING RESULT TYPES", but used by the section "COMPILING"
+	};
+
+	u32 bucket_index = elf_hash(name) % MAX_VARIABLES_PER_FUNCTION;
+
+	chains_variables[variables_size] = buckets_variables[bucket_index];
+
+	buckets_variables[bucket_index] = variables_size++;
+}
+
 static void fill_statements(struct statement *statements_offset, size_t statement_count) {
 	for (size_t statement_index = 0; statement_index < statement_count; statement_index++) {
 		struct statement statement = statements_offset[statement_index];
@@ -3210,23 +3290,22 @@ static void fill_statements(struct statement *statements_offset, size_t statemen
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
 				// This has to happen before the add_local_variable() we do below,
-				// because `a: i32 = a` should not compile
+				// because `a: i32 = a` should throw
 				fill_expr(statement.variable_statement.assignment_expr);
 
 				struct variable *var = get_variable(statement.variable_statement.name);
 
-				grug_assert(!var, "The variable '%s' already exists", statement.variable_statement.name);
+				if (statement.variable_statement.has_type) {
+					grug_assert(!var, "The variable '%s' already exists", statement.variable_statement.name);
 
-				// TODO: In order to pass tests_err/variable_assignment_before_definition,
-				// TODO: move the code that stores all local variables in a map at
-				// TODO: the very start to this point right here
-				// TODO: Keep in mind that all parameters *do* exist since the start!
-				assert(false);
-				// if (statement.variable_statement.has_type) {
-				// 	add_local_variable(statement.variable_statement.name, statement.variable_statement.type);
-				// }
+					grug_assert(statement.variable_statement.type == statement.variable_statement.assignment_expr->result_type, "Can't assign %s to '%s', which has type %s", type_names[statement.variable_statement.assignment_expr->result_type], statement.variable_statement.name, type_names[statement.variable_statement.type]);
 
-				grug_assert(var->type == statement.variable_statement.assignment_expr->result_type, "Can't assign bool to 'a', which has type f32");
+					add_local_variable(statement.variable_statement.name, statement.variable_statement.type);
+				} else if (var) {
+					grug_assert(var->type == statement.variable_statement.assignment_expr->result_type, "Can't assign %s to '%s', which has type %s", type_names[statement.variable_statement.assignment_expr->result_type], var->name, type_names[var->type]);
+				} else {
+					grug_error("Can't assign to the variable '%s', since it does not exist", statement.variable_statement.name);
+				}
 
 				break;
 			case CALL_STATEMENT:
@@ -3266,52 +3345,6 @@ static void fill_statements(struct statement *statements_offset, size_t statemen
 
 		grug_log("}");
 	}
-}
-
-static struct variable *get_local_variable(char *name) {
-	if (variables_size == 0) {
-		return NULL;
-	}
-
-	u32 i = buckets_variables[elf_hash(name) % MAX_VARIABLES_PER_FUNCTION];
-
-	while (true) {
-		if (i == UINT32_MAX) {
-			return NULL;
-		}
-
-		if (streq(name, variables[i].name)) {
-			break;
-		}
-
-		i = chains_variables[i];
-	}
-
-	return variables + i;
-}
-
-static struct variable *get_global_variable(char *name);
-
-static void add_local_variable(char *name, enum type type) {
-	// TODO: Print the exact grug file path, function and line number
-	grug_assert(variables_size < MAX_VARIABLES_PER_FUNCTION, "There are more than %d variables in a function, exceeding MAX_VARIABLES_PER_FUNCTION", MAX_VARIABLES_PER_FUNCTION);
-
-	grug_assert(!get_local_variable(name), "The local variable '%s' shadows an earlier local variable with the same name, so change the name of either of them", name);
-	grug_assert(!get_global_variable(name), "The local variable '%s' shadows an earlier global variable with the same name, so change the name of either of them", name);
-
-	stack_frame_bytes += type_sizes[type];
-
-	variables[variables_size] = (struct variable){
-		.name = name,
-		.type = type,
-		.offset = stack_frame_bytes,
-	};
-
-	u32 bucket_index = elf_hash(name) % MAX_VARIABLES_PER_FUNCTION;
-
-	chains_variables[variables_size] = buckets_variables[bucket_index];
-
-	buckets_variables[bucket_index] = variables_size++;
 }
 
 static void init_argument_variables(struct argument *fn_arguments, size_t argument_count) {
@@ -3423,6 +3456,8 @@ static void fill_global_variables(void) {
 		// TODO: don't allow using other globals?
 
 		grug_assert(global.type == global.assignment_expr.result_type, "Can't assign %s to '%s', which has type %s", type_names[global.assignment_expr.result_type], global.name, type_names[global.type]);
+
+		add_global_variable(global.name, global.type);
 	}
 }
 
@@ -3440,53 +3475,8 @@ static struct grug_entity *get_grug_define_entity(char *return_type) {
 	return NULL;
 }
 
-static struct variable *get_global_variable(char *name) {
-	u32 i = buckets_global_variables[elf_hash(name) % MAX_GLOBAL_VARIABLES_IN_FILE];
-
-	while (true) {
-		if (i == UINT32_MAX) {
-			return NULL;
-		}
-
-		if (streq(name, global_variables[i].name)) {
-			break;
-		}
-
-		i = chains_global_variables[i];
-	}
-
-	return global_variables + i;
-}
-
-static void add_global_variable(char *name, enum type type) {
-	// TODO: Print the exact grug file path, function and line number
-	grug_assert(global_variables_size < MAX_GLOBAL_VARIABLES_IN_FILE, "There are more than %d global variables in a grug file, exceeding MAX_GLOBAL_VARIABLES_IN_FILE", MAX_GLOBAL_VARIABLES_IN_FILE);
-
-	grug_assert(!get_global_variable(name), "The global variable '%s' shadows an earlier global variable with the same name, so change the name of either of them", name);
-
-	global_variables[global_variables_size] = (struct variable){
-		.name = name,
-		.type = type,
-		.offset = globals_bytes,
-	};
-
-	globals_bytes += type_sizes[type];
-
-	u32 bucket_index = elf_hash(name) % MAX_GLOBAL_VARIABLES_IN_FILE;
-
-	chains_global_variables[global_variables_size] = buckets_global_variables[bucket_index];
-
-	buckets_global_variables[bucket_index] = global_variables_size++;
-}
-
 static void fill_result_types(void) {
 	reset_filling();
-
-	for (size_t global_variable_index = 0; global_variable_index < global_variable_statements_size; global_variable_index++) {
-		struct global_variable_statement global_variable = global_variable_statements[global_variable_index];
-
-		add_global_variable(global_variable.name, global_variable.type);
-	}
 
 	grug_define_entity = get_grug_define_entity(define_fn.return_type);
 
@@ -4489,8 +4479,6 @@ static void compile_statements(struct statement *statements_offset, size_t state
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
-				// TODO: Variables need to be added *here*
-				assert(false);
 				compile_variable_statement(statement.variable_statement);
 				break;
 			case CALL_STATEMENT:
@@ -4528,8 +4516,43 @@ static void compile_statements(struct statement *statements_offset, size_t state
 	}
 }
 
+static void add_variables_in_statements(struct statement *statements_offset, size_t statement_count) {
+	for (size_t statement_index = 0; statement_index < statement_count; statement_index++) {
+		struct statement statement = statements_offset[statement_index];
+
+		switch (statement.type) {
+			case VARIABLE_STATEMENT:
+				if (statement.variable_statement.has_type) {
+					add_local_variable(statement.variable_statement.name, statement.variable_statement.type);
+				}
+				break;
+			case CALL_STATEMENT:
+				break;
+			case IF_STATEMENT:
+				add_variables_in_statements(statement.if_statement.if_body_statements, statement.if_statement.if_body_statement_count);
+
+				if (statement.if_statement.else_body_statement_count > 0) {
+					add_variables_in_statements(statement.if_statement.else_body_statements, statement.if_statement.else_body_statement_count);
+				}
+
+				break;
+			case RETURN_STATEMENT:
+				break;
+			case WHILE_STATEMENT:
+				add_variables_in_statements(statement.while_statement.body_statements, statement.while_statement.body_statement_count);
+				break;
+			case BREAK_STATEMENT:
+				break;
+			case CONTINUE_STATEMENT:
+				break;
+		}
+	}
+}
+
 static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
 	init_argument_variables(fn_arguments, argument_count);
+
+	add_variables_in_statements(body_statements, body_statement_count);
 
 	// Function prologue
 	compile_byte(PUSH_RBP);
