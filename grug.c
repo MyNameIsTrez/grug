@@ -3580,6 +3580,10 @@ static void fill_result_types(void) {
 
 #define CMP_RAX_WITH_R11 0xd8394c // cmp rax, r11
 
+// See this for an explanation of "ordered" vs. "unordered":
+// https://stackoverflow.com/a/8627368/13279557
+#define ORDERED_CMP_XMM0_WITH_XMM1 0xc12f0f // comiss xmm0, xmm1
+
 #define NEGATE_RAX 0xd8f748 // neg rax
 
 #define TEST_RAX_IS_ZERO 0xc08548 // test rax, rax
@@ -4229,16 +4233,32 @@ static void compile_binary_expr(struct expr expr) {
 			compile_unpadded_number(MOV_RDX_TO_RAX);
 			break;
 		case EQUALS_TOKEN:
-			compile_unpadded_number(CMP_RAX_WITH_R11);
-			compile_unpadded_number(MOV_TO_EAX);
-			compile_padded_number(0, 4);
-			compile_unpadded_number(SETE_AL);
+			if (binary_expr.left_expr->result_type == type_bool || binary_expr.left_expr->result_type == type_i32) {
+				compile_unpadded_number(CMP_RAX_WITH_R11);
+				compile_unpadded_number(MOV_TO_EAX);
+				compile_padded_number(0, 4);
+				compile_unpadded_number(SETE_AL);
+			} else {
+				compile_unpadded_number(MOV_EAX_TO_XMM0);
+				compile_unpadded_number(MOV_R11D_TO_XMM1);
+				compile_unpadded_number(XOR_CLEAR_EAX);
+				compile_unpadded_number(ORDERED_CMP_XMM0_WITH_XMM1);
+				compile_unpadded_number(SETE_AL);
+			}
 			break;
 		case NOT_EQUALS_TOKEN:
-			compile_unpadded_number(CMP_RAX_WITH_R11);
-			compile_unpadded_number(MOV_TO_EAX);
-			compile_padded_number(0, 4);
-			compile_unpadded_number(SETNE_AL);
+			if (binary_expr.left_expr->result_type == type_bool || binary_expr.left_expr->result_type == type_i32) {
+				compile_unpadded_number(CMP_RAX_WITH_R11);
+				compile_unpadded_number(MOV_TO_EAX);
+				compile_padded_number(0, 4);
+				compile_unpadded_number(SETNE_AL);
+			} else {
+				compile_unpadded_number(MOV_EAX_TO_XMM0);
+				compile_unpadded_number(MOV_R11D_TO_XMM1);
+				compile_unpadded_number(XOR_CLEAR_EAX);
+				compile_unpadded_number(ORDERED_CMP_XMM0_WITH_XMM1);
+				compile_unpadded_number(SETNE_AL);
+			}
 			break;
 		case GREATER_OR_EQUAL_TOKEN:
 			compile_unpadded_number(CMP_RAX_WITH_R11);
