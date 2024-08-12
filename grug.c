@@ -3895,7 +3895,11 @@ static void compile_padded_number(u64 n, size_t byte_count) {
 	}
 }
 
-static void compile_unpadded_number(u64 n) {
+static void compile_32(u32 n) {
+	compile_padded_number(n, sizeof(u32));
+}
+
+static void compile_unpadded(u64 n) {
 	while (n > 0) {
 		compile_byte(n & 0xff); // Little-endian
 		n >>= 8;
@@ -3959,7 +3963,7 @@ static void stack_pop_arguments(struct expr *fn_arguments, size_t argument_count
 				MOV_EAX_TO_XMM7,
 			};
 
-			compile_unpadded_number(movs[--float_argument_count]);
+			compile_unpadded(movs[--float_argument_count]);
 		} else {
 			static u16 pops[] = {
 				POP_RDI,
@@ -3970,7 +3974,7 @@ static void stack_pop_arguments(struct expr *fn_arguments, size_t argument_count
 				POP_R9,
 			};
 
-			compile_unpadded_number(pops[--integer_argument_count]);
+			compile_unpadded(pops[--integer_argument_count]);
 		}
 	}
 
@@ -3991,7 +3995,7 @@ static void stack_pop_r11(void) {
 	assert(stack_size > 0);
 	--stack_size;
 
-	compile_unpadded_number(POP_R11);
+	compile_unpadded(POP_R11);
 	stack_frame_bytes -= sizeof(u64);
 }
 
@@ -4035,15 +4039,15 @@ static void compile_while_statement(struct while_statement while_statement) {
 	push_loop_break_statements();
 
 	compile_expr(while_statement.condition);
-	compile_unpadded_number(TEST_RAX_IS_ZERO);
-	compile_unpadded_number(JE_32_BIT_OFFSET);
+	compile_unpadded(TEST_RAX_IS_ZERO);
+	compile_unpadded(JE_32_BIT_OFFSET);
 	size_t end_jump_offset = codes_size;
-	compile_unpadded_number(PLACEHOLDER_32);
+	compile_unpadded(PLACEHOLDER_32);
 
 	compile_statements(while_statement.body_statements, while_statement.body_statement_count);
 
-	compile_unpadded_number(JMP_32_BIT_OFFSET);
-	compile_padded_number(start_of_loop_jump_offset - (codes_size + NEST_INSTRUCTION_OFFSET), 4);
+	compile_unpadded(JMP_32_BIT_OFFSET);
+	compile_32(start_of_loop_jump_offset - (codes_size + NEST_INSTRUCTION_OFFSET));
 
 	overwrite_jmp_address(end_jump_offset, codes_size);
 
@@ -4061,16 +4065,16 @@ static void compile_while_statement(struct while_statement while_statement) {
 
 static void compile_if_statement(struct if_statement if_statement) {
 	compile_expr(if_statement.condition);
-	compile_unpadded_number(TEST_RAX_IS_ZERO);
-	compile_unpadded_number(JE_32_BIT_OFFSET);
+	compile_unpadded(TEST_RAX_IS_ZERO);
+	compile_unpadded(JE_32_BIT_OFFSET);
 	size_t else_or_end_jump_offset = codes_size;
-	compile_unpadded_number(PLACEHOLDER_32);
+	compile_unpadded(PLACEHOLDER_32);
 	compile_statements(if_statement.if_body_statements, if_statement.if_body_statement_count);
 
 	if (if_statement.else_body_statement_count > 0) {
-		compile_unpadded_number(JMP_32_BIT_OFFSET);
+		compile_unpadded(JMP_32_BIT_OFFSET);
 		size_t skip_else_jump_offset = codes_size;
-		compile_unpadded_number(PLACEHOLDER_32);
+		compile_unpadded(PLACEHOLDER_32);
 
 		overwrite_jmp_address(else_or_end_jump_offset, codes_size);
 
@@ -4095,7 +4099,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 	bool gets_global_variables_pointer = false;
 	if (get_helper_fn(call_expr.fn_name)) {
 		// Push the secret global variables pointer argument
-		compile_unpadded_number(DEREF_RBP_TO_RAX);
+		compile_unpadded(DEREF_RBP_TO_RAX);
 		compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 		stack_push_rax();
 
@@ -4118,7 +4122,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 	// Ensures the call will be 16-byte aligned
 	size_t padding = get_padding();
 	if (padding > 0) {
-		compile_unpadded_number(SUB_RSP_8_BITS);
+		compile_unpadded(SUB_RSP_8_BITS);
 		compile_byte(padding);
 		stack_frame_bytes += padding;
 	}
@@ -4141,19 +4145,19 @@ static void compile_call_expr(struct call_expr call_expr) {
 			grug_unreachable();
 		}
 	}
-	compile_unpadded_number(PLACEHOLDER_32);
+	compile_unpadded(PLACEHOLDER_32);
 
 	// Ensures the top of the stack is where it was before the alignment,
 	// which is important during nested expressions, since they expect
 	// the top of the stack to hold their intermediate values
 	if (padding > 0) {
-		compile_unpadded_number(ADD_RSP_8_BITS);
+		compile_unpadded(ADD_RSP_8_BITS);
 		compile_byte(padding);
 		stack_frame_bytes += padding;
 	}
 
 	if (returns_float) {
-		compile_unpadded_number(MOV_XMM0_TO_EAX);
+		compile_unpadded(MOV_XMM0_TO_EAX);
 	}
 }
 
@@ -4161,35 +4165,35 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 	switch (logical_expr.operator) {
 		case AND_TOKEN: {
 			compile_expr(*logical_expr.left_expr);
-			compile_unpadded_number(TEST_RAX_IS_ZERO);
+			compile_unpadded(TEST_RAX_IS_ZERO);
 			compile_byte(JNE_8_BIT_OFFSET);
 			compile_byte(5); // Jump 5 bytes forward
-			compile_unpadded_number(JMP_32_BIT_OFFSET);
+			compile_unpadded(JMP_32_BIT_OFFSET);
 			size_t end_jump_offset = codes_size;
-			compile_unpadded_number(PLACEHOLDER_32);
+			compile_unpadded(PLACEHOLDER_32);
 			compile_expr(*logical_expr.right_expr);
-			compile_unpadded_number(TEST_RAX_IS_ZERO);
-			compile_unpadded_number(MOV_TO_EAX);
-			compile_padded_number(0, 4);
-			compile_unpadded_number(SETNE_AL);
+			compile_unpadded(TEST_RAX_IS_ZERO);
+			compile_unpadded(MOV_TO_EAX);
+			compile_32(0);
+			compile_unpadded(SETNE_AL);
 			overwrite_jmp_address(end_jump_offset, codes_size);
 			break;
 		}
 		case OR_TOKEN: {
 			compile_expr(*logical_expr.left_expr);
-			compile_unpadded_number(TEST_RAX_IS_ZERO);
+			compile_unpadded(TEST_RAX_IS_ZERO);
 			compile_byte(JE_8_BIT_OFFSET);
 			compile_byte(10); // Jump 10 bytes forward
 			compile_byte(MOV_TO_EAX);
-			compile_padded_number(1, 4);
-			compile_unpadded_number(JMP_32_BIT_OFFSET);
+			compile_32(1);
+			compile_unpadded(JMP_32_BIT_OFFSET);
 			size_t end_jump_offset = codes_size;
-			compile_unpadded_number(PLACEHOLDER_32);
+			compile_unpadded(PLACEHOLDER_32);
 			compile_expr(*logical_expr.right_expr);
-			compile_unpadded_number(TEST_RAX_IS_ZERO);
-			compile_unpadded_number(MOV_TO_EAX);
-			compile_padded_number(0, 4);
-			compile_unpadded_number(SETNE_AL);
+			compile_unpadded(TEST_RAX_IS_ZERO);
+			compile_unpadded(MOV_TO_EAX);
+			compile_32(0);
+			compile_unpadded(SETNE_AL);
 			overwrite_jmp_address(end_jump_offset, codes_size);
 			break;
 		}
@@ -4210,132 +4214,132 @@ static void compile_binary_expr(struct expr expr) {
 	switch (binary_expr.operator) {
 		case PLUS_TOKEN:
 			if (expr.result_type == type_i32) {
-				compile_unpadded_number(ADD_R11_TO_RAX);
+				compile_unpadded(ADD_R11_TO_RAX);
 			} else {
-				compile_unpadded_number(MOV_EAX_TO_XMM0);
-				compile_unpadded_number(MOV_R11D_TO_XMM1);
-				compile_unpadded_number(ADD_XMM1_TO_XMM0);
-				compile_unpadded_number(MOV_XMM0_TO_EAX);
+				compile_unpadded(MOV_EAX_TO_XMM0);
+				compile_unpadded(MOV_R11D_TO_XMM1);
+				compile_unpadded(ADD_XMM1_TO_XMM0);
+				compile_unpadded(MOV_XMM0_TO_EAX);
 			}
 			break;
 		case MINUS_TOKEN:
 			if (expr.result_type == type_i32) {
-				compile_unpadded_number(SUB_R11_FROM_RAX);
+				compile_unpadded(SUB_R11_FROM_RAX);
 			} else {
-				compile_unpadded_number(MOV_EAX_TO_XMM0);
-				compile_unpadded_number(MOV_R11D_TO_XMM1);
-				compile_unpadded_number(SUB_XMM1_FROM_XMM0);
-				compile_unpadded_number(MOV_XMM0_TO_EAX);
+				compile_unpadded(MOV_EAX_TO_XMM0);
+				compile_unpadded(MOV_R11D_TO_XMM1);
+				compile_unpadded(SUB_XMM1_FROM_XMM0);
+				compile_unpadded(MOV_XMM0_TO_EAX);
 			}
 			break;
 		case MULTIPLICATION_TOKEN:
 			if (expr.result_type == type_i32) {
-				compile_unpadded_number(MUL_RAX_BY_R11);
+				compile_unpadded(MUL_RAX_BY_R11);
 			} else {
-				compile_unpadded_number(MOV_EAX_TO_XMM0);
-				compile_unpadded_number(MOV_R11D_TO_XMM1);
-				compile_unpadded_number(MUL_XMM0_WITH_XMM1);
-				compile_unpadded_number(MOV_XMM0_TO_EAX);
+				compile_unpadded(MOV_EAX_TO_XMM0);
+				compile_unpadded(MOV_R11D_TO_XMM1);
+				compile_unpadded(MUL_XMM0_WITH_XMM1);
+				compile_unpadded(MOV_XMM0_TO_EAX);
 			}
 			break;
 		case DIVISION_TOKEN:
 			if (expr.result_type == type_i32) {
-				compile_unpadded_number(CQO_CLEAR_BEFORE_DIVISION);
-				compile_unpadded_number(DIV_RAX_BY_R11);
+				compile_unpadded(CQO_CLEAR_BEFORE_DIVISION);
+				compile_unpadded(DIV_RAX_BY_R11);
 			} else {
-				compile_unpadded_number(MOV_EAX_TO_XMM0);
-				compile_unpadded_number(MOV_R11D_TO_XMM1);
-				compile_unpadded_number(DIV_XMM0_BY_XMM1);
-				compile_unpadded_number(MOV_XMM0_TO_EAX);
+				compile_unpadded(MOV_EAX_TO_XMM0);
+				compile_unpadded(MOV_R11D_TO_XMM1);
+				compile_unpadded(DIV_XMM0_BY_XMM1);
+				compile_unpadded(MOV_XMM0_TO_EAX);
 			}
 			break;
 		case REMAINDER_TOKEN:
-			compile_unpadded_number(CQO_CLEAR_BEFORE_DIVISION);
-			compile_unpadded_number(DIV_RAX_BY_R11);
-			compile_unpadded_number(MOV_RDX_TO_RAX);
+			compile_unpadded(CQO_CLEAR_BEFORE_DIVISION);
+			compile_unpadded(DIV_RAX_BY_R11);
+			compile_unpadded(MOV_RDX_TO_RAX);
 			break;
 		case EQUALS_TOKEN:
 			if (binary_expr.left_expr->result_type == type_bool || binary_expr.left_expr->result_type == type_i32) {
-				compile_unpadded_number(CMP_RAX_WITH_R11);
-				compile_unpadded_number(MOV_TO_EAX);
-				compile_padded_number(0, 4);
-				compile_unpadded_number(SETE_AL);
+				compile_unpadded(CMP_RAX_WITH_R11);
+				compile_unpadded(MOV_TO_EAX);
+				compile_32(0);
+				compile_unpadded(SETE_AL);
 			} else {
-				compile_unpadded_number(MOV_EAX_TO_XMM0);
-				compile_unpadded_number(MOV_R11D_TO_XMM1);
-				compile_unpadded_number(XOR_CLEAR_EAX);
-				compile_unpadded_number(ORDERED_CMP_XMM0_WITH_XMM1);
-				compile_unpadded_number(SETE_AL);
+				compile_unpadded(MOV_EAX_TO_XMM0);
+				compile_unpadded(MOV_R11D_TO_XMM1);
+				compile_unpadded(XOR_CLEAR_EAX);
+				compile_unpadded(ORDERED_CMP_XMM0_WITH_XMM1);
+				compile_unpadded(SETE_AL);
 			}
 			break;
 		case NOT_EQUALS_TOKEN:
 			if (binary_expr.left_expr->result_type == type_bool || binary_expr.left_expr->result_type == type_i32) {
-				compile_unpadded_number(CMP_RAX_WITH_R11);
-				compile_unpadded_number(MOV_TO_EAX);
-				compile_padded_number(0, 4);
-				compile_unpadded_number(SETNE_AL);
+				compile_unpadded(CMP_RAX_WITH_R11);
+				compile_unpadded(MOV_TO_EAX);
+				compile_32(0);
+				compile_unpadded(SETNE_AL);
 			} else {
-				compile_unpadded_number(MOV_EAX_TO_XMM0);
-				compile_unpadded_number(MOV_R11D_TO_XMM1);
-				compile_unpadded_number(XOR_CLEAR_EAX);
-				compile_unpadded_number(ORDERED_CMP_XMM0_WITH_XMM1);
-				compile_unpadded_number(SETNE_AL);
+				compile_unpadded(MOV_EAX_TO_XMM0);
+				compile_unpadded(MOV_R11D_TO_XMM1);
+				compile_unpadded(XOR_CLEAR_EAX);
+				compile_unpadded(ORDERED_CMP_XMM0_WITH_XMM1);
+				compile_unpadded(SETNE_AL);
 			}
 			break;
 		case GREATER_OR_EQUAL_TOKEN:
 			if (binary_expr.left_expr->result_type == type_bool || binary_expr.left_expr->result_type == type_i32) {
-				compile_unpadded_number(CMP_RAX_WITH_R11);
-				compile_unpadded_number(MOV_TO_EAX);
-				compile_padded_number(0, 4);
-				compile_unpadded_number(SETGE_AL);
+				compile_unpadded(CMP_RAX_WITH_R11);
+				compile_unpadded(MOV_TO_EAX);
+				compile_32(0);
+				compile_unpadded(SETGE_AL);
 			} else {
-				compile_unpadded_number(MOV_EAX_TO_XMM0);
-				compile_unpadded_number(MOV_R11D_TO_XMM1);
-				compile_unpadded_number(XOR_CLEAR_EAX);
-				compile_unpadded_number(ORDERED_CMP_XMM0_WITH_XMM1);
-				compile_unpadded_number(SETAE_AL);
+				compile_unpadded(MOV_EAX_TO_XMM0);
+				compile_unpadded(MOV_R11D_TO_XMM1);
+				compile_unpadded(XOR_CLEAR_EAX);
+				compile_unpadded(ORDERED_CMP_XMM0_WITH_XMM1);
+				compile_unpadded(SETAE_AL);
 			}
 			break;
 		case GREATER_TOKEN:
 			if (binary_expr.left_expr->result_type == type_bool || binary_expr.left_expr->result_type == type_i32) {
-				compile_unpadded_number(CMP_RAX_WITH_R11);
-				compile_unpadded_number(MOV_TO_EAX);
-				compile_padded_number(0, 4);
-				compile_unpadded_number(SETGT_AL);
+				compile_unpadded(CMP_RAX_WITH_R11);
+				compile_unpadded(MOV_TO_EAX);
+				compile_32(0);
+				compile_unpadded(SETGT_AL);
 			} else {
-				compile_unpadded_number(MOV_EAX_TO_XMM0);
-				compile_unpadded_number(MOV_R11D_TO_XMM1);
-				compile_unpadded_number(XOR_CLEAR_EAX);
-				compile_unpadded_number(ORDERED_CMP_XMM0_WITH_XMM1);
-				compile_unpadded_number(SETA_AL);
+				compile_unpadded(MOV_EAX_TO_XMM0);
+				compile_unpadded(MOV_R11D_TO_XMM1);
+				compile_unpadded(XOR_CLEAR_EAX);
+				compile_unpadded(ORDERED_CMP_XMM0_WITH_XMM1);
+				compile_unpadded(SETA_AL);
 			}
 			break;
 		case LESS_OR_EQUAL_TOKEN:
 			if (binary_expr.left_expr->result_type == type_bool || binary_expr.left_expr->result_type == type_i32) {
-				compile_unpadded_number(CMP_RAX_WITH_R11);
-				compile_unpadded_number(MOV_TO_EAX);
-				compile_padded_number(0, 4);
-				compile_unpadded_number(SETLE_AL);
+				compile_unpadded(CMP_RAX_WITH_R11);
+				compile_unpadded(MOV_TO_EAX);
+				compile_32(0);
+				compile_unpadded(SETLE_AL);
 			} else {
-				compile_unpadded_number(MOV_EAX_TO_XMM0);
-				compile_unpadded_number(MOV_R11D_TO_XMM1);
-				compile_unpadded_number(XOR_CLEAR_EAX);
-				compile_unpadded_number(ORDERED_CMP_XMM0_WITH_XMM1);
-				compile_unpadded_number(SETBE_AL);
+				compile_unpadded(MOV_EAX_TO_XMM0);
+				compile_unpadded(MOV_R11D_TO_XMM1);
+				compile_unpadded(XOR_CLEAR_EAX);
+				compile_unpadded(ORDERED_CMP_XMM0_WITH_XMM1);
+				compile_unpadded(SETBE_AL);
 			}
 			break;
 		case LESS_TOKEN:
 			if (binary_expr.left_expr->result_type == type_bool || binary_expr.left_expr->result_type == type_i32) {
-				compile_unpadded_number(CMP_RAX_WITH_R11);
-				compile_unpadded_number(MOV_TO_EAX);
-				compile_padded_number(0, 4);
-				compile_unpadded_number(SETLT_AL);
+				compile_unpadded(CMP_RAX_WITH_R11);
+				compile_unpadded(MOV_TO_EAX);
+				compile_32(0);
+				compile_unpadded(SETLT_AL);
 			} else {
-				compile_unpadded_number(MOV_EAX_TO_XMM0);
-				compile_unpadded_number(MOV_R11D_TO_XMM1);
-				compile_unpadded_number(XOR_CLEAR_EAX);
-				compile_unpadded_number(ORDERED_CMP_XMM0_WITH_XMM1);
-				compile_unpadded_number(SETB_AL);
+				compile_unpadded(MOV_EAX_TO_XMM0);
+				compile_unpadded(MOV_R11D_TO_XMM1);
+				compile_unpadded(XOR_CLEAR_EAX);
+				compile_unpadded(ORDERED_CMP_XMM0_WITH_XMM1);
+				compile_unpadded(SETB_AL);
 			}
 			break;
 		default:
@@ -4348,18 +4352,18 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 		case MINUS_TOKEN:
 			compile_expr(*unary_expr.expr);
 			if (unary_expr.expr->result_type == type_i32) {
-				compile_unpadded_number(NEGATE_RAX);
+				compile_unpadded(NEGATE_RAX);
 			} else {
-				compile_unpadded_number(XOR_EAX_BY_N);
-				compile_padded_number(0x80000000, 4);
+				compile_unpadded(XOR_EAX_BY_N);
+				compile_32(0x80000000);
 			}
 			break;
 		case NOT_TOKEN:
 			compile_expr(*unary_expr.expr);
-			compile_unpadded_number(TEST_RAX_IS_ZERO);
-			compile_unpadded_number(MOV_TO_EAX);
-			compile_padded_number(0, 4);
-			compile_unpadded_number(SETE_AL);
+			compile_unpadded(TEST_RAX_IS_ZERO);
+			compile_unpadded(MOV_TO_EAX);
+			compile_32(0);
+			compile_unpadded(SETE_AL);
 			break;
 		default:
 			grug_unreachable();
@@ -4406,19 +4410,19 @@ static void compile_expr(struct expr expr) {
 	switch (expr.type) {
 		case TRUE_EXPR:
 			compile_byte(MOV_TO_EAX);
-			compile_padded_number(1, 4);
+			compile_32(1);
 			break;
 		case FALSE_EXPR:
-			compile_unpadded_number(XOR_CLEAR_EAX);
+			compile_unpadded(XOR_CLEAR_EAX);
 			break;
 		case STRING_EXPR:
             add_data_string(expr.literal.string);
 
-			compile_unpadded_number(LEA_STRINGS_TO_RAX);
+			compile_unpadded(LEA_STRINGS_TO_RAX);
 
             // RIP-relative address of data string
             push_data_string_code(expr.literal.string, codes_size);
-            compile_unpadded_number(PLACEHOLDER_32);
+            compile_unpadded(PLACEHOLDER_32);
 
 			break;
 		case IDENTIFIER_EXPR: {
@@ -4431,18 +4435,18 @@ static void compile_expr(struct expr expr) {
 					case type_bool:
 					case type_i32:
 					case type_f32:
-						compile_unpadded_number(DEREF_RBP_TO_EAX);
+						compile_unpadded(DEREF_RBP_TO_EAX);
 						compile_byte(-var->offset);
 						break;
 					case type_string:
-						compile_unpadded_number(DEREF_RBP_TO_RAX);
+						compile_unpadded(DEREF_RBP_TO_RAX);
 						compile_byte(-var->offset);
 						break;
 				}
 				return;
 			}
 
-			compile_unpadded_number(DEREF_RBP_TO_RAX);
+			compile_unpadded(DEREF_RBP_TO_RAX);
 			compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 
 			// TODO: Support any 32 bit offset, instead of only 8 bits
@@ -4453,11 +4457,11 @@ static void compile_expr(struct expr expr) {
 				case type_bool:
 				case type_i32:
 				case type_f32:
-					compile_unpadded_number(DEREF_RAX_TO_EAX);
+					compile_unpadded(DEREF_RAX_TO_EAX);
 					compile_byte(var->offset);
 					break;
 				case type_string:
-					compile_unpadded_number(DEREF_RAX_TO_RAX);
+					compile_unpadded(DEREF_RAX_TO_RAX);
 					compile_byte(var->offset);
 					break;
 			}
@@ -4467,18 +4471,18 @@ static void compile_expr(struct expr expr) {
 		case I32_EXPR: {
 			i32 n = expr.literal.i32;
 			if (n == 0) {
-				compile_unpadded_number(XOR_CLEAR_EAX);
+				compile_unpadded(XOR_CLEAR_EAX);
 			} else if (n == 1) {
 				compile_byte(MOV_TO_EAX);
-				compile_padded_number(1, 4);
+				compile_32(1);
 			} else {
-				compile_unpadded_number(MOV_TO_EAX);
-				compile_padded_number(n, 4);
+				compile_unpadded(MOV_TO_EAX);
+				compile_32(n);
 			}
 			break;
 		}
 		case F32_EXPR:
-			compile_unpadded_number(MOV_TO_EAX);
+			compile_unpadded(MOV_TO_EAX);
 			unsigned char *bytes = (unsigned char *)&expr.literal.f32;
 			for (size_t i = 0; i < sizeof(float); i++) {
 				compile_byte(*bytes); // Little-endian
@@ -4515,18 +4519,18 @@ static void compile_variable_statement(struct variable_statement variable_statem
 			case type_bool:
 			case type_i32:
 			case type_f32:
-				compile_unpadded_number(MOV_EAX_TO_DEREF_RBP);
+				compile_unpadded(MOV_EAX_TO_DEREF_RBP);
 				compile_byte(-var->offset);
 				break;
 			case type_string:
-				compile_unpadded_number(MOV_RAX_TO_DEREF_RBP);
+				compile_unpadded(MOV_RAX_TO_DEREF_RBP);
 				compile_byte(-var->offset);
 				break;
 		}
 		return;
 	}
 
-	compile_unpadded_number(DEREF_RBP_TO_R11);
+	compile_unpadded(DEREF_RBP_TO_R11);
 	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 
 	// TODO: Support any 32 bit offset, instead of only 8 bits
@@ -4537,11 +4541,11 @@ static void compile_variable_statement(struct variable_statement variable_statem
 		case type_bool:
 		case type_i32:
 		case type_f32:
-			compile_unpadded_number(MOV_EAX_TO_DEREF_R11);
+			compile_unpadded(MOV_EAX_TO_DEREF_R11);
 			compile_byte(var->offset);
 			break;
 		case type_string:
-			compile_unpadded_number(MOV_RAX_TO_DEREF_R11);
+			compile_unpadded(MOV_RAX_TO_DEREF_R11);
 			compile_byte(var->offset);
 			break;
 	}
@@ -4567,7 +4571,7 @@ static void compile_statements(struct statement *statements_offset, size_t state
 				}
 
 				// Function epilogue
-				compile_unpadded_number(MOV_RBP_TO_RSP);
+				compile_unpadded(MOV_RBP_TO_RSP);
 				compile_byte(POP_RBP);
 
 				compile_byte(RET);
@@ -4577,14 +4581,14 @@ static void compile_statements(struct statement *statements_offset, size_t state
 				compile_while_statement(statement.while_statement);
 				break;
 			case BREAK_STATEMENT:
-				compile_unpadded_number(JMP_32_BIT_OFFSET);
+				compile_unpadded(JMP_32_BIT_OFFSET);
 				push_break_statement_jump_address_offset(codes_size);
-				compile_unpadded_number(PLACEHOLDER_32);
+				compile_unpadded(PLACEHOLDER_32);
 				break;
 			case CONTINUE_STATEMENT:
-				compile_unpadded_number(JMP_32_BIT_OFFSET);
+				compile_unpadded(JMP_32_BIT_OFFSET);
 				size_t start_of_loop_jump_offset = start_of_loop_jump_offsets[start_of_loop_jump_offsets_size - 1];
-				compile_padded_number(start_of_loop_jump_offset - (codes_size + NEST_INSTRUCTION_OFFSET), 4);
+				compile_32(start_of_loop_jump_offset - (codes_size + NEST_INSTRUCTION_OFFSET));
 				break;
 		}
 	}
@@ -4643,23 +4647,23 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 	// after turning stack_frame_bytes into a multiple of 16
 	// stack_frame_bytes += sizeof(u64);
 
-	compile_unpadded_number(MOV_RSP_TO_RBP);
+	compile_unpadded(MOV_RSP_TO_RBP);
 
 	// Make space in the stack for the arguments and variables
 	// The System V ABI requires 16-byte stack alignment: https://stackoverflow.com/q/49391001/13279557
 	stack_frame_bytes = round_to_power_of_2(stack_frame_bytes, 0x10);
 	if (stack_frame_bytes < 0xff) {
-		compile_unpadded_number(SUB_RSP_8_BITS);
+		compile_unpadded(SUB_RSP_8_BITS);
 		compile_byte(stack_frame_bytes);
 	} else {
-		compile_unpadded_number(SUB_RSP_32_BITS);
-		compile_padded_number(stack_frame_bytes, 4);
+		compile_unpadded(SUB_RSP_32_BITS);
+		compile_32(stack_frame_bytes);
 	}
 
 	// We need to push the secret global variables pointer to the function call's stack frame,
 	// because the RDI register will get clobbered when this function calls another function:
 	// https://stackoverflow.com/a/55387707/13279557
-	compile_unpadded_number(MOV_RDI_TO_DEREF_RBP);
+	compile_unpadded(MOV_RDI_TO_DEREF_RBP);
 	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 
 	size_t integer_argument_index = 0;
@@ -4677,7 +4681,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 				grug_unreachable();
 			case type_bool:
 			case type_i32:
-				compile_unpadded_number((u32[]){
+				compile_unpadded((u32[]){
 					MOV_ESI_TO_DEREF_RBP,
 					MOV_EDX_TO_DEREF_RBP,
 					MOV_ECX_TO_DEREF_RBP,
@@ -4686,7 +4690,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 				}[integer_argument_index]);
 				break;
 			case type_f32:
-				compile_unpadded_number((u32[]){
+				compile_unpadded((u32[]){
 					MOV_XMM0_TO_DEREF_RBP,
 					MOV_XMM1_TO_DEREF_RBP,
 					MOV_XMM2_TO_DEREF_RBP,
@@ -4698,7 +4702,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 				}[float_argument_index]);
 				break;
 			case type_string:
-				compile_unpadded_number((u32[]){
+				compile_unpadded((u32[]){
 					MOV_RSI_TO_DEREF_RBP,
 					MOV_RDX_TO_DEREF_RBP,
 					MOV_RCX_TO_DEREF_RBP,
@@ -4723,7 +4727,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 	compile_statements(body_statements, body_statement_count);
 
 	// Function epilogue
-	compile_unpadded_number(MOV_RBP_TO_RSP);
+	compile_unpadded(MOV_RBP_TO_RSP);
 	compile_byte(POP_RBP);
 
 	compile_byte(RET);
@@ -4772,7 +4776,7 @@ static void compile_define_fn_returned_fields(void) {
 				MOV_EAX_TO_XMM7,
 			};
 
-			compile_unpadded_number(movs[--float_field_count]);
+			compile_unpadded(movs[--float_field_count]);
 		} else {
 			static u32 movs[] = {
 				MOV_RAX_TO_RDI,
@@ -4783,7 +4787,7 @@ static void compile_define_fn_returned_fields(void) {
 				MOV_RAX_TO_R9,
 			};
 
-			compile_unpadded_number(movs[--integer_field_count]);
+			compile_unpadded(movs[--integer_field_count]);
 		}
 	}
 }
@@ -4838,7 +4842,7 @@ static void compile(void) {
 	compile_define_fn_returned_fields();
 	compile_byte(CALL);
 	push_game_fn_call(define_fn_name, codes_size);
-	compile_unpadded_number(PLACEHOLDER_32);
+	compile_unpadded(PLACEHOLDER_32);
 	compile_byte(RET);
 	text_offsets[text_offset_index++] = text_offset;
 	text_offset += codes_size;
@@ -4849,7 +4853,7 @@ static void compile(void) {
 	for (size_t global_variable_index = 0; global_variable_index < global_variable_statements_size; global_variable_index++) {
 		struct global_variable_statement global_variable = global_variable_statements[global_variable_index];
 
-		compile_unpadded_number(MOV_TO_DEREF_RDI);
+		compile_unpadded(MOV_TO_DEREF_RDI);
 
 		// TODO: Add a test for this, cause I want it to be able to handle when ptr_offset is >= 256
 		grug_assert(ptr_offset < 256, "Currently grug only supports up to 64 global variables");
@@ -4860,7 +4864,7 @@ static void compile(void) {
 		// TODO: Add test that only literals can initialize global variables, so no equations
 		u64 value = global_variable.assignment_expr.literal.i32;
 
-		compile_padded_number(value, 4);
+		compile_32(value);
 	}
 	compile_byte(RET);
 	text_offsets[text_offset_index++] = text_offset;
@@ -4901,17 +4905,10 @@ static void compile(void) {
 #define MAX_HASH_BUCKETS 32771 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/elflink.c;h=6db6a9c0b4702c66d73edba87294e2a59ffafcf5;hb=refs/heads/master#l6560
 
 // The first three addresses pushed by push_got_plt() are special:
-// A recent update of the "ld" linker causes these three addresses to always be placed
-// such that they are just before the start of a new page, so at 0x2fe8/0x3fe8, etc.
+// A recent update of the "ld" linker causes the first three .got.plt addresses to always be placed
+// 0x18 bytes before the start of a new page, so at 0x2fe8/0x3fe8, etc.
 // The grug tester compares the grug output against ld, so that's why we mimic ld here
 #define GOT_PLT_INTRO_SIZE 0x18
-
-// TODO: REMOVE!
-#ifdef OLD_LD
-#define GOT_PLT_OFFSET 0x3000
-#else
-#define GOT_PLT_OFFSET (0x3000 - GOT_PLT_INTRO_SIZE)
-#endif
 
 #define RELA_ENTRY_SIZE 24
 #define SYMTAB_ENTRY_SIZE 24
@@ -5037,15 +5034,15 @@ static void overwrite(u64 n, size_t bytes_offset, size_t overwrite_count) {
 }
 
 static void overwrite_16(u64 n, size_t bytes_offset) {
-	overwrite(n, bytes_offset, 2);
+	overwrite(n, bytes_offset, sizeof(u16));
 }
 
 static void overwrite_32(u64 n, size_t bytes_offset) {
-	overwrite(n, bytes_offset, 4);
+	overwrite(n, bytes_offset, sizeof(u32));
 }
 
 static void overwrite_64(u64 n, size_t bytes_offset) {
-	overwrite(n, bytes_offset, 8);
+	overwrite(n, bytes_offset, sizeof(u64));
 }
 
 static struct on_fn *get_on_fn(char *name) {
@@ -5083,6 +5080,63 @@ static void hash_on_fns(void) {
 		chains_on_fns[i] = buckets_on_fns[bucket_index];
 
 		buckets_on_fns[bucket_index] = i;
+	}
+}
+
+static void patch_plt(void) {
+	size_t overwritten_address = plt_offset;
+
+	size_t address_size = sizeof(u32);
+
+	overwritten_address += sizeof(u16);
+	overwrite_32(got_plt_offset - overwritten_address - address_size + 0x8, overwritten_address);
+
+	overwritten_address += address_size + sizeof(u16);
+	overwrite_32(got_plt_offset - overwritten_address - address_size + 0x10, overwritten_address);
+
+	size_t got_plt_fn_address = got_plt_offset + GOT_PLT_INTRO_SIZE;
+
+	overwritten_address += 2 * sizeof(u32) + sizeof(u16);
+
+	for (size_t i = 0; i < BFD_HASH_BUCKET_SIZE; i++) {
+		u32 chain_index = buckets_used_game_fns[i];
+		if (chain_index == UINT32_MAX) {
+			continue;
+		}
+
+		while (true) {
+			size_t next_instruction_offset = sizeof(u32);
+
+			overwrite_32(got_plt_fn_address - overwritten_address - next_instruction_offset, overwritten_address);
+
+			got_plt_fn_address += sizeof(u64);
+
+			overwritten_address += sizeof(u32) + sizeof(u8) + sizeof(u32) + sizeof(u8) + sizeof(u32) + sizeof(u16);
+
+			chain_index = chains_used_game_fns[chain_index];
+			if (chain_index == UINT32_MAX) {
+				break;
+			}
+		}
+	}
+}
+
+static void patch_rela_plt(void) {
+	size_t value_offset = got_plt_offset + GOT_PLT_INTRO_SIZE;
+
+	size_t address_offset = rela_plt_offset;
+
+	for (size_t shuffled_symbol_index = 0; shuffled_symbol_index < symbols_size; shuffled_symbol_index++) {
+		size_t symbol_index = shuffled_symbol_index_to_symbol_index[shuffled_symbol_index];
+
+		if (symbol_index < first_used_game_fn_symbol_index || symbol_index >= first_used_game_fn_symbol_index + used_game_fns_size) {
+			continue;
+		}
+
+		overwrite_64(value_offset, address_offset);
+		value_offset += sizeof(u64);
+		size_t entry_size = 3;
+		address_offset += entry_size * sizeof(u64);
 	}
 }
 
@@ -5272,6 +5326,8 @@ static void patch_bytes(void) {
 
 	patch_dynsym();
 	patch_rela_dyn();
+	patch_rela_plt();
+	patch_plt();
 	patch_text();
 	patch_dynamic();
 }
@@ -5413,13 +5469,25 @@ static void push_number(u64 n, size_t byte_count) {
 	}
 }
 
+static void push_16(u16 n) {
+	push_number(n, sizeof(u16));
+}
+
+static void push_32(u32 n) {
+	push_number(n, sizeof(u32));
+}
+
+static void push_64(u64 n) {
+	push_number(n, sizeof(u64));
+}
+
 // See https://docs.oracle.com/cd/E19683-01/816-1386/chapter6-79797/index.html
 // See https://docs.oracle.com/cd/E19683-01/816-1386/6m7qcoblj/index.html#chapter6-tbl-21
 static void push_symbol_entry(u32 name, u16 info, u16 shndx, u32 offset) {
-	push_number(name, sizeof(u32)); // Indexed into .strtab, because .symtab its "link" points to it
-	push_number(info, sizeof(u16));
-	push_number(shndx, sizeof(u16));
-	push_number(offset, sizeof(u32)); // In executable and shared object files, st_value holds a virtual address
+	push_32(name); // Indexed into .strtab, because .symtab its "link" points to it
+	push_16(info);
+	push_16(shndx);
+	push_32(offset); // In executable and shared object files, st_value holds a virtual address
 
 	push_zeros(SYMTAB_ENTRY_SIZE - sizeof(u32) - sizeof(u16) - sizeof(u16) - sizeof(u32));
 }
@@ -5478,7 +5546,7 @@ static void push_data(void) {
 
 	// "globals_size" symbol
 	push_nasm_alignment(8);
-	push_number(globals_bytes, 8);
+	push_64(globals_bytes);
 
 	// "on_fns" function addresses
 	size_t previous_on_fn_index = 0;
@@ -5491,9 +5559,9 @@ static void push_data(void) {
 
 			size_t symbol_index = on_fns_symbol_offset + on_fn_index;
 			size_t text_index = symbol_index - data_symbols_size - used_game_fns_size;
-			push_number(text_offset + text_offsets[text_index], 8);
+			push_64(text_offset + text_offsets[text_index]);
 		} else {
-			push_number(0x0, 8);
+			push_64(0x0);
 		}
 	}
 
@@ -5511,7 +5579,7 @@ static void push_got_plt(void) {
 
 	got_plt_offset = bytes_size;
 
-	push_number(dynamic_offset, 8);
+	push_64(dynamic_offset);
 	push_zeros(8); // TODO: What is this for? I presume it's patched by the dynamic linker at runtime?
 	push_zeros(8); // TODO: What is this for? I presume it's patched by the dynamic linker at runtime?
 
@@ -5520,7 +5588,7 @@ static void push_got_plt(void) {
 	size_t offset = plt_offset + entry_size + 0x6;
 
 	for (size_t i = 0; i < used_game_fns_size; i++) {
-		push_number(offset, 8); // text section address of push <i> instruction
+		push_64(offset); // text section address of push <i> instruction
 		offset += entry_size;
 	}
 
@@ -5529,8 +5597,8 @@ static void push_got_plt(void) {
 
 // See https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-42444.html
 static void push_dynamic_entry(u64 tag, u64 value) {
-	push_number(tag, 8);
-	push_number(value, 8);
+	push_64(tag);
+	push_64(value);
 }
 
 static void push_dynamic(void) {
@@ -5598,15 +5666,13 @@ static void push_plt(void) {
 	push_zeros(plt_offset - bytes_size);
 
 	// See this for an explanation: https://stackoverflow.com/q/76987336/13279557
-	push_number(PUSH_REL, 2);
-	size_t next_instruction_offset = 4;
-	push_number(GOT_PLT_OFFSET - bytes_size - next_instruction_offset + 0x8, 4);
-	push_number(JMP_REL, 2);
-	push_number(GOT_PLT_OFFSET - bytes_size - next_instruction_offset + 0x10, 4);
-	push_number(NOP_32_BITS, 4); // See https://reverseengineering.stackexchange.com/a/11973
+	push_16(PUSH_REL);
+	push_32(PLACEHOLDER_32);
+	push_16(JMP_REL);
+	push_32(PLACEHOLDER_32);
+	push_32(NOP_32_BITS); // See https://reverseengineering.stackexchange.com/a/11973
 
 	size_t pushed_plt_entries = 0;
-	size_t got_plt_fn_address = GOT_PLT_OFFSET + GOT_PLT_INTRO_SIZE;
 
 	size_t offset = 0x10;
 	for (size_t i = 0; i < BFD_HASH_BUCKET_SIZE; i++) {
@@ -5618,15 +5684,14 @@ static void push_plt(void) {
 		while (true) {
 			char *name = used_game_fns[chain_index];
 
-			push_number(JMP_REL, 2);
-			push_number(got_plt_fn_address - (bytes_size + next_instruction_offset), 4);
-			got_plt_fn_address += 0x8;
+			push_16(JMP_REL);
+			push_32(PLACEHOLDER_32);
 			push_byte(PUSH_32_BITS);
-			push_number(pushed_plt_entries++, 4);
+			push_32(pushed_plt_entries++);
 			push_byte(JMP_32_BIT_OFFSET);
 			push_game_fn_offset(name, offset);
 			size_t offset_to_start_of_plt = -offset - 0x10;
-			push_number(offset_to_start_of_plt, 4);
+			push_32(offset_to_start_of_plt);
 			offset += 0x10;
 
 			chain_index = chains_used_game_fns[chain_index];
@@ -5642,9 +5707,9 @@ static void push_plt(void) {
 }
 
 static void push_rela(u64 offset, u64 info, u64 addend) {
-	push_number(offset, 8);
-	push_number(info, 8);
-	push_number(addend, 8);
+	push_64(offset);
+	push_64(info);
+	push_64(addend);
 }
 
 // Source:
@@ -5655,7 +5720,6 @@ static void push_rela_plt(void) {
 
 	rela_plt_offset = bytes_size;
 
-	size_t offset = GOT_PLT_OFFSET + GOT_PLT_INTRO_SIZE;
 	for (size_t shuffled_symbol_index = 0; shuffled_symbol_index < symbols_size; shuffled_symbol_index++) {
 		size_t symbol_index = shuffled_symbol_index_to_symbol_index[shuffled_symbol_index];
 
@@ -5666,8 +5730,7 @@ static void push_rela_plt(void) {
 		// `1 +` skips the first symbol, which is always undefined
 		size_t dynsym_index = 1 + shuffled_symbol_index;
 
-		push_rela(offset, ELF64_R_INFO(dynsym_index, R_X86_64_JUMP_SLOT), 0);
-		offset += sizeof(u64);
+		push_rela(PLACEHOLDER_64, ELF64_R_INFO(dynsym_index, R_X86_64_JUMP_SLOT), 0);
 	}
 
 	segment_0_size = bytes_size;
@@ -5740,10 +5803,10 @@ static void push_hash(void) {
 	hash_offset = bytes_size;
 
 	u32 nbucket = get_nbucket();
-	push_number(nbucket, 4);
+	push_32(nbucket);
 
 	u32 nchain = 1 + symbols_size; // `1 + `, because index 0 is always STN_UNDEF (the value 0)
-	push_number(nchain, 4);
+	push_32(nchain);
 
 	static u32 buckets[MAX_HASH_BUCKETS];
 	memset(buckets, 0, nbucket * sizeof(u32));
@@ -5763,11 +5826,11 @@ static void push_hash(void) {
 	}
 
 	for (size_t i = 0; i < nbucket; i++) {
-		push_number(buckets[i], 4);
+		push_32(buckets[i]);
 	}
 
 	for (size_t i = 0; i < chains_size; i++) {
-		push_number(chains[i], 4);
+		push_32(chains[i]);
 	}
 
 	hash_size = bytes_size - hash_offset;
@@ -5776,16 +5839,16 @@ static void push_hash(void) {
 }
 
 static void push_section_header(u32 name_offset, u32 type, u64 flags, u64 address, u64 offset, u64 size, u32 link, u32 info, u64 alignment, u64 entry_size) {
-	push_number(name_offset, 4);
-	push_number(type, 4);
-	push_number(flags, 8);
-	push_number(address, 8);
-	push_number(offset, 8);
-	push_number(size, 8);
-	push_number(link, 4);
-	push_number(info, 4);
-	push_number(alignment, 8);
-	push_number(entry_size, 8);
+	push_32(name_offset);
+	push_32(type);
+	push_64(flags);
+	push_64(address);
+	push_64(offset);
+	push_64(size);
+	push_32(link);
+	push_32(info);
+	push_64(alignment);
+	push_64(entry_size);
 }
 
 static void push_section_headers(void) {
@@ -5859,14 +5922,14 @@ static void push_dynsym(void) {
 }
 
 static void push_program_header(u32 type, u32 flags, u64 offset, u64 virtual_address, u64 physical_address, u64 file_size, u64 mem_size, u64 alignment) {
-	push_number(type, 4);
-	push_number(flags, 4);
-	push_number(offset, 8);
-	push_number(virtual_address, 8);
-	push_number(physical_address, 8);
-	push_number(file_size, 8);
-	push_number(mem_size, 8);
-	push_number(alignment, 8);
+	push_32(type);
+	push_32(flags);
+	push_64(offset);
+	push_64(virtual_address);
+	push_64(physical_address);
+	push_64(file_size);
+	push_64(mem_size);
+	push_64(alignment);
 }
 
 static void push_program_headers(void) {
@@ -5953,7 +6016,7 @@ static void push_elf_header(void) {
 
 	// Section header table offset
 	// 0x28 to 0x30
-	push_number(PLACEHOLDER_64, 8);
+	push_64(PLACEHOLDER_64);
 
 	// Processor-specific flags
 	// 0x30 to 0x34
