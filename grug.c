@@ -4623,6 +4623,14 @@ static void add_variables_in_statements(struct statement *statements_offset, siz
 	}
 }
 
+// From https://stackoverflow.com/a/9194117/13279557
+static size_t round_to_power_of_2(size_t n, size_t multiple) {
+	// Assert that `multiple` is a power of 2
+    assert(multiple && ((multiple & (multiple - 1)) == 0));
+
+    return (n + multiple - 1) & -multiple;
+}
+
 static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
 	init_argument_variables(fn_arguments, argument_count);
 
@@ -4639,9 +4647,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 
 	// Make space in the stack for the arguments and variables
 	// The System V ABI requires 16-byte stack alignment: https://stackoverflow.com/q/49391001/13279557
-	// stack_frame_bytes gets rounded up to 16, from https://stackoverflow.com/a/9194117/13279557
-	size_t multiple = 0x10;
-	stack_frame_bytes = (stack_frame_bytes + multiple - 1) & -multiple;
+	stack_frame_bytes = round_to_power_of_2(stack_frame_bytes, 0x10);
 	if (stack_frame_bytes < 0xff) {
 		compile_unpadded_number(SUB_RSP_8_BITS);
 		compile_byte(stack_frame_bytes);
@@ -4894,11 +4900,13 @@ static void compile(void) {
 #define MAX_GAME_FN_OFFSETS 420420
 #define MAX_HASH_BUCKETS 32771 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/elflink.c;h=6db6a9c0b4702c66d73edba87294e2a59ffafcf5;hb=refs/heads/master#l6560
 
-// TODO: Stop having these hardcoded!
-#define PLT_OFFSET 0x1000
-#define EH_FRAME_OFFSET 0x2000
-#define DYNAMIC_OFFSET (on_fns_size > 0 ? 0x2ee0 : 0x2f10) // TODO: Unhardcode!
-#define GOT_PLT_OFFSET 0x3000
+#define GOT_PLT_OFFSET 0x2fe8 // TODO: REMOVE!
+
+// The first three addresses pushed by push_got_plt() are special:
+// A recent update of the "ld" linker causes these three addresses to always be placed
+// such that they are just before the start of a new page, so at 0x2fe8/0x3fe8, etc.
+// The grug tester compares the grug output against ld, so that's why we mimic ld here
+#define GOT_PLT_INTRO_SIZE 0x18
 
 #define RELA_ENTRY_SIZE 24
 #define SYMTAB_ENTRY_SIZE 24
@@ -4972,7 +4980,10 @@ static size_t rela_plt_size;
 static size_t plt_offset;
 static size_t plt_size;
 static size_t text_offset;
+static size_t eh_frame_offset;
+static size_t dynamic_offset;
 static size_t dynamic_size;
+static size_t got_plt_offset;
 static size_t got_plt_size;
 static size_t data_offset;
 static size_t segment_0_size;
@@ -5070,7 +5081,6 @@ static void hash_on_fns(void) {
 	}
 }
 
-// Needed future text_offset
 static void patch_rela_dyn(void) {
 	size_t return_type_data_size = strlen(define_fn.return_type) + 1;
 	size_t globals_size_data_size = sizeof(u64);
@@ -5089,7 +5099,7 @@ static void patch_rela_dyn(void) {
 			size_t symbol_index = on_fns_symbol_offset + on_fn_index;
 			size_t text_index = symbol_index - data_symbols_size - used_game_fns_size;
 
-			overwrite_64(GOT_PLT_OFFSET + got_plt_size + on_fn_data_offset, bytes_offset);
+			overwrite_64(got_plt_offset + got_plt_size + on_fn_data_offset, bytes_offset);
 			bytes_offset += sizeof(u64);
 			overwrite_64(R_X86_64_RELATIVE, bytes_offset);
 			bytes_offset += sizeof(u64);
@@ -5100,7 +5110,6 @@ static void patch_rela_dyn(void) {
 	}
 }
 
-// Needed future data_offset and text_offset
 static void patch_dynsym(void) {
 	// The symbols are pushed in shuffled_symbols order
 	size_t bytes_offset = dynsym_placeholders_offset;
@@ -5165,7 +5174,10 @@ static void push_game_fn_offset(char *fn_name, size_t offset) {
 	};
 }
 
-// Needed future fn offsets and data_offset
+static void patch_dynamic(void) {
+	overwrite_64(got_plt_offset, dynamic_offset + 0x58);
+}
+
 static void patch_text(void) {
 	size_t next_instruction_offset = 4;
 
@@ -5173,7 +5185,7 @@ static void patch_text(void) {
 		struct fn_call fn_call = game_fn_calls[i];
 		size_t offset = text_offset + fn_call.codes_offset;
 		size_t address_after_call_instruction = offset + next_instruction_offset;
-		size_t game_fn_plt_offset = PLT_OFFSET + get_game_fn_offset(fn_call.fn_name);
+		size_t game_fn_plt_offset = plt_offset + get_game_fn_offset(fn_call.fn_name);
 		overwrite_32(game_fn_plt_offset - address_after_call_instruction, offset);
 	}
 
@@ -5204,38 +5216,55 @@ static void patch_text(void) {
 	}
 }
 
+static void patch_program_headers(void) {
+	// Segment 0
+	overwrite_64(segment_0_size, 0x60); // file_size
+	overwrite_64(segment_0_size, 0x68); // mem_size
+
+	// Segment 1
+	overwrite_64(plt_offset, 0x80); // offset
+	overwrite_64(plt_offset, 0x88); // virtual_address
+	overwrite_64(plt_offset, 0x90); // physical_address
+	overwrite_64(plt_size + text_size, 0x98); // file_size
+	overwrite_64(plt_size + text_size, 0xa0); // mem_size
+
+	// Segment 2
+	overwrite_64(eh_frame_offset, 0xb8); // offset
+	overwrite_64(eh_frame_offset, 0xc0); // virtual_address
+	overwrite_64(eh_frame_offset, 0xc8); // physical_address
+
+	// Segment 3
+	overwrite_64(dynamic_offset, 0xf0); // offset
+	overwrite_64(dynamic_offset, 0xf8); // virtual_address
+	overwrite_64(dynamic_offset, 0x100); // physical_address
+	overwrite_64(dynamic_size + got_plt_size + data_size, 0x108); // file_size
+	overwrite_64(dynamic_size + got_plt_size + data_size, 0x110); // mem_size
+
+	// Segment 4
+	overwrite_64(dynamic_offset, 0x128); // offset
+	overwrite_64(dynamic_offset, 0x130); // virtual_address
+	overwrite_64(dynamic_offset, 0x138); // physical_address
+	overwrite_64(dynamic_size, 0x140); // file_size
+	overwrite_64(dynamic_size, 0x148); // mem_size
+
+	// Segment 5
+	overwrite_64(dynamic_offset, 0x160); // offset
+	overwrite_64(dynamic_offset, 0x168); // virtual_address
+	overwrite_64(dynamic_offset, 0x170); // physical_address
+	overwrite_64(dynamic_size + GOT_PLT_INTRO_SIZE, 0x178); // file_size
+	overwrite_64(dynamic_size + GOT_PLT_INTRO_SIZE, 0x180); // mem_size
+}
+
 static void patch_bytes(void) {
 	// ELF section header table offset
 	overwrite_64(section_headers_offset, 0x28);
 
-	// Segment 0 its file_size
-	overwrite_64(segment_0_size, 0x60);
-	// Segment 0 its mem_size
-	overwrite_64(segment_0_size, 0x68);
-
-	// Segment 1 its file_size
-	overwrite_64(plt_size + text_size, 0x98);
-	// Segment 1 its mem_size
-	overwrite_64(plt_size + text_size, 0xa0);
-
-	// Segment 3 its file_size
-	overwrite_64(dynamic_size + got_plt_size + data_size, 0x108);
-	// Segment 3 its mem_size
-	overwrite_64(dynamic_size + got_plt_size + data_size, 0x110);
-
-	// Segment 4 its file_size
-	overwrite_64(dynamic_size, 0x140);
-	// Segment 4 its mem_size
-	overwrite_64(dynamic_size, 0x148);
-
-	// Segment 5 its file_size
-	overwrite_64(dynamic_size, 0x178);
-	// Segment 5 its mem_size
-	overwrite_64(dynamic_size, 0x180);
+	patch_program_headers();
 
 	patch_dynsym();
 	patch_rela_dyn();
 	patch_text();
+	patch_dynamic();
 }
 
 static void push_byte(u8 byte) {
@@ -5405,11 +5434,11 @@ static void push_symtab(char *grug_path) {
 	size_t name_offset = 1 + strlen(grug_path) + 1;
 
 	// "_DYNAMIC" entry
-	push_symbol_entry(name_offset, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT), shindex_dynamic, DYNAMIC_OFFSET);
+	push_symbol_entry(name_offset, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT), shindex_dynamic, dynamic_offset);
 	name_offset += sizeof("_DYNAMIC");
 
 	// "_GLOBAL_OFFSET_TABLE_" entry
-	push_symbol_entry(name_offset, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT), shindex_got_plt, GOT_PLT_OFFSET);
+	push_symbol_entry(name_offset, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT), shindex_got_plt, got_plt_offset);
 	name_offset += sizeof("_GLOBAL_OFFSET_TABLE_");
 
 	symtab_index_first_global = 5;
@@ -5471,19 +5500,19 @@ static void push_data(void) {
 static void push_got_plt(void) {
 	grug_log_section(".got.plt");
 
-	size_t got_plt_offset = bytes_size;
+	got_plt_offset = bytes_size;
 
-	push_number(DYNAMIC_OFFSET, 8);
-	push_zeros(8); // TODO: What is this for?
-	push_zeros(8); // TODO: What is this for?
+	push_number(dynamic_offset, 8);
+	push_zeros(8); // TODO: What is this for? I presume it's patched by the dynamic linker at runtime?
+	push_zeros(8); // TODO: What is this for? I presume it's patched by the dynamic linker at runtime?
 
-	// 0x10 is the size of the first, special .plt entry
 	// 0x6 is the offset every .plt entry has to their push instruction
-	size_t offset = PLT_OFFSET + 0x10 + 0x6;
+	size_t entry_size = 0x10;
+	size_t offset = plt_offset + entry_size + 0x6;
 
 	for (size_t i = 0; i < used_game_fns_size; i++) {
 		push_number(offset, 8); // text section address of push <i> instruction
-		offset += 0x10; // 0x10 is the size of a .plt entry
+		offset += entry_size;
 	}
 
 	got_plt_size = bytes_size - got_plt_offset;
@@ -5498,14 +5527,21 @@ static void push_dynamic_entry(u64 tag, u64 value) {
 static void push_dynamic(void) {
 	grug_log_section(".dynamic");
 
-	size_t dynamic_offset = bytes_size;
+	// 18 is the number of push_dynamic_entry() calls when on_fns_size > 0,
+	// and 15 is the number when !(on_fns_size > 0)
+	size_t entry_size = 0x10;
+	dynamic_size = on_fns_size > 0 ? 18 * entry_size : 15 * entry_size;
+
+	size_t segment_2_to_3_offset = 0x1000;
+	dynamic_offset = bytes_size + segment_2_to_3_offset - GOT_PLT_INTRO_SIZE - dynamic_size;
+	push_zeros(dynamic_offset - bytes_size);
 
 	push_dynamic_entry(DT_HASH, hash_offset);
 	push_dynamic_entry(DT_STRTAB, dynstr_offset);
 	push_dynamic_entry(DT_SYMTAB, dynsym_offset);
 	push_dynamic_entry(DT_STRSZ, dynstr_size);
 	push_dynamic_entry(DT_SYMENT, SYMTAB_ENTRY_SIZE);
-	push_dynamic_entry(DT_PLTGOT, GOT_PLT_OFFSET);
+	push_dynamic_entry(DT_PLTGOT, PLACEHOLDER_64);
 	push_dynamic_entry(DT_PLTRELSZ, PLT_ENTRY_SIZE * used_game_fns_size);
 	push_dynamic_entry(DT_PLTREL, DT_RELA);
 	push_dynamic_entry(DT_JMPREL, rela_dyn_offset + ((on_fns_size > 0) ? RELA_ENTRY_SIZE * on_fns_size : 0));
@@ -5514,12 +5550,17 @@ static void push_dynamic(void) {
 		push_dynamic_entry(DT_RELASZ, RELA_ENTRY_SIZE * on_fns_size);
 		push_dynamic_entry(DT_RELAENT, RELA_ENTRY_SIZE);
 		push_dynamic_entry(DT_RELACOUNT, on_fns_size);
+	} else {
+		// TODO: Figure out why this is needed
+		push_dynamic_entry(DT_NULL, 0);
 	}
+
+	// TODO: Figure out why these are needed
 	push_dynamic_entry(DT_NULL, 0);
-
-	push_zeros(GOT_PLT_OFFSET - bytes_size);
-
-	dynamic_size = bytes_size - dynamic_offset;
+	push_dynamic_entry(DT_NULL, 0);
+	push_dynamic_entry(DT_NULL, 0);
+	push_dynamic_entry(DT_NULL, 0);
+	push_dynamic_entry(DT_NULL, 0);
 }
 
 static void push_text(void) {
@@ -5539,20 +5580,21 @@ static void push_text(void) {
 static void push_plt(void) {
 	grug_log_section(".plt");
 
-	plt_offset = bytes_size;
+	plt_offset = round_to_power_of_2(bytes_size, 0x1000);
+	push_zeros(plt_offset - bytes_size);
 
 	// See this for an explanation: https://stackoverflow.com/q/76987336/13279557
 	push_number(PUSH_REL, 2);
-	push_number(0x2002, 4);
+	size_t next_instruction_offset = 4;
+	push_number(GOT_PLT_OFFSET - bytes_size - next_instruction_offset + 0x8, 4);
 	push_number(JMP_REL, 2);
-	push_number(0x2004, 4);
+	push_number(GOT_PLT_OFFSET - bytes_size - next_instruction_offset + 0x10, 4);
 	push_number(NOP_32_BITS, 4); // See https://reverseengineering.stackexchange.com/a/11973
 
 	size_t pushed_plt_entries = 0;
-	size_t offset = 0x10;
-	// The 0x18 here is from the first three addresses push_got_plt() pushes
-	size_t got_plt_fn_address = GOT_PLT_OFFSET + 0x18;
+	size_t got_plt_fn_address = GOT_PLT_OFFSET + GOT_PLT_INTRO_SIZE;
 
+	size_t offset = 0x10;
 	for (size_t i = 0; i < BFD_HASH_BUCKET_SIZE; i++) {
 		u32 chain_index = buckets_used_game_fns[i];
 		if (chain_index == UINT32_MAX) {
@@ -5563,7 +5605,6 @@ static void push_plt(void) {
 			char *name = used_game_fns[chain_index];
 
 			push_number(JMP_REL, 2);
-			size_t next_instruction_offset = 4;
 			push_number(got_plt_fn_address - (bytes_size + next_instruction_offset), 4);
 			got_plt_fn_address += 0x8;
 			push_byte(PUSH_32_BITS);
@@ -5600,7 +5641,7 @@ static void push_rela_plt(void) {
 
 	rela_plt_offset = bytes_size;
 
-	size_t offset = GOT_PLT_OFFSET + 0x18; // +0x18 skips three special addresses that are always at the start
+	size_t offset = GOT_PLT_OFFSET + GOT_PLT_INTRO_SIZE;
 	for (size_t shuffled_symbol_index = 0; shuffled_symbol_index < symbols_size; shuffled_symbol_index++) {
 		size_t symbol_index = shuffled_symbol_index_to_symbol_index[shuffled_symbol_index];
 
@@ -5765,13 +5806,13 @@ static void push_section_headers(void) {
 	push_section_header(text_shstrtab_offset, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, text_offset, text_offset, text_size, SHN_UNDEF, 0, 16, 0);
 
 	// .eh_frame: Exception stack unwinding section
-	push_section_header(eh_frame_shstrtab_offset, SHT_PROGBITS, SHF_ALLOC, EH_FRAME_OFFSET, EH_FRAME_OFFSET, 0, SHN_UNDEF, 0, 8, 0);
+	push_section_header(eh_frame_shstrtab_offset, SHT_PROGBITS, SHF_ALLOC, eh_frame_offset, eh_frame_offset, 0, SHN_UNDEF, 0, 8, 0);
 
 	// .dynamic: Dynamic linking information section
-	push_section_header(dynamic_shstrtab_offset, SHT_DYNAMIC, SHF_WRITE | SHF_ALLOC, DYNAMIC_OFFSET, DYNAMIC_OFFSET, dynamic_size, shindex_dynstr, 0, 8, 16);
+	push_section_header(dynamic_shstrtab_offset, SHT_DYNAMIC, SHF_WRITE | SHF_ALLOC, dynamic_offset, dynamic_offset, dynamic_size, shindex_dynstr, 0, 8, 16);
 
 	// .got.plt: Global offset table procedure linkage table section
-	push_section_header(got_plt_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, GOT_PLT_OFFSET, GOT_PLT_OFFSET, got_plt_size, SHN_UNDEF, 0, 8, 8);
+	push_section_header(got_plt_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, got_plt_offset, got_plt_offset, got_plt_size, SHN_UNDEF, 0, 8, 8);
 
 	// .data: Data section
 	push_section_header(data_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, data_offset, data_offset, data_size, SHN_UNDEF, 0, 8, 0);
@@ -5823,23 +5864,23 @@ static void push_program_headers(void) {
 
 	// .plt, .text segment
 	// 0x78 to 0xb0
-	push_program_header(PT_LOAD, PF_R | PF_X, PLT_OFFSET, PLT_OFFSET, PLT_OFFSET, PLACEHOLDER_64, PLACEHOLDER_64, 0x1000);
+	push_program_header(PT_LOAD, PF_R | PF_X, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, 0x1000);
 
 	// .eh_frame segment
 	// 0xb0 to 0xe8
-	push_program_header(PT_LOAD, PF_R, EH_FRAME_OFFSET, EH_FRAME_OFFSET, EH_FRAME_OFFSET, 0, 0, 0x1000);
+	push_program_header(PT_LOAD, PF_R, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, 0, 0, 0x1000);
 
 	// .dynamic, .got.plt, .data
 	// 0xe8 to 0x120
-	push_program_header(PT_LOAD, PF_R | PF_W, DYNAMIC_OFFSET, DYNAMIC_OFFSET, DYNAMIC_OFFSET, PLACEHOLDER_64, PLACEHOLDER_64, 0x1000);
+	push_program_header(PT_LOAD, PF_R | PF_W, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, 0x1000);
 
 	// .dynamic segment
 	// 0x120 to 0x158
-	push_program_header(PT_DYNAMIC, PF_R | PF_W, DYNAMIC_OFFSET, DYNAMIC_OFFSET, DYNAMIC_OFFSET, PLACEHOLDER_64, PLACEHOLDER_64, 8);
+	push_program_header(PT_DYNAMIC, PF_R | PF_W, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, 8);
 
 	// .dynamic segment
 	// 0x158 to 0x190
-	push_program_header(PT_GNU_RELRO, PF_R, DYNAMIC_OFFSET, DYNAMIC_OFFSET, DYNAMIC_OFFSET, PLACEHOLDER_64, PLACEHOLDER_64, 1);
+	push_program_header(PT_GNU_RELRO, PF_R, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, 1);
 }
 
 static void push_elf_header(void) {
@@ -5952,12 +5993,13 @@ static void push_bytes(char *grug_path) {
 
 	push_rela_plt();
 
-	push_zeros(PLT_OFFSET - bytes_size);
 	push_plt();
 
 	push_text();
 
-	push_zeros(DYNAMIC_OFFSET - bytes_size);
+	eh_frame_offset = round_to_power_of_2(bytes_size, 0x1000);
+	bytes_size = eh_frame_offset;
+
 	push_dynamic();
 
 	push_got_plt();
