@@ -3530,7 +3530,8 @@ static void fill_result_types(void) {
 
 #define CALL 0xe8 // call foo
 #define RET 0xc3 // ret
-#define MOV_TO_DEREF_RDI 0x47c7 // mov dword rdi[n], n
+#define MOV_TO_DEREF_RDI_8_BIT_OFFSET 0x47c7 // mov dword rdi[n], n
+#define MOV_TO_DEREF_RDI_32_BIT_OFFSET 0x87c7 // mov dword rdi[n], n
 
 #define PUSH_RAX 0x50 // push rax
 #define PUSH_RBP 0x55 // push rbp
@@ -4853,11 +4854,14 @@ static void compile(void) {
 	for (size_t global_variable_index = 0; global_variable_index < global_variable_statements_size; global_variable_index++) {
 		struct global_variable_statement global_variable = global_variable_statements[global_variable_index];
 
-		compile_unpadded(MOV_TO_DEREF_RDI);
+		if (ptr_offset < 0x80) { // an i8 with the value 0x80 is negative in two's complement
+			compile_unpadded(MOV_TO_DEREF_RDI_8_BIT_OFFSET);
+			compile_byte(ptr_offset);
+		} else {
+			compile_unpadded(MOV_TO_DEREF_RDI_32_BIT_OFFSET);
+			compile_32(ptr_offset);
+		}
 
-		// TODO: Add a test for this, cause I want it to be able to handle when ptr_offset is >= 256
-		grug_assert(ptr_offset < 256, "Currently grug only supports up to 64 global variables");
-		compile_byte(ptr_offset);
 		ptr_offset += sizeof(u32);
 
 		// TODO: Make it possible to retrieve .string_literal_expr here
