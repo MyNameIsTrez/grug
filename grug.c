@@ -4906,7 +4906,12 @@ static void compile(void) {
 // The grug tester compares the grug output against ld, so that's why we mimic ld here
 #define GOT_PLT_INTRO_SIZE 0x18
 
-#define GOT_PLT_OFFSET (0x3000 - 0x18) // TODO: REMOVE!
+// TODO: REMOVE!
+#ifdef OLD_LD
+#define GOT_PLT_OFFSET 0x3000
+#else
+#define GOT_PLT_OFFSET (0x3000 - GOT_PLT_INTRO_SIZE)
+#endif
 
 #define RELA_ENTRY_SIZE 24
 #define SYMTAB_ENTRY_SIZE 24
@@ -5251,8 +5256,12 @@ static void patch_program_headers(void) {
 	overwrite_64(dynamic_offset, 0x160); // offset
 	overwrite_64(dynamic_offset, 0x168); // virtual_address
 	overwrite_64(dynamic_offset, 0x170); // physical_address
-	overwrite_64(dynamic_size + GOT_PLT_INTRO_SIZE, 0x178); // file_size
-	overwrite_64(dynamic_size + GOT_PLT_INTRO_SIZE, 0x180); // mem_size
+	size_t segment_5_size = dynamic_size;
+#ifndef OLD_LD
+	segment_5_size += GOT_PLT_INTRO_SIZE;
+#endif
+	overwrite_64(segment_5_size, 0x178); // file_size
+	overwrite_64(segment_5_size, 0x180); // mem_size
 }
 
 static void patch_bytes(void) {
@@ -5528,12 +5537,15 @@ static void push_dynamic(void) {
 	grug_log_section(".dynamic");
 
 	// 18 is the number of push_dynamic_entry() calls when on_fns_size > 0,
-	// and 15 is the number when !(on_fns_size > 0)
+	// and 15 is the number when on_fns_size == 0
 	size_t entry_size = 0x10;
 	dynamic_size = on_fns_size > 0 ? 18 * entry_size : 15 * entry_size;
 
 	size_t segment_2_to_3_offset = 0x1000;
-	dynamic_offset = bytes_size + segment_2_to_3_offset - GOT_PLT_INTRO_SIZE - dynamic_size;
+	dynamic_offset = bytes_size + segment_2_to_3_offset - dynamic_size;
+#ifndef OLD_LD
+	dynamic_offset -= GOT_PLT_INTRO_SIZE;
+#endif
 	push_zeros(dynamic_offset - bytes_size);
 
 	push_dynamic_entry(DT_HASH, hash_offset);
@@ -5545,22 +5557,24 @@ static void push_dynamic(void) {
 	push_dynamic_entry(DT_PLTRELSZ, PLT_ENTRY_SIZE * used_game_fns_size);
 	push_dynamic_entry(DT_PLTREL, DT_RELA);
 	push_dynamic_entry(DT_JMPREL, rela_dyn_offset + ((on_fns_size > 0) ? RELA_ENTRY_SIZE * on_fns_size : 0));
+
 	if (on_fns_size > 0) {
 		push_dynamic_entry(DT_RELA, rela_dyn_offset);
 		push_dynamic_entry(DT_RELASZ, RELA_ENTRY_SIZE * on_fns_size);
 		push_dynamic_entry(DT_RELAENT, RELA_ENTRY_SIZE);
 		push_dynamic_entry(DT_RELACOUNT, on_fns_size);
-	} else {
-		// TODO: Figure out why this is needed
-		push_dynamic_entry(DT_NULL, 0);
 	}
 
+	// "Marks the end of the _DYNAMIC array."
+	// From https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-42444.html
+	push_dynamic_entry(DT_NULL, 0);
+
 	// TODO: Figure out why these are needed
-	push_dynamic_entry(DT_NULL, 0);
-	push_dynamic_entry(DT_NULL, 0);
-	push_dynamic_entry(DT_NULL, 0);
-	push_dynamic_entry(DT_NULL, 0);
-	push_dynamic_entry(DT_NULL, 0);
+	size_t padding = 4 * entry_size;
+	if (on_fns_size == 0) {
+		padding += entry_size;
+	}
+	push_zeros(padding);
 }
 
 static void push_text(void) {
