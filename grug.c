@@ -4900,13 +4900,13 @@ static void compile(void) {
 #define MAX_GAME_FN_OFFSETS 420420
 #define MAX_HASH_BUCKETS 32771 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/elflink.c;h=6db6a9c0b4702c66d73edba87294e2a59ffafcf5;hb=refs/heads/master#l6560
 
-#define GOT_PLT_OFFSET 0x2fe8 // TODO: REMOVE!
-
 // The first three addresses pushed by push_got_plt() are special:
 // A recent update of the "ld" linker causes these three addresses to always be placed
 // such that they are just before the start of a new page, so at 0x2fe8/0x3fe8, etc.
 // The grug tester compares the grug output against ld, so that's why we mimic ld here
 #define GOT_PLT_INTRO_SIZE 0x18
+
+#define GOT_PLT_OFFSET (0x3000 - 0x18) // TODO: REMOVE!
 
 #define RELA_ENTRY_SIZE 24
 #define SYMTAB_ENTRY_SIZE 24
