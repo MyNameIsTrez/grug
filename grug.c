@@ -3449,15 +3449,15 @@ static void fill_on_fns(void) {
 
 static void fill_global_variables(void) {
 	for (size_t i = 0; i < global_variable_statements_size; i++) {
-		struct global_variable_statement global = global_variable_statements[i];
+		struct global_variable_statement *global = &global_variable_statements[i];
 
-		fill_expr(&global.assignment_expr);
-		// TODO: don't allow calling functions
-		// TODO: don't allow using other globals?
+		fill_expr(&global->assignment_expr);
 
-		grug_assert(global.type == global.assignment_expr.result_type, "Can't assign %s to '%s', which has type %s", type_names[global.assignment_expr.result_type], global.name, type_names[global.type]);
+		// TODO: check that the expr doesn't contain any identifiers or calls
 
-		add_global_variable(global.name, global.type);
+		grug_assert(global->type == global->assignment_expr.result_type, "Can't assign %s to '%s', which has type %s", type_names[global->assignment_expr.result_type], global->name, type_names[global->type]);
+
+		add_global_variable(global->name, global->type);
 	}
 }
 
@@ -3530,8 +3530,8 @@ static void fill_result_types(void) {
 
 #define CALL 0xe8 // call foo
 #define RET 0xc3 // ret
-#define MOV_TO_DEREF_RDI_8_BIT_OFFSET 0x47c7 // mov dword rdi[n], n
-#define MOV_TO_DEREF_RDI_32_BIT_OFFSET 0x87c7 // mov dword rdi[n], n
+#define MOV_RAX_TO_DEREF_RDI_8_BIT_OFFSET 0x478948 // mov rdi[n], rax
+#define MOV_RAX_TO_DEREF_RDI_32_BIT_OFFSET 0x878948 // mov rdi[n], rax
 
 #define PUSH_RAX 0x50 // push rax
 #define PUSH_RBP 0x55 // push rbp
@@ -4736,25 +4736,27 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 
 static void compile_init_globals_fn(void) {
 	size_t ptr_offset = 0;
+
 	for (size_t global_variable_index = 0; global_variable_index < global_variable_statements_size; global_variable_index++) {
 		struct global_variable_statement global_variable = global_variable_statements[global_variable_index];
 
+		compile_expr(global_variable.assignment_expr);
+
 		if (ptr_offset < 0x80) { // an i8 with the value 0x80 is negative in two's complement
-			compile_unpadded(MOV_TO_DEREF_RDI_8_BIT_OFFSET);
+			compile_unpadded(MOV_RAX_TO_DEREF_RDI_8_BIT_OFFSET);
 			compile_byte(ptr_offset);
 		} else {
-			compile_unpadded(MOV_TO_DEREF_RDI_32_BIT_OFFSET);
+			compile_unpadded(MOV_RAX_TO_DEREF_RDI_32_BIT_OFFSET);
 			compile_32(ptr_offset);
 		}
 
-		ptr_offset += sizeof(u32);
-
-		// TODO: Make it possible to retrieve .string_literal_expr here
-		// TODO: Add test that only literals can initialize global variables, so no equations
-		u64 value = global_variable.assignment_expr.literal.i32;
-
-		compile_32(value);
+		if (global_variable.type == type_string) {
+			ptr_offset += sizeof(char *);
+		} else {
+			ptr_offset += sizeof(u32);
+		}
 	}
+
 	compile_byte(RET);
 }
 
@@ -4819,6 +4821,7 @@ static void compile_define_fn_returned_fields(void) {
 
 static void compile_define_fn(void) {
 	size_t field_count = define_fn.returned_compound_literal.field_count;
+
 	for (size_t field_index = 0; field_index < field_count; field_index++) {
 		struct field field = define_fn.returned_compound_literal.fields[field_index];
 
@@ -4826,6 +4829,7 @@ static void compile_define_fn(void) {
 
 		// TODO: Verify that the argument has the same type as the one in grug_define_entity
 	}
+
 	compile_define_fn_returned_fields();
 	compile_byte(CALL);
 	push_game_fn_call(define_fn_name, codes_size);
