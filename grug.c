@@ -218,7 +218,8 @@ static char *get_file_extension(char *filename) {
 
 //// OPENING RESOURCES
 
-// TODO: Also call this from skip_tokens_of_global_resources_fn()
+// TODO: Remove?
+// TODO: Also call this from skip_tokens_of_entity()
 // static void open_resource(char *path) {
 // }
 
@@ -2612,49 +2613,47 @@ static void parse_define_fn(size_t *i) {
 	potentially_skip_comment(i);
 }
 
-static void skip_tokens_of_global_resources_fn(size_t *i) {
-	consume_token(i); // The function name is always "global_resources"
-	consume_token_type(i, OPEN_PARENTHESIS_TOKEN);
-	consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
+static void skip_tokens_of_entity_or_resource(size_t *i) {
 	consume_token_type(i, WORD_TOKEN);
-	consume_token_type(i, OPEN_BRACE_TOKEN);
+	consume_token_type(i, COLON_TOKEN);
+	consume_token_type(i, WORD_TOKEN);
+	consume_token_type(i, ASSIGNMENT_TOKEN);
+	parse_expression(i);
 	potentially_skip_comment(i);
 	consume_1_newline(i);
-	consume_token_type(i, RETURN_TOKEN);
-	assert_token_type(*i, OPEN_BRACE_TOKEN);
-	parse_compound_literal(i);
-	consume_token_type(i, CLOSE_BRACE_TOKEN);
-	potentially_skip_comment(i);
 }
 
 static void parse(void) {
 	reset_parsing();
 
 	bool seen_define_fn = false;
-	bool seen_global_resources_fn = false;
+	bool seen_entity = false;
 
 	size_t i = 0;
 	while (i < tokens_size) {
 		struct token token = peek_token(i);
 		int type = token.type;
 
-		if (       type == WORD_TOKEN && streq(token.str, "global_resources") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
-			grug_assert(!seen_global_resources_fn, "There can't be more than one global_resources function in a grug file");
-			grug_assert(!seen_define_fn, "Move the define_ function below the global_resources function");
-			skip_tokens_of_global_resources_fn(&i);
-			seen_global_resources_fn = true;
+		if (       type == WORD_TOKEN && peek_token(i + 1).type == COLON_TOKEN && peek_token(i + 2).type == WORD_TOKEN && streq(peek_token(i + 2).str, "entity")) {
+			grug_assert(!seen_define_fn, "Move the entity '%s' above the define function", token.str);
+			skip_tokens_of_entity_or_resource(&i);
+			seen_entity = true;
+		} else if (type == WORD_TOKEN && peek_token(i + 1).type == COLON_TOKEN && peek_token(i + 2).type == WORD_TOKEN && streq(peek_token(i + 2).str, "resource")) {
+			grug_assert(!seen_entity, "Move the resource '%s' below the entities", token.str);
+			grug_assert(!seen_define_fn, "Move the resource '%s' above the define function", token.str);
+			skip_tokens_of_entity_or_resource(&i);
 		} else if (type == WORD_TOKEN && streq(token.str, "define") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			grug_assert(!seen_define_fn, "There can't be more than one define_ function in a grug file");
 			parse_define_fn(&i);
 			seen_define_fn = true;
+		} else if (type == WORD_TOKEN && peek_token(i + 1).type == COLON_TOKEN) {
+			grug_assert(seen_define_fn, "Move the global variable '%s' below the define_ function", token.str);
+			parse_global_variable(&i);
 		} else if (type == WORD_TOKEN && starts_with(token.str, "on_") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			grug_assert(seen_define_fn, "Move the on_ function '%s' below the define_ function", token.str);
 			parse_on_fn(&i);
 		} else if (type == WORD_TOKEN && starts_with(token.str, "helper_") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			parse_helper_fn(&i);
-		} else if (type == WORD_TOKEN && peek_token(i + 1).type == COLON_TOKEN) {
-			grug_assert(seen_define_fn, "Move the global variable '%s' below the define_ function", token.str);
-			parse_global_variable(&i);
 		} else if (type == COMMENT_TOKEN) {
 			i++;
 		} else if (type == NEWLINES_TOKEN) {
