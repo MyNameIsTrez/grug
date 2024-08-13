@@ -3445,13 +3445,41 @@ static void fill_on_fns(void) {
 	}
 }
 
+static void check_global_expr(struct expr *expr, char *global_name) {
+	switch (expr->type) {
+		case TRUE_EXPR:
+		case FALSE_EXPR:
+		case STRING_EXPR:
+		case I32_EXPR:
+		case F32_EXPR:
+			break;
+		case IDENTIFIER_EXPR:
+			grug_error("The global variable '%s' is using a global variable, which isn't allowed", global_name);
+			break;
+		case UNARY_EXPR:
+			check_global_expr(expr->unary.expr, global_name);
+			break;
+		case BINARY_EXPR:
+		case LOGICAL_EXPR:
+			check_global_expr(expr->binary.left_expr, global_name);
+			check_global_expr(expr->binary.right_expr, global_name);
+			break;
+		case CALL_EXPR:
+			grug_error("The global variable '%s' is calling a function, which isn't allowed", global_name);
+			break;
+		case PARENTHESIZED_EXPR:
+			check_global_expr(expr->parenthesized, global_name);
+			break;
+	}
+}
+
 static void fill_global_variables(void) {
 	for (size_t i = 0; i < global_variable_statements_size; i++) {
 		struct global_variable_statement *global = &global_variable_statements[i];
 
-		fill_expr(&global->assignment_expr);
+		check_global_expr(&global->assignment_expr, global->name);
 
-		// TODO: check that the expr doesn't contain any identifiers or calls
+		fill_expr(&global->assignment_expr);
 
 		grug_assert(global->type == global->assignment_expr.result_type, "Can't assign %s to '%s', which has type %s", type_names[global->assignment_expr.result_type], global->name, type_names[global->type]);
 
