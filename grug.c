@@ -4734,6 +4734,30 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 	compile_byte(RET);
 }
 
+static void compile_init_globals_fn(void) {
+	size_t ptr_offset = 0;
+	for (size_t global_variable_index = 0; global_variable_index < global_variable_statements_size; global_variable_index++) {
+		struct global_variable_statement global_variable = global_variable_statements[global_variable_index];
+
+		if (ptr_offset < 0x80) { // an i8 with the value 0x80 is negative in two's complement
+			compile_unpadded(MOV_TO_DEREF_RDI_8_BIT_OFFSET);
+			compile_byte(ptr_offset);
+		} else {
+			compile_unpadded(MOV_TO_DEREF_RDI_32_BIT_OFFSET);
+			compile_32(ptr_offset);
+		}
+
+		ptr_offset += sizeof(u32);
+
+		// TODO: Make it possible to retrieve .string_literal_expr here
+		// TODO: Add test that only literals can initialize global variables, so no equations
+		u64 value = global_variable.assignment_expr.literal.i32;
+
+		compile_32(value);
+	}
+	compile_byte(RET);
+}
+
 static void compile_define_fn_returned_fields(void) {
 	size_t field_count = define_fn.returned_compound_literal.field_count;
 
@@ -4793,6 +4817,22 @@ static void compile_define_fn_returned_fields(void) {
 	}
 }
 
+static void compile_define_fn(void) {
+	size_t field_count = define_fn.returned_compound_literal.field_count;
+	for (size_t field_index = 0; field_index < field_count; field_index++) {
+		struct field field = define_fn.returned_compound_literal.fields[field_index];
+
+		grug_assert(streq(field.key, grug_define_entity->arguments[field_index].name), "Field %zu named '%s' that you're returning from your define function must be renamed to '%s', according to the entity '%s' in mod_api.json", field_index + 1, field.key, grug_define_entity->arguments[field_index].name, grug_define_entity->name);
+
+		// TODO: Verify that the argument has the same type as the one in grug_define_entity
+	}
+	compile_define_fn_returned_fields();
+	compile_byte(CALL);
+	push_game_fn_call(define_fn_name, codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+	compile_byte(RET);
+}
+
 static void init_data_strings(void) {
 	memset(buckets_data_strings, UINT32_MAX, MAX_BUCKETS_DATA_STRINGS * sizeof(u32));
 
@@ -4831,46 +4871,12 @@ static void compile(void) {
 	size_t text_offset_index = 0;
 	size_t text_offset = 0;
 
-	// define()
-	size_t field_count = define_fn.returned_compound_literal.field_count;
-	for (size_t field_index = 0; field_index < field_count; field_index++) {
-		struct field field = define_fn.returned_compound_literal.fields[field_index];
-
-		grug_assert(streq(field.key, grug_define_entity->arguments[field_index].name), "Field %zu named '%s' that you're returning from your define function must be renamed to '%s', according to the entity '%s' in mod_api.json", field_index + 1, field.key, grug_define_entity->arguments[field_index].name, grug_define_entity->name);
-
-		// TODO: Verify that the argument has the same type as the one in grug_define_entity
-	}
-	compile_define_fn_returned_fields();
-	compile_byte(CALL);
-	push_game_fn_call(define_fn_name, codes_size);
-	compile_unpadded(PLACEHOLDER_32);
-	compile_byte(RET);
+	compile_define_fn();
 	text_offsets[text_offset_index++] = text_offset;
-	text_offset += codes_size;
+	text_offset = codes_size;
 
-	// init_globals()
 	size_t start_codes_size = codes_size;
-	size_t ptr_offset = 0;
-	for (size_t global_variable_index = 0; global_variable_index < global_variable_statements_size; global_variable_index++) {
-		struct global_variable_statement global_variable = global_variable_statements[global_variable_index];
-
-		if (ptr_offset < 0x80) { // an i8 with the value 0x80 is negative in two's complement
-			compile_unpadded(MOV_TO_DEREF_RDI_8_BIT_OFFSET);
-			compile_byte(ptr_offset);
-		} else {
-			compile_unpadded(MOV_TO_DEREF_RDI_32_BIT_OFFSET);
-			compile_32(ptr_offset);
-		}
-
-		ptr_offset += sizeof(u32);
-
-		// TODO: Make it possible to retrieve .string_literal_expr here
-		// TODO: Add test that only literals can initialize global variables, so no equations
-		u64 value = global_variable.assignment_expr.literal.i32;
-
-		compile_32(value);
-	}
-	compile_byte(RET);
+	compile_init_globals_fn();
 	text_offsets[text_offset_index++] = text_offset;
 	text_offset += codes_size - start_codes_size;
 
