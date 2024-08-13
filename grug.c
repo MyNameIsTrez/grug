@@ -2568,8 +2568,6 @@ static struct compound_literal parse_compound_literal(size_t *i) {
 
 		consume_token_type(i, ASSIGNMENT_TOKEN);
 
-		token = peek_token(*i);
-		grug_assert(token.type == TRUE_TOKEN || token.type == FALSE_TOKEN || token.type == I32_TOKEN || token.type == F32_TOKEN || token.type == STRING_TOKEN, "Expected a bool/i32/f32/string, but got %s at token index %zu", get_token_type_str[token.type], *i);
 		field.expr_value = parse_expression(i);
 		push_field(field);
 		compound_literal.field_count++;
@@ -3461,6 +3459,34 @@ static void fill_global_variables(void) {
 	}
 }
 
+static void check_define_expr(struct expr *expr) {
+	switch (expr->type) {
+		case TRUE_EXPR:
+		case FALSE_EXPR:
+		case STRING_EXPR:
+		case I32_EXPR:
+		case F32_EXPR:
+			break;
+		case IDENTIFIER_EXPR:
+			grug_error("The define function isn't allowed to use global variables");
+			break;
+		case UNARY_EXPR:
+			check_define_expr(expr->unary.expr);
+			break;
+		case BINARY_EXPR:
+		case LOGICAL_EXPR:
+			check_define_expr(expr->binary.left_expr);
+			check_define_expr(expr->binary.right_expr);
+			break;
+		case CALL_EXPR:
+			grug_error("The define function isn't allowed to call a function");
+			break;
+		case PARENTHESIZED_EXPR:
+			check_define_expr(expr->parenthesized);
+			break;
+	}
+}
+
 static void fill_define_fn(void) {
 	size_t field_count = define_fn.returned_compound_literal.field_count;
 
@@ -3470,6 +3496,8 @@ static void fill_define_fn(void) {
 		// TODO: Throw in a similar way to fill_on_fns when there's a mismatch between the mod_api.json and the field
 
 		// TODO: Throw if any expr contains a call to a function
+
+		check_define_expr(field);
 
 		fill_expr(field);
 	}
