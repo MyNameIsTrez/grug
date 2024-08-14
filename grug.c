@@ -3349,6 +3349,9 @@ static void fill_helper_fns(void) {
 
 		fill_statements(fn.body_statements, fn.body_statement_count);
 
+		// TODO:
+		// 1. Shouldn't this also be checking whether the return statement has a value?
+		// 2. If fn.body_statement_count == 0, throw if fn_return_type != type_void, and stop crashing by checking fn.body_statements[fn.body_statement_count - 1] in that case
 		grug_assert(fn.body_statements[fn.body_statement_count - 1].type == RETURN_STATEMENT || fn_return_type == type_void, "Function '%s' was supposed to return %s", filled_fn_name, type_names[fn_return_type]);
 	}
 }
