@@ -3805,9 +3805,9 @@ static void reset_compiling(void) {
 	used_game_fns_size = 0;
 	used_game_fn_symbols_size = 0;
 	helper_fn_offsets_size = 0;
-	assert(stack_size == 0);
-	assert(start_of_loop_jump_offsets_size == 0);
-	assert(loop_break_statements_stack_size == 0);
+	stack_size = 0;
+	start_of_loop_jump_offsets_size = 0;
+	loop_break_statements_stack_size = 0;
 }
 
 static size_t get_helper_fn_offset(char *name) {
