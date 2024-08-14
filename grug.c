@@ -2613,36 +2613,17 @@ static void parse_define_fn(size_t *i) {
 	potentially_skip_comment(i);
 }
 
-static void skip_tokens_of_entity_or_resource(size_t *i) {
-	consume_token_type(i, WORD_TOKEN);
-	consume_token_type(i, COLON_TOKEN);
-	consume_token_type(i, WORD_TOKEN);
-	consume_token_type(i, ASSIGNMENT_TOKEN);
-	parse_expression(i);
-	potentially_skip_comment(i);
-	consume_1_newline(i);
-}
-
 static void parse(void) {
 	reset_parsing();
 
 	bool seen_define_fn = false;
-	bool seen_entity = false;
 
 	size_t i = 0;
 	while (i < tokens_size) {
 		struct token token = peek_token(i);
 		int type = token.type;
 
-		if (       type == WORD_TOKEN && peek_token(i + 1).type == COLON_TOKEN && peek_token(i + 2).type == WORD_TOKEN && streq(peek_token(i + 2).str, "entity")) {
-			grug_assert(!seen_define_fn, "Move the entity '%s' above the define function", token.str);
-			skip_tokens_of_entity_or_resource(&i);
-			seen_entity = true;
-		} else if (type == WORD_TOKEN && peek_token(i + 1).type == COLON_TOKEN && peek_token(i + 2).type == WORD_TOKEN && streq(peek_token(i + 2).str, "resource")) {
-			grug_assert(!seen_entity, "Move the resource '%s' below the entities", token.str);
-			grug_assert(!seen_define_fn, "Move the resource '%s' above the define function", token.str);
-			skip_tokens_of_entity_or_resource(&i);
-		} else if (type == WORD_TOKEN && streq(token.str, "define") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
+		if (       type == WORD_TOKEN && streq(token.str, "define") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			grug_assert(!seen_define_fn, "There can't be more than one define_ function in a grug file");
 			parse_define_fn(&i);
 			seen_define_fn = true;
