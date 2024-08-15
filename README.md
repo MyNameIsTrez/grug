@@ -30,7 +30,8 @@ You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
 
 ## Small example programs
 
-- [terminal fighting game](https://github.com/MyNameIsTrez/grug-terminal-fighting-game)
+- [Box2D and raylib game](https://github.com/MyNameIsTrez/grug-box2d-and-raylib-game)
+- [terminal game](https://github.com/MyNameIsTrez/grug-terminal-fighting-game)
 - [grug benchmarks](https://github.com/MyNameIsTrez/grug-benchmarks)
 
 ## Options
