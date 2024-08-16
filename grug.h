@@ -58,6 +58,7 @@ struct grug_error {
 enum grug_runtime_error {
 	GRUG_ON_FN_TIME_LIMIT_EXCEEDED,
 	GRUG_ON_FN_STACK_OVERFLOW,
+	GRUG_ON_FN_ARITHMETIC_ERROR,
 };
 
 extern struct grug_mod_dir grug_mods;
@@ -72,6 +73,7 @@ extern jmp_buf grug_runtime_error_jmp_buffer;
 
 bool grug_regenerate_modified_mods(void);
 void grug_free_mods(void);
+char *grug_get_runtime_error_reason(void);
 
 // Don't call this; this is just for grug_mod_had_runtime_error()
 void grug_init_signal_handlers(void);

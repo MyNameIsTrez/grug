@@ -152,6 +152,8 @@ static void grug_error_signal_handler(int sig) {
 		grug_runtime_error = GRUG_ON_FN_TIME_LIMIT_EXCEEDED;
 	} else if (sig == SIGSEGV) {
 		grug_runtime_error = GRUG_ON_FN_STACK_OVERFLOW;
+	} else if (sig == SIGFPE) {
+		grug_runtime_error = GRUG_ON_FN_ARITHMETIC_ERROR;
 	} else {
 		assert(false);
 	}
@@ -163,8 +165,9 @@ void grug_init_signal_handlers(void) {
 
 	if (!initialized) {
 		signal(SIGALRM, grug_error_signal_handler);
+		signal(SIGFPE, grug_error_signal_handler);
 
-		// From https://stackoverflow.com/a/7342398/13279557
+		// Handle stack overflow, from https://stackoverflow.com/a/7342398/13279557
 		static char stack[SIGSTKSZ];
 		stack_t ss = {
 			.ss_size = SIGSTKSZ,
@@ -180,6 +183,26 @@ void grug_init_signal_handlers(void) {
 
 		initialized = true;
 	}
+}
+
+char *grug_get_runtime_error_reason(void) {
+	static char runtime_error_reason[420];
+
+	switch (grug_runtime_error) {
+		case GRUG_ON_FN_TIME_LIMIT_EXCEEDED:
+			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function took longer than %d second%s to run", GRUG_ON_FN_TIME_LIMIT_SECONDS, GRUG_ON_FN_TIME_LIMIT_SECONDS > 1 ? "s" : "");
+			break;
+		case GRUG_ON_FN_STACK_OVERFLOW:
+			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function caused a stack overflow, which is usually caused by accidental infinite recursion");
+			break;
+		case GRUG_ON_FN_ARITHMETIC_ERROR:
+			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function had an arithmetic error, which is usually caused by a number being divided by 0");
+			break;
+		default:
+			grug_unreachable();
+	}
+
+	return runtime_error_reason;
 }
 
 //// UTILS
