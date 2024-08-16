@@ -3853,7 +3853,7 @@ static bool has_used_extern_fn(char *name) {
 			return false;
 		}
 
-		if (streq(name, extern_fn_calls[i].fn_name)) {
+		if (streq(name, used_extern_fns[i])) {
 			break;
 		}
 
