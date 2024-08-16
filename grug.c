@@ -3792,6 +3792,8 @@ struct loop_break_statements {
 static struct loop_break_statements loop_break_statements_stack[MAX_LOOP_DEPTH];
 static size_t loop_break_statements_stack_size;
 
+bool in_on_fn;
+
 static void reset_compiling(void) {
 	codes_size = 0;
 	data_strings_size = 0;
@@ -3804,6 +3806,7 @@ static void reset_compiling(void) {
 	stack_size = 0;
 	start_of_loop_jump_offsets_size = 0;
 	loop_break_statements_stack_size = 0;
+	in_on_fn = false;
 }
 
 static size_t get_helper_fn_offset(char *name) {
@@ -4627,6 +4630,13 @@ static void compile_statements(struct statement *statements_offset, size_t state
 					compile_expr(*statement.return_statement.value);
 				}
 
+				if (in_on_fn) {
+					compile_unpadded(XOR_CLEAR_EDI);
+					compile_byte(CALL);
+					push_system_fn_call("alarm", codes_size);
+					compile_unpadded(PLACEHOLDER_32);
+				}
+
 				// Function epilogue
 				compile_unpadded(MOV_RBP_TO_RSP);
 				compile_byte(POP_RBP);
@@ -4787,11 +4797,15 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 		compile_byte(CALL);
 		push_system_fn_call("alarm", codes_size);
 		compile_unpadded(PLACEHOLDER_32);
+
+		in_on_fn = true;
 	}
 
 	compile_statements(body_statements, body_statement_count);
 
 	if (is_on_fn) {
+		in_on_fn = false;
+
 		compile_unpadded(XOR_CLEAR_EDI);
 		compile_byte(CALL);
 		push_system_fn_call("alarm", codes_size);
