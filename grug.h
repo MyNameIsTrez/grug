@@ -9,7 +9,7 @@
 
 #define GRUG_ON_FN_TIME_LIMIT_SECONDS 1
 
-#define grug_mod_had_runtime_error() signal(SIGALRM, grug_error_signal_handler), sigsetjmp(grug_runtime_error_jmp_buffer, 1)
+#define grug_mod_had_runtime_error() grug_init_signal_handlers(), sigsetjmp(grug_runtime_error_jmp_buffer, 1)
 
 typedef void (*grug_define_fn_t)(void);
 typedef void (*grug_init_globals_fn_t)(void *globals);
@@ -56,7 +56,8 @@ struct grug_error {
 };
 
 enum grug_runtime_error {
-	ON_FN_TIME_LIMIT_EXCEEDED,
+	GRUG_ON_FN_TIME_LIMIT_EXCEEDED,
+	GRUG_ON_FN_STACK_OVERFLOW,
 };
 
 extern struct grug_mod_dir grug_mods;
@@ -73,7 +74,7 @@ bool grug_regenerate_modified_mods(void);
 void grug_free_mods(void);
 
 // Don't call this; this is just for grug_mod_had_runtime_error()
-void grug_error_signal_handler(int sig);
+void grug_init_signal_handlers(void);
 
 // For the grug-tests repository
 bool grug_test_regenerate_dll(char *grug_file_path, char *dll_path);

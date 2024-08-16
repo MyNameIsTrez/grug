@@ -39,6 +39,8 @@
 
 //// INCLUDES AND DEFINES
 
+#define _XOPEN_SOURCE 700 // This is just so VS Code can find SIGSTKSZ
+
 #include "grug.h"
 
 #include <assert.h>
@@ -145,13 +147,39 @@ static jmp_buf error_jmp_buffer;
 volatile sig_atomic_t grug_runtime_error;
 jmp_buf grug_runtime_error_jmp_buffer;
 
-void grug_error_signal_handler(int sig) {
+static void grug_error_signal_handler(int sig) {
 	if (sig == SIGALRM) {
-		grug_runtime_error = ON_FN_TIME_LIMIT_EXCEEDED;
+		grug_runtime_error = GRUG_ON_FN_TIME_LIMIT_EXCEEDED;
+	} else if (sig == SIGSEGV) {
+		grug_runtime_error = GRUG_ON_FN_STACK_OVERFLOW;
 	} else {
 		assert(false);
 	}
 	siglongjmp(grug_runtime_error_jmp_buffer, 1);
+}
+
+void grug_init_signal_handlers(void) {
+	static bool initialized = false;
+
+	if (!initialized) {
+		signal(SIGALRM, grug_error_signal_handler);
+
+		// From https://stackoverflow.com/a/7342398/13279557
+		static char stack[SIGSTKSZ];
+		stack_t ss = {
+			.ss_size = SIGSTKSZ,
+			.ss_sp = stack,
+		};
+		struct sigaction sa = {
+			.sa_handler = grug_error_signal_handler,
+			.sa_flags = SA_ONSTACK,
+		};
+		sigaltstack(&ss, 0);
+		sigfillset(&sa.sa_mask);
+		sigaction(SIGSEGV, &sa, 0);
+
+		initialized = true;
+	}
 }
 
 //// UTILS
