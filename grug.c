@@ -50,6 +50,7 @@
 #include <limits.h>
 #include <math.h>
 #include <setjmp.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -99,7 +100,7 @@ static bool streq(char *a, char *b);
 	strncpy(previous_grug_error.path, grug_error.path, sizeof(previous_grug_error.path));\
 	previous_grug_error.line_number = grug_error.line_number;\
 	\
-	longjmp(error_jmp_buffer, 1);\
+	siglongjmp(error_jmp_buffer, 1);\
 }
 
 #define grug_assert(condition, ...) {\
@@ -140,6 +141,13 @@ typedef float f32;
 struct grug_error grug_error;
 struct grug_error previous_grug_error;
 static jmp_buf error_jmp_buffer;
+
+static volatile sig_atomic_t signal_handler_error;
+
+void error_signal_handler(int sig) {
+	signal_handler_error = sig;
+	siglongjmp(error_jmp_buffer, 1);
+}
 
 //// UTILS
 
@@ -6350,6 +6358,8 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 
 //// HOT RELOADING
 
+#define GRUG_ON_FN_TIME_LIMIT_SECONDS 1
+
 struct grug_mod_dir grug_mods;
 
 struct grug_modified *grug_reloads;
@@ -6409,9 +6419,34 @@ static void reset_previous_grug_error(void) {
 	previous_grug_error.line_number = 0;
 }
 
+static void fill_signal_error_message(void) {
+	if (signal_handler_error == SIGALRM) { // Set time limit expired error in grug_error struct
+		if (snprintf(grug_error.msg, sizeof(grug_error.msg), "An on_ function took longer than %d second%s to run", GRUG_ON_FN_TIME_LIMIT_SECONDS, GRUG_ON_FN_TIME_LIMIT_SECONDS > 1 ? "s" : "") < 0) {
+			abort();
+		}
+
+		strncpy(grug_error.path, "?", sizeof(grug_error.path)); // TODO: Figure out some way to get the .grug file's path
+
+		grug_error.line_number = 0; // TODO: Figure out some way to get the .grug file's line number
+		grug_error.grug_c_line_number = __LINE__;
+
+		grug_error.has_changed =
+			!streq(grug_error.msg, previous_grug_error.msg)
+		|| !streq(grug_error.path, previous_grug_error.path)
+		|| grug_error.line_number != previous_grug_error.line_number;
+
+		strncpy(previous_grug_error.msg, grug_error.msg, sizeof(previous_grug_error.msg));
+		strncpy(previous_grug_error.path, grug_error.path, sizeof(previous_grug_error.path));
+		previous_grug_error.line_number = grug_error.line_number;
+	}
+
+	signal_handler_error = 0;
+}
+
 // Returns whether an error occurred
 bool grug_test_regenerate_dll(char *grug_path, char *dll_path) {
-	if (setjmp(error_jmp_buffer)) {
+	if (sigsetjmp(error_jmp_buffer, 1)) {
+		fill_signal_error_message();
 		return true;
 	}
 	strncpy(grug_error.path, grug_path, sizeof(grug_error.path) - 1);
@@ -6735,7 +6770,8 @@ bool grug_regenerate_modified_mods(void) {
 	assert(!strchr(MODS_DIR_PATH, '\\') && "MODS_DIR_PATH can't contain backslashes, so replace them with '/'");
 	assert(MODS_DIR_PATH[strlen(MODS_DIR_PATH) - 1] != '/' && "MODS_DIR_PATH can't have a trailing '/'");
 
-	if (setjmp(error_jmp_buffer)) {
+	if (sigsetjmp(error_jmp_buffer, 1)) {
+		fill_signal_error_message();
 		return true;
 	}
 
