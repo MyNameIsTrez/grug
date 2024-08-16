@@ -3644,7 +3644,9 @@ static void fill_result_types(void) {
 
 #define CALL 0xe8 // call foo
 #define RET 0xc3 // ret
+#define MOV_EAX_TO_DEREF_RDI_8_BIT_OFFSET 0x4789 // mov rdi[n], eax
 #define MOV_RAX_TO_DEREF_RDI_8_BIT_OFFSET 0x478948 // mov rdi[n], rax
+#define MOV_EAX_TO_DEREF_RDI_32_BIT_OFFSET 0x8789 // mov rdi[n], eax
 #define MOV_RAX_TO_DEREF_RDI_32_BIT_OFFSET 0x878948 // mov rdi[n], rax
 
 #define PUSH_RAX 0x50 // push rax
@@ -4887,10 +4889,18 @@ static void compile_init_globals_fn(void) {
 		compile_expr(global_variable.assignment_expr);
 
 		if (ptr_offset < 0x80) { // an i8 with the value 0x80 is negative in two's complement
-			compile_unpadded(MOV_RAX_TO_DEREF_RDI_8_BIT_OFFSET);
+			if (global_variable.assignment_expr.result_type == type_string) {
+				compile_unpadded(MOV_RAX_TO_DEREF_RDI_8_BIT_OFFSET);
+			} else {
+				compile_unpadded(MOV_EAX_TO_DEREF_RDI_8_BIT_OFFSET);
+			}
 			compile_byte(ptr_offset);
 		} else {
-			compile_unpadded(MOV_RAX_TO_DEREF_RDI_32_BIT_OFFSET);
+			if (global_variable.assignment_expr.result_type == type_string) {
+				compile_unpadded(MOV_RAX_TO_DEREF_RDI_32_BIT_OFFSET);
+			} else {
+				compile_unpadded(MOV_EAX_TO_DEREF_RDI_32_BIT_OFFSET);
+			}
 			compile_32(ptr_offset);
 		}
 
