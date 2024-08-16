@@ -100,7 +100,7 @@ static bool streq(char *a, char *b);
 	strncpy(previous_grug_error.path, grug_error.path, sizeof(previous_grug_error.path));\
 	previous_grug_error.line_number = grug_error.line_number;\
 	\
-	siglongjmp(error_jmp_buffer, 1);\
+	longjmp(error_jmp_buffer, 1);\
 }
 
 #define grug_assert(condition, ...) {\
@@ -142,11 +142,16 @@ struct grug_error grug_error;
 struct grug_error previous_grug_error;
 static jmp_buf error_jmp_buffer;
 
-static volatile sig_atomic_t signal_handler_error;
+volatile sig_atomic_t grug_runtime_error;
+jmp_buf grug_runtime_error_jmp_buffer;
 
-void error_signal_handler(int sig) {
-	signal_handler_error = sig;
-	siglongjmp(error_jmp_buffer, 1);
+void grug_error_signal_handler(int sig) {
+	if (sig == SIGALRM) {
+		grug_runtime_error = ON_FN_TIME_LIMIT_EXCEEDED;
+	} else {
+		assert(false);
+	}
+	siglongjmp(grug_runtime_error_jmp_buffer, 1);
 }
 
 //// UTILS
@@ -3564,7 +3569,7 @@ static void fill_result_types(void) {
 
 #define GAME_FN_PREFIX "game_fn_"
 
-#define MAX_USED_GAME_FN_SYMBOLS_CHARACTERS 420420
+#define MAX_USED_EXTERN_FN_SYMBOLS_CHARACTERS 420420
 #define MAX_SYMBOLS 420420
 #define MAX_CODES 420420
 #define MAX_DATA_STRINGS 420420
@@ -3689,11 +3694,6 @@ static void fill_result_types(void) {
 #define LEA_STRINGS_TO_RAX 0x58d48 // lea rax, strings[rel n]
 
 #define XOR_CLEAR_EDI 0xff31 // xor edi, edi
-#define XOR_CLEAR_ESI 0xf631 // xor esi, esi
-#define XOR_CLEAR_EDX 0xd231 // xor edx, edx
-#define XOR_CLEAR_ECX 0xc931 // xor ecx, ecx
-#define XOR_CLEAR_R8D 0xc03145 // xor r8d, r8d
-#define XOR_CLEAR_R9D 0xc93145 // xor r9d, r9d
 
 #define MOV_EAX_TO_XMM0 0xc06e0f66 // movd xmm0, eax
 #define MOV_EAX_TO_XMM1 0xc86e0f66 // movd xmm1, eax
@@ -3723,18 +3723,6 @@ static void fill_result_types(void) {
 #define MOV_TO_EAX 0xb8 // mov eax, n
 
 #define MOV_TO_EDI 0xbf // mov edi, n
-#define MOV_TO_ESI 0xbe // mov esi, n
-#define MOV_TO_EDX 0xba // mov edx, n
-#define MOV_TO_ECX 0xb9 // mov ecx, n
-#define MOV_TO_R8D 0xb841 // mov r8d, n
-#define MOV_TO_R9D 0xb941 // mov r9d, n
-
-#define LEA_STRINGS_TO_RDI 0x3d8d48 // lea rdi, strings[rel n]
-#define LEA_STRINGS_TO_RSI 0x358d48 // lea rsi, strings[rel n]
-#define LEA_STRINGS_TO_RDX 0x158d48 // lea rdx, strings[rel n]
-#define LEA_STRINGS_TO_RCX 0x0d8d48 // lea rcx, strings[rel n]
-#define LEA_STRINGS_TO_R8 0x058d4c // lea r8, strings[rel n]
-#define LEA_STRINGS_TO_R9 0x0d8d4c // lea r9, strings[rel n]
 
 #define NOP_32_BITS 0x401f0f // no nasm equivalent
 #define PUSH_REL 0x35ff // TODO: what nasm is this?
@@ -3769,18 +3757,18 @@ struct fn_call {
 	char *fn_name;
 	size_t codes_offset;
 };
-static struct fn_call game_fn_calls[MAX_GAME_FN_CALLS];
-static size_t game_fn_calls_size;
+static struct fn_call extern_fn_calls[MAX_GAME_FN_CALLS];
+static size_t extern_fn_calls_size;
 static struct fn_call helper_fn_calls[MAX_HELPER_FN_CALLS];
 static size_t helper_fn_calls_size;
 
-static char *used_game_fns[MAX_USED_GAME_FNS];
-static size_t used_game_fns_size;
-static u32 buckets_used_game_fns[BFD_HASH_BUCKET_SIZE];
-static u32 chains_used_game_fns[MAX_USED_GAME_FNS];
+static char *used_extern_fns[MAX_USED_GAME_FNS];
+static size_t extern_fns_size;
+static u32 buckets_used_extern_fns[BFD_HASH_BUCKET_SIZE];
+static u32 chains_used_extern_fns[MAX_USED_GAME_FNS];
 
-static char used_game_fn_symbols[MAX_USED_GAME_FN_SYMBOLS_CHARACTERS];
-static size_t used_game_fn_symbols_size;
+static char used_extern_fn_symbols[MAX_USED_EXTERN_FN_SYMBOLS_CHARACTERS];
+static size_t used_extern_fn_symbols_size;
 
 struct fn_offset {
 	char *fn_name;
@@ -3808,10 +3796,10 @@ static void reset_compiling(void) {
 	codes_size = 0;
 	data_strings_size = 0;
 	data_string_codes_size = 0;
-	game_fn_calls_size = 0;
+	extern_fn_calls_size = 0;
 	helper_fn_calls_size = 0;
-	used_game_fns_size = 0;
-	used_game_fn_symbols_size = 0;
+	extern_fns_size = 0;
+	used_extern_fn_symbols_size = 0;
 	helper_fn_offsets_size = 0;
 	stack_size = 0;
 	start_of_loop_jump_offsets_size = 0;
@@ -3857,41 +3845,41 @@ static void push_helper_fn_offset(char *fn_name, size_t offset) {
 	};
 }
 
-static bool has_used_game_fn(char *name) {
-	u32 i = buckets_used_game_fns[bfd_hash(name) % BFD_HASH_BUCKET_SIZE];
+static bool has_used_extern_fn(char *name) {
+	u32 i = buckets_used_extern_fns[bfd_hash(name) % BFD_HASH_BUCKET_SIZE];
 
 	while (true) {
 		if (i == UINT32_MAX) {
 			return false;
 		}
 
-		if (streq(name, game_fn_calls[i].fn_name)) {
+		if (streq(name, extern_fn_calls[i].fn_name)) {
 			break;
 		}
 
-		i = chains_used_game_fns[i];
+		i = chains_used_extern_fns[i];
 	}
 
 	return true;
 }
 
-static void hash_used_game_fns(void) {
-	memset(buckets_used_game_fns, UINT32_MAX, BFD_HASH_BUCKET_SIZE * sizeof(u32));
+static void hash_used_extern_fns(void) {
+	memset(buckets_used_extern_fns, UINT32_MAX, BFD_HASH_BUCKET_SIZE * sizeof(u32));
 
-	for (size_t i = 0; i < game_fn_calls_size; i++) {
-		char *name = game_fn_calls[i].fn_name;
+	for (size_t i = 0; i < extern_fn_calls_size; i++) {
+		char *name = extern_fn_calls[i].fn_name;
 
-		if (has_used_game_fn(name)) {
+		if (has_used_extern_fn(name)) {
 			continue;
 		}
 
-		used_game_fns[used_game_fns_size] = name;
+		used_extern_fns[extern_fns_size] = name;
 
 		u32 bucket_index = bfd_hash(name) % BFD_HASH_BUCKET_SIZE;
 
-		chains_used_game_fns[used_game_fns_size] = buckets_used_game_fns[bucket_index];
+		chains_used_extern_fns[extern_fns_size] = buckets_used_extern_fns[bucket_index];
 
-		buckets_used_game_fns[bucket_index] = used_game_fns_size++;
+		buckets_used_extern_fns[bucket_index] = extern_fns_size++;
 	}
 }
 
@@ -3904,32 +3892,42 @@ static void push_helper_fn_call(char *fn_name, size_t codes_offset) {
 	};
 }
 
-static char *push_used_game_fn_symbol(char *name) {
+static char *push_used_extern_fn_symbol(char *name, bool is_game_fn) {
 	size_t length = strlen(name);
-	size_t game_fn_prefix_length = sizeof(GAME_FN_PREFIX) - 1;
+	size_t fn_prefix_length = is_game_fn ? sizeof(GAME_FN_PREFIX) - 1 : 0;
 
-	grug_assert(used_game_fn_symbols_size + game_fn_prefix_length + length < MAX_USED_GAME_FN_SYMBOLS_CHARACTERS, "There are more than %d characters in the used_game_fn_symbols array, exceeding MAX_USED_GAME_FN_SYMBOLS_CHARACTERS", MAX_USED_GAME_FN_SYMBOLS_CHARACTERS);
+	grug_assert(used_extern_fn_symbols_size + fn_prefix_length + length < MAX_USED_EXTERN_FN_SYMBOLS_CHARACTERS, "There are more than %d characters in the used_extern_fn_symbols array, exceeding MAX_USED_EXTERN_FN_SYMBOLS_CHARACTERS", MAX_USED_EXTERN_FN_SYMBOLS_CHARACTERS);
 
-	char *symbol = used_game_fn_symbols + used_game_fn_symbols_size;
+	char *symbol = used_extern_fn_symbols + used_extern_fn_symbols_size;
 
-	memcpy(symbol, GAME_FN_PREFIX, game_fn_prefix_length);
-	used_game_fn_symbols_size += game_fn_prefix_length;
+	if (is_game_fn) {
+		memcpy(symbol, GAME_FN_PREFIX, fn_prefix_length);
+		used_extern_fn_symbols_size += fn_prefix_length;
+	}
 
 	for (size_t i = 0; i < length; i++) {
-		used_game_fn_symbols[used_game_fn_symbols_size++] = name[i];
+		used_extern_fn_symbols[used_extern_fn_symbols_size++] = name[i];
 	}
-	used_game_fn_symbols[used_game_fn_symbols_size++] = '\0';
+	used_extern_fn_symbols[used_extern_fn_symbols_size++] = '\0';
 
 	return symbol;
 }
 
-static void push_game_fn_call(char *fn_name, size_t codes_offset) {
-	grug_assert(game_fn_calls_size < MAX_GAME_FN_CALLS, "There are more than %d game function calls, exceeding MAX_GAME_FN_CALLS", MAX_GAME_FN_CALLS);
+static void push_extern_fn_call(char *fn_name, size_t codes_offset, bool is_game_fn) {
+	grug_assert(extern_fn_calls_size < MAX_GAME_FN_CALLS, "There are more than %d game function calls, exceeding MAX_GAME_FN_CALLS", MAX_GAME_FN_CALLS);
 
-	game_fn_calls[game_fn_calls_size++] = (struct fn_call){
-		.fn_name = push_used_game_fn_symbol(fn_name),
+	extern_fn_calls[extern_fn_calls_size++] = (struct fn_call){
+		.fn_name = push_used_extern_fn_symbol(fn_name, is_game_fn),
 		.codes_offset = codes_offset,
 	};
+}
+
+static void push_game_fn_call(char *fn_name, size_t codes_offset) {
+	push_extern_fn_call(fn_name, codes_offset, true);
+}
+
+static void push_system_fn_call(char *fn_name, size_t codes_offset) {
+	push_extern_fn_call(fn_name, codes_offset, false);
 }
 
 static void push_data_string_code(char *string, size_t code_offset) {
@@ -4694,7 +4692,7 @@ static size_t round_to_power_of_2(size_t n, size_t multiple) {
     return (n + multiple - 1) & -multiple;
 }
 
-static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
+static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, bool is_on_fn) {
 	init_argument_variables(fn_arguments, argument_count);
 
 	add_variables_in_statements(body_statements, body_statement_count);
@@ -4783,13 +4781,36 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 		}
 	}
 
+	if (is_on_fn) {
+		compile_byte(MOV_TO_EDI);
+		compile_32(1);
+		compile_byte(CALL);
+		push_system_fn_call("alarm", codes_size);
+		compile_unpadded(PLACEHOLDER_32);
+	}
+
 	compile_statements(body_statements, body_statement_count);
+
+	if (is_on_fn) {
+		compile_unpadded(XOR_CLEAR_EDI);
+		compile_byte(CALL);
+		push_system_fn_call("alarm", codes_size);
+		compile_unpadded(PLACEHOLDER_32);
+	}
 
 	// Function epilogue
 	compile_unpadded(MOV_RBP_TO_RSP);
 	compile_byte(POP_RBP);
 
 	compile_byte(RET);
+}
+
+static void compile_on_fn(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
+	compile_on_or_helper_fn(fn_arguments, argument_count, body_statements, body_statement_count, true);
+}
+
+static void compile_helper_fn(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
+	compile_on_or_helper_fn(fn_arguments, argument_count, body_statements, body_statement_count, false);
 }
 
 static void compile_init_globals_fn(void) {
@@ -4947,7 +4968,7 @@ static void compile(void) {
 
 		struct on_fn fn = on_fns[on_fn_index];
 
-		compile_on_or_helper_fn(fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count);
+		compile_on_fn(fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count);
 
 		text_offsets[text_offset_index++] = text_offset;
 		text_offset += codes_size - start_codes_size;
@@ -4960,13 +4981,13 @@ static void compile(void) {
 
 		push_helper_fn_offset(fn.fn_name, codes_size);
 
-		compile_on_or_helper_fn(fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count);
+		compile_helper_fn(fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count);
 
 		text_offsets[text_offset_index++] = text_offset;
 		text_offset += codes_size - start_codes_size;
 	}
 
-	hash_used_game_fns();
+	hash_used_extern_fns();
 	hash_helper_fn_offsets();
 }
 
@@ -5028,7 +5049,7 @@ static size_t shuffled_symbols_size;
 static size_t shuffled_symbol_index_to_symbol_index[MAX_SYMBOLS];
 static size_t symbol_index_to_shuffled_symbol_index[MAX_SYMBOLS];
 
-static size_t first_used_game_fn_symbol_index;
+static size_t first_used_extern_fn_symbol_index;
 
 static size_t data_offsets[MAX_SYMBOLS];
 static size_t data_string_offsets[MAX_SYMBOLS];
@@ -5171,7 +5192,7 @@ static void patch_plt(void) {
 	overwritten_address += 2 * sizeof(u32) + sizeof(u16);
 
 	for (size_t i = 0; i < BFD_HASH_BUCKET_SIZE; i++) {
-		u32 chain_index = buckets_used_game_fns[i];
+		u32 chain_index = buckets_used_extern_fns[i];
 		if (chain_index == UINT32_MAX) {
 			continue;
 		}
@@ -5185,7 +5206,7 @@ static void patch_plt(void) {
 
 			overwritten_address += sizeof(u32) + sizeof(u8) + sizeof(u32) + sizeof(u8) + sizeof(u32) + sizeof(u16);
 
-			chain_index = chains_used_game_fns[chain_index];
+			chain_index = chains_used_extern_fns[chain_index];
 			if (chain_index == UINT32_MAX) {
 				break;
 			}
@@ -5201,7 +5222,7 @@ static void patch_rela_plt(void) {
 	for (size_t shuffled_symbol_index = 0; shuffled_symbol_index < symbols_size; shuffled_symbol_index++) {
 		size_t symbol_index = shuffled_symbol_index_to_symbol_index[shuffled_symbol_index];
 
-		if (symbol_index < first_used_game_fn_symbol_index || symbol_index >= first_used_game_fn_symbol_index + used_game_fns_size) {
+		if (symbol_index < first_used_extern_fn_symbol_index || symbol_index >= first_used_extern_fn_symbol_index + extern_fns_size) {
 			continue;
 		}
 
@@ -5228,7 +5249,7 @@ static void patch_rela_dyn(void) {
 		if (on_fn) {
 			size_t on_fn_index = on_fn - on_fns;
 			size_t symbol_index = on_fns_symbol_offset + on_fn_index;
-			size_t text_index = symbol_index - data_symbols_size - used_game_fns_size;
+			size_t text_index = symbol_index - data_symbols_size - extern_fns_size;
 
 			overwrite_64(got_plt_offset + got_plt_size + on_fn_data_offset, bytes_offset);
 			bytes_offset += sizeof(u64);
@@ -5248,10 +5269,10 @@ static void patch_dynsym(void) {
 		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
 
 		bool is_data = symbol_index < data_symbols_size;
-		bool is_extern = symbol_index < data_symbols_size + used_game_fns_size;
+		bool is_extern = symbol_index < data_symbols_size + extern_fns_size;
 
 		u16 shndx = is_data ? shindex_data : is_extern ? SHN_UNDEF : shindex_text;
-		u32 offset = is_data ? data_offset + data_offsets[symbol_index] : is_extern ? 0 : text_offset + text_offsets[symbol_index - data_symbols_size - used_game_fns_size];
+		u32 offset = is_data ? data_offset + data_offsets[symbol_index] : is_extern ? 0 : text_offset + text_offsets[symbol_index - data_symbols_size - extern_fns_size];
 
 		overwrite_32(symbol_name_dynstr_offsets[symbol_index], bytes_offset);
 		bytes_offset += sizeof(u32);
@@ -5312,8 +5333,8 @@ static void patch_dynamic(void) {
 static void patch_text(void) {
 	size_t next_instruction_offset = 4;
 
-	for (size_t i = 0; i < game_fn_calls_size; i++) {
-		struct fn_call fn_call = game_fn_calls[i];
+	for (size_t i = 0; i < extern_fn_calls_size; i++) {
+		struct fn_call fn_call = extern_fn_calls[i];
 		size_t offset = text_offset + fn_call.codes_offset;
 		size_t address_after_call_instruction = offset + next_instruction_offset;
 		size_t game_fn_plt_offset = plt_offset + get_game_fn_offset(fn_call.fn_name);
@@ -5597,10 +5618,10 @@ static void push_symtab(char *grug_path) {
 		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
 
 		bool is_data = symbol_index < data_symbols_size;
-		bool is_extern = symbol_index < data_symbols_size + used_game_fns_size;
+		bool is_extern = symbol_index < data_symbols_size + extern_fns_size;
 
 		u16 shndx = is_data ? shindex_data : is_extern ? SHN_UNDEF : shindex_text;
-		u32 offset = is_data ? data_offset + data_offsets[symbol_index] : is_extern ? 0 : text_offset + text_offsets[symbol_index - data_symbols_size - used_game_fns_size];
+		u32 offset = is_data ? data_offset + data_offsets[symbol_index] : is_extern ? 0 : text_offset + text_offsets[symbol_index - data_symbols_size - extern_fns_size];
 
 		push_symbol_entry(name_offset + symbol_name_strtab_offsets[symbol_index], ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), shndx, offset);
 	}
@@ -5630,7 +5651,7 @@ static void push_data(void) {
 			previous_on_fn_index = on_fn_index;
 
 			size_t symbol_index = on_fns_symbol_offset + on_fn_index;
-			size_t text_index = symbol_index - data_symbols_size - used_game_fns_size;
+			size_t text_index = symbol_index - data_symbols_size - extern_fns_size;
 			push_64(text_offset + text_offsets[text_index]);
 		} else {
 			push_64(0x0);
@@ -5659,7 +5680,7 @@ static void push_got_plt(void) {
 	size_t entry_size = 0x10;
 	size_t offset = plt_offset + entry_size + 0x6;
 
-	for (size_t i = 0; i < used_game_fns_size; i++) {
+	for (size_t i = 0; i < extern_fns_size; i++) {
 		push_64(offset); // text section address of push <i> instruction
 		offset += entry_size;
 	}
@@ -5694,7 +5715,7 @@ static void push_dynamic(void) {
 	push_dynamic_entry(DT_STRSZ, dynstr_size);
 	push_dynamic_entry(DT_SYMENT, SYMTAB_ENTRY_SIZE);
 	push_dynamic_entry(DT_PLTGOT, PLACEHOLDER_64);
-	push_dynamic_entry(DT_PLTRELSZ, PLT_ENTRY_SIZE * used_game_fns_size);
+	push_dynamic_entry(DT_PLTRELSZ, PLT_ENTRY_SIZE * extern_fns_size);
 	push_dynamic_entry(DT_PLTREL, DT_RELA);
 	push_dynamic_entry(DT_JMPREL, rela_dyn_offset + ((on_fns_size > 0) ? RELA_ENTRY_SIZE * on_fns_size : 0));
 
@@ -5748,13 +5769,13 @@ static void push_plt(void) {
 
 	size_t offset = 0x10;
 	for (size_t i = 0; i < BFD_HASH_BUCKET_SIZE; i++) {
-		u32 chain_index = buckets_used_game_fns[i];
+		u32 chain_index = buckets_used_extern_fns[i];
 		if (chain_index == UINT32_MAX) {
 			continue;
 		}
 
 		while (true) {
-			char *name = used_game_fns[chain_index];
+			char *name = used_extern_fns[chain_index];
 
 			push_16(JMP_REL);
 			push_32(PLACEHOLDER_32);
@@ -5766,7 +5787,7 @@ static void push_plt(void) {
 			push_32(offset_to_start_of_plt);
 			offset += 0x10;
 
-			chain_index = chains_used_game_fns[chain_index];
+			chain_index = chains_used_extern_fns[chain_index];
 			if (chain_index == UINT32_MAX) {
 				break;
 			}
@@ -5795,7 +5816,7 @@ static void push_rela_plt(void) {
 	for (size_t shuffled_symbol_index = 0; shuffled_symbol_index < symbols_size; shuffled_symbol_index++) {
 		size_t symbol_index = shuffled_symbol_index_to_symbol_index[shuffled_symbol_index];
 
-		if (symbol_index < first_used_game_fn_symbol_index || symbol_index >= first_used_game_fn_symbol_index + used_game_fns_size) {
+		if (symbol_index < first_used_extern_fn_symbol_index || symbol_index >= first_used_extern_fn_symbol_index + extern_fns_size) {
 			continue;
 		}
 
@@ -5836,8 +5857,10 @@ static void push_dynstr(void) {
 
 	push_byte(0);
 	for (size_t i = 0; i < symbols_size; i++) {
-        push_string_bytes(symbols[i]);
-        dynstr_size += strlen(symbols[i]) + 1;
+		char *symbol = symbols[i];
+
+        push_string_bytes(symbol);
+        dynstr_size += strlen(symbol) + 1;
 	}
 
 	push_alignment(8);
@@ -6319,9 +6342,9 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 		data_symbols_size++;
 	}
 
-	first_used_game_fn_symbol_index = data_symbols_size;
-	for (size_t i = 0; i < used_game_fns_size; i++) {
-		push_symbol(used_game_fns[i]);
+	first_used_extern_fn_symbol_index = data_symbols_size;
+	for (size_t i = 0; i < extern_fns_size; i++) {
+		push_symbol(used_extern_fns[i]);
 	}
 
 	push_symbol("define");
@@ -6357,8 +6380,6 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 }
 
 //// HOT RELOADING
-
-#define GRUG_ON_FN_TIME_LIMIT_SECONDS 1
 
 struct grug_mod_dir grug_mods;
 
@@ -6419,34 +6440,9 @@ static void reset_previous_grug_error(void) {
 	previous_grug_error.line_number = 0;
 }
 
-static void fill_signal_error_message(void) {
-	if (signal_handler_error == SIGALRM) { // Set time limit expired error in grug_error struct
-		if (snprintf(grug_error.msg, sizeof(grug_error.msg), "An on_ function took longer than %d second%s to run", GRUG_ON_FN_TIME_LIMIT_SECONDS, GRUG_ON_FN_TIME_LIMIT_SECONDS > 1 ? "s" : "") < 0) {
-			abort();
-		}
-
-		strncpy(grug_error.path, "?", sizeof(grug_error.path)); // TODO: Figure out some way to get the .grug file's path
-
-		grug_error.line_number = 0; // TODO: Figure out some way to get the .grug file's line number
-		grug_error.grug_c_line_number = __LINE__;
-
-		grug_error.has_changed =
-			!streq(grug_error.msg, previous_grug_error.msg)
-		|| !streq(grug_error.path, previous_grug_error.path)
-		|| grug_error.line_number != previous_grug_error.line_number;
-
-		strncpy(previous_grug_error.msg, grug_error.msg, sizeof(previous_grug_error.msg));
-		strncpy(previous_grug_error.path, grug_error.path, sizeof(previous_grug_error.path));
-		previous_grug_error.line_number = grug_error.line_number;
-	}
-
-	signal_handler_error = 0;
-}
-
 // Returns whether an error occurred
 bool grug_test_regenerate_dll(char *grug_path, char *dll_path) {
-	if (sigsetjmp(error_jmp_buffer, 1)) {
-		fill_signal_error_message();
+	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
 	strncpy(grug_error.path, grug_path, sizeof(grug_error.path) - 1);
@@ -6770,8 +6766,7 @@ bool grug_regenerate_modified_mods(void) {
 	assert(!strchr(MODS_DIR_PATH, '\\') && "MODS_DIR_PATH can't contain backslashes, so replace them with '/'");
 	assert(MODS_DIR_PATH[strlen(MODS_DIR_PATH) - 1] != '/' && "MODS_DIR_PATH can't have a trailing '/'");
 
-	if (sigsetjmp(error_jmp_buffer, 1)) {
-		fill_signal_error_message();
+	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
 

@@ -2,8 +2,14 @@
 
 #pragma once
 
+#include <setjmp.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stddef.h>
+
+#define GRUG_ON_FN_TIME_LIMIT_SECONDS 1
+
+#define grug_mod_had_runtime_error() signal(SIGALRM, grug_error_signal_handler), sigsetjmp(grug_runtime_error_jmp_buffer, 1)
 
 typedef void (*grug_define_fn_t)(void);
 typedef void (*grug_init_globals_fn_t)(void *globals);
@@ -49,6 +55,10 @@ struct grug_error {
 	int grug_c_line_number;
 };
 
+enum grug_runtime_error {
+	ON_FN_TIME_LIMIT_EXCEEDED,
+};
+
 extern struct grug_mod_dir grug_mods;
 
 extern struct grug_modified *grug_reloads;
@@ -56,8 +66,14 @@ extern size_t grug_reloads_size;
 
 extern struct grug_error grug_error;
 
+extern volatile sig_atomic_t grug_runtime_error;
+extern jmp_buf grug_runtime_error_jmp_buffer;
+
 bool grug_regenerate_modified_mods(void);
 void grug_free_mods(void);
+
+// Don't call this; this is just for grug_mod_had_runtime_error()
+void grug_error_signal_handler(int sig);
 
 // For the grug-tests repository
 bool grug_test_regenerate_dll(char *grug_file_path, char *dll_path);
