@@ -161,22 +161,40 @@ static void grug_error_signal_handler(int sig) {
 }
 
 void grug_init_signal_handlers(void) {
-	signal(SIGALRM, grug_error_signal_handler);
-	signal(SIGFPE, grug_error_signal_handler);
-
 	// Handle stack overflow, from https://stackoverflow.com/a/7342398/13279557
 	static char stack[SIGSTKSZ];
 	stack_t ss = {
 		.ss_size = SIGSTKSZ,
 		.ss_sp = stack,
 	};
+	if (sigaltstack(&ss, NULL) == -1) { // Set up SIGSEGV's stack
+		perror("sigaltstack");
+		exit(EXIT_FAILURE);
+	}
+
 	struct sigaction sa = {
 		.sa_handler = grug_error_signal_handler,
-		.sa_flags = SA_ONSTACK,
+		.sa_flags = SA_ONSTACK, // Give SIGSEGV its own stack
 	};
-	sigaltstack(&ss, 0);
-	sigfillset(&sa.sa_mask);
-	sigaction(SIGSEGV, &sa, 0);
+	if (sigfillset(&sa.sa_mask) == -1) { // Block all other signals
+		perror("sigfillset");
+		exit(EXIT_FAILURE);
+	}
+
+	if (sigaction(SIGSEGV, &sa, NULL) == -1) {
+		perror("sigaction");
+		exit(EXIT_FAILURE);
+	}
+
+	sa.sa_flags = 0; // No need for SA_ONSTACK, like with SIGSEGV
+	if (sigaction(SIGALRM, &sa, NULL) == -1) {
+		perror("sigaction");
+		exit(EXIT_FAILURE);
+	}
+	if (sigaction(SIGFPE, &sa, NULL) == -1) {
+		perror("sigaction");
+		exit(EXIT_FAILURE);
+	}
 }
 
 char *grug_get_runtime_error_reason(void) {
