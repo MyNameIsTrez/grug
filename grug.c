@@ -4858,7 +4858,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 
 	if (is_on_fn) {
 		compile_byte(MOV_TO_EDI);
-		compile_32(1);
+		compile_32(GRUG_ON_FN_TIME_LIMIT_SECONDS);
 		compile_byte(CALL);
 		push_system_fn_call("alarm", codes_size);
 		compile_unpadded(PLACEHOLDER_32);
