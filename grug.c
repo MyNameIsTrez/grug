@@ -218,7 +218,7 @@ char *grug_get_runtime_error_reason(void) {
 			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function caused a stack overflow, which is usually caused by accidental infinite recursion");
 			break;
 		case GRUG_ON_FN_ARITHMETIC_ERROR:
-			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function had an arithmetic error, which is usually caused by a number being divided by 0");
+			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function had an arithmetic error, which is usually caused by an i32 being divided by 0");
 			break;
 		default:
 			grug_unreachable();
