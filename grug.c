@@ -161,28 +161,22 @@ static void grug_error_signal_handler(int sig) {
 }
 
 void grug_init_signal_handlers(void) {
-	static bool initialized = false;
+	signal(SIGALRM, grug_error_signal_handler);
+	signal(SIGFPE, grug_error_signal_handler);
 
-	if (!initialized) {
-		signal(SIGALRM, grug_error_signal_handler);
-		signal(SIGFPE, grug_error_signal_handler);
-
-		// Handle stack overflow, from https://stackoverflow.com/a/7342398/13279557
-		static char stack[SIGSTKSZ];
-		stack_t ss = {
-			.ss_size = SIGSTKSZ,
-			.ss_sp = stack,
-		};
-		struct sigaction sa = {
-			.sa_handler = grug_error_signal_handler,
-			.sa_flags = SA_ONSTACK,
-		};
-		sigaltstack(&ss, 0);
-		sigfillset(&sa.sa_mask);
-		sigaction(SIGSEGV, &sa, 0);
-
-		initialized = true;
-	}
+	// Handle stack overflow, from https://stackoverflow.com/a/7342398/13279557
+	static char stack[SIGSTKSZ];
+	stack_t ss = {
+		.ss_size = SIGSTKSZ,
+		.ss_sp = stack,
+	};
+	struct sigaction sa = {
+		.sa_handler = grug_error_signal_handler,
+		.sa_flags = SA_ONSTACK,
+	};
+	sigaltstack(&ss, 0);
+	sigfillset(&sa.sa_mask);
+	sigaction(SIGSEGV, &sa, 0);
 }
 
 char *grug_get_runtime_error_reason(void) {
