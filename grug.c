@@ -148,6 +148,16 @@ volatile sig_atomic_t grug_runtime_error;
 jmp_buf grug_runtime_error_jmp_buffer;
 
 static void grug_error_signal_handler(int sig) {
+	// It is important that we cancel grug mod's on fn timeout alarms asap,
+	// cause if there was a stack overflow, then the on fn didn't get the chance
+	// to deactivate the alarm
+	//
+	// The reason having an alarm be raised outside of the on fn is bad,
+	// is because this function always longjmps out of itself,
+	// meaning that if the alarm happens in the middle of the game's code,
+	// then it wouldn't get the chance to finish, causing havoc
+	alarm(0);
+
 	if (sig == SIGALRM) {
 		grug_runtime_error = GRUG_ON_FN_TIME_LIMIT_EXCEEDED;
 	} else if (sig == SIGSEGV) {
@@ -161,16 +171,6 @@ static void grug_error_signal_handler(int sig) {
 }
 
 void grug_init_signal_handlers(void) {
-	// It is important that we cancel grug mod's on fn timeout alarms asap,
-	// cause if there was a stack overflow, then the on fn didn't get the chance
-	// to deactivate the alarm
-	//
-	// The reason having an alarm be raised outside of the on fn,
-	// is because grug_error_signal_handler always longjmps out of itself,
-	// meaning that if the alarm happens in the middle of say box2d code,
-	// then the box2d code didn't get the chance to finish, causing major bugs
-	alarm(0);
-
 	// Handle stack overflow, from https://stackoverflow.com/a/7342398/13279557
 	static char stack[SIGSTKSZ];
 	stack_t ss = {
