@@ -3143,14 +3143,13 @@ static void fill_binary_expr(struct expr *expr) {
 	fill_expr(binary_expr.right_expr);
 
 	// TODO: Add tests for also not being able to use unary operators on strings
-	grug_assert(binary_expr.left_expr->result_type != type_string, "You can't use any operator on a string, like %s in this case", get_token_type_str[binary_expr.operator]);
+	grug_assert(binary_expr.left_expr->result_type != type_string || binary_expr.operator == EQUALS_TOKEN || binary_expr.operator == NOT_EQUALS_TOKEN, "You can't use the %s operator on a string", get_token_type_str[binary_expr.operator]);
 
 	grug_assert(binary_expr.left_expr->result_type == binary_expr.right_expr->result_type, "The left and right operand of a binary expression ('%s') must have the same type, but got %s and %s", get_token_type_str[binary_expr.operator], type_names[binary_expr.left_expr->result_type], type_names[binary_expr.right_expr->result_type]);
 
 	switch (binary_expr.operator) {
 		case EQUALS_TOKEN:
 		case NOT_EQUALS_TOKEN:
-			grug_assert(binary_expr.left_expr->result_type != type_string, "'%s' operator does not expect string", get_token_type_str[binary_expr.operator]);
 			expr->result_type = type_bool;
 			break;
 
@@ -3741,7 +3740,7 @@ static void fill_result_types(void) {
 
 #define NEGATE_RAX 0xd8f748 // neg rax
 
-#define TEST_RAX_IS_ZERO 0xc08548 // test rax, rax
+#define TEST_EAX_IS_ZERO 0xc085 // test eax, eax
 
 #define JE_8_BIT_OFFSET 0x74 // je $+0xn
 #define JNE_8_BIT_OFFSET 0x75 // jne $+0xn
@@ -3793,6 +3792,8 @@ static void fill_result_types(void) {
 #define MOV_RAX_TO_R9 0xc18949 // mov r9, rax
 
 #define MOV_R11D_TO_XMM1 0xcb6e0f4166 // movd xmm1, r11d
+
+#define MOV_R11_TO_RSI 0xde894c // mov rsi, r11
 
 #define ADD_XMM1_TO_XMM0 0xc1580ff3 // addss xmm0, xmm1
 #define SUB_XMM1_FROM_XMM0 0xc15c0ff3 // subss xmm0, xmm1
@@ -4180,7 +4181,7 @@ static void compile_while_statement(struct while_statement while_statement) {
 	push_loop_break_statements();
 
 	compile_expr(while_statement.condition);
-	compile_unpadded(TEST_RAX_IS_ZERO);
+	compile_unpadded(TEST_EAX_IS_ZERO);
 	compile_unpadded(JE_32_BIT_OFFSET);
 	size_t end_jump_offset = codes_size;
 	compile_unpadded(PLACEHOLDER_32);
@@ -4206,7 +4207,7 @@ static void compile_while_statement(struct while_statement while_statement) {
 
 static void compile_if_statement(struct if_statement if_statement) {
 	compile_expr(if_statement.condition);
-	compile_unpadded(TEST_RAX_IS_ZERO);
+	compile_unpadded(TEST_EAX_IS_ZERO);
 	compile_unpadded(JE_32_BIT_OFFSET);
 	size_t else_or_end_jump_offset = codes_size;
 	compile_unpadded(PLACEHOLDER_32);
@@ -4306,14 +4307,14 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 	switch (logical_expr.operator) {
 		case AND_TOKEN: {
 			compile_expr(*logical_expr.left_expr);
-			compile_unpadded(TEST_RAX_IS_ZERO);
+			compile_unpadded(TEST_EAX_IS_ZERO);
 			compile_byte(JNE_8_BIT_OFFSET);
 			compile_byte(5); // Jump 5 bytes forward
 			compile_unpadded(JMP_32_BIT_OFFSET);
 			size_t end_jump_offset = codes_size;
 			compile_unpadded(PLACEHOLDER_32);
 			compile_expr(*logical_expr.right_expr);
-			compile_unpadded(TEST_RAX_IS_ZERO);
+			compile_unpadded(TEST_EAX_IS_ZERO);
 			compile_unpadded(MOV_TO_EAX);
 			compile_32(0);
 			compile_unpadded(SETNE_AL);
@@ -4322,7 +4323,7 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 		}
 		case OR_TOKEN: {
 			compile_expr(*logical_expr.left_expr);
-			compile_unpadded(TEST_RAX_IS_ZERO);
+			compile_unpadded(TEST_EAX_IS_ZERO);
 			compile_byte(JE_8_BIT_OFFSET);
 			compile_byte(10); // Jump 10 bytes forward
 			compile_byte(MOV_TO_EAX);
@@ -4331,7 +4332,7 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 			size_t end_jump_offset = codes_size;
 			compile_unpadded(PLACEHOLDER_32);
 			compile_expr(*logical_expr.right_expr);
-			compile_unpadded(TEST_RAX_IS_ZERO);
+			compile_unpadded(TEST_EAX_IS_ZERO);
 			compile_unpadded(MOV_TO_EAX);
 			compile_32(0);
 			compile_unpadded(SETNE_AL);
@@ -4405,11 +4406,19 @@ static void compile_binary_expr(struct expr expr) {
 				compile_unpadded(MOV_TO_EAX);
 				compile_32(0);
 				compile_unpadded(SETE_AL);
-			} else {
+			} else if (binary_expr.left_expr->result_type == type_f32) {
 				compile_unpadded(MOV_EAX_TO_XMM0);
 				compile_unpadded(MOV_R11D_TO_XMM1);
 				compile_unpadded(XOR_CLEAR_EAX);
 				compile_unpadded(ORDERED_CMP_XMM0_WITH_XMM1);
+				compile_unpadded(SETE_AL);
+			} else {
+				compile_unpadded(MOV_R11_TO_RSI);
+				compile_unpadded(MOV_RAX_TO_RDI);
+				compile_byte(CALL);
+				push_system_fn_call("strcmp", codes_size);
+				compile_unpadded(PLACEHOLDER_32);
+				compile_unpadded(TEST_EAX_IS_ZERO);
 				compile_unpadded(SETE_AL);
 			}
 			break;
@@ -4419,11 +4428,19 @@ static void compile_binary_expr(struct expr expr) {
 				compile_unpadded(MOV_TO_EAX);
 				compile_32(0);
 				compile_unpadded(SETNE_AL);
-			} else {
+			} else if (binary_expr.left_expr->result_type == type_f32) {
 				compile_unpadded(MOV_EAX_TO_XMM0);
 				compile_unpadded(MOV_R11D_TO_XMM1);
 				compile_unpadded(XOR_CLEAR_EAX);
 				compile_unpadded(ORDERED_CMP_XMM0_WITH_XMM1);
+				compile_unpadded(SETNE_AL);
+			} else {
+				compile_unpadded(MOV_R11_TO_RSI);
+				compile_unpadded(MOV_RAX_TO_RDI);
+				compile_byte(CALL);
+				push_system_fn_call("strcmp", codes_size);
+				compile_unpadded(PLACEHOLDER_32);
+				compile_unpadded(TEST_EAX_IS_ZERO);
 				compile_unpadded(SETNE_AL);
 			}
 			break;
@@ -4501,7 +4518,7 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 			break;
 		case NOT_TOKEN:
 			compile_expr(*unary_expr.expr);
-			compile_unpadded(TEST_RAX_IS_ZERO);
+			compile_unpadded(TEST_EAX_IS_ZERO);
 			compile_unpadded(MOV_TO_EAX);
 			compile_32(0);
 			compile_unpadded(SETE_AL);
