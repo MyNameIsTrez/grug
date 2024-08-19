@@ -273,7 +273,7 @@ char *grug_get_runtime_error_reason(void) {
 
 	switch (grug_runtime_error) {
 		case GRUG_ON_FN_TIME_LIMIT_EXCEEDED:
-			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function took longer than %d second%s to run", GRUG_ON_FN_TIME_LIMIT_MS, GRUG_ON_FN_TIME_LIMIT_MS > 1 ? "s" : "");
+			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function took longer than %d millisecond%s to run", GRUG_ON_FN_TIME_LIMIT_MS, GRUG_ON_FN_TIME_LIMIT_MS > 1 ? "s" : "");
 			break;
 		case GRUG_ON_FN_STACK_OVERFLOW:
 			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function caused a stack overflow, so check for accidental infinite recursion");
