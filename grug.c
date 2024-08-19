@@ -97,7 +97,7 @@ static bool streq(char *a, char *b);
 	grug_error.grug_c_line_number = __LINE__;\
 	\
 	grug_error.has_changed =\
-	    !streq(grug_error.msg, previous_grug_error.msg)\
+		!streq(grug_error.msg, previous_grug_error.msg)\
 	 || !streq(grug_error.path, previous_grug_error.path)\
 	 || grug_error.line_number != previous_grug_error.line_number;\
 	\
@@ -116,11 +116,11 @@ static bool streq(char *a, char *b);
 
 #ifdef CRASH_ON_UNREACHABLE
 #define grug_unreachable() {\
-    assert(false && "This line of code is supposed to be unreachable. Please report this bug to the grug developers!");\
+	assert(false && "This line of code is supposed to be unreachable. Please report this bug to the grug developers!");\
 }
 #else
 #define grug_unreachable() {\
-    grug_error("This line of code is supposed to be unreachable. Please report this bug to the grug developers!");\
+	grug_error("This line of code is supposed to be unreachable. Please report this bug to the grug developers!");\
 }
 #endif
 
@@ -247,7 +247,7 @@ static void grug_error_signal_handler(int sig, siginfo_t *si, void *uc) {
 
 	// TODO: Figure out if I want this
 	// TODO: Is there a way to also be able to tell whether a SIGSEGV and SIGFPE is from the on fn?
-    // if (si->si_timerid == on_fn_timeout_timer_id) {
+	// if (si->si_timerid == on_fn_timeout_timer_id) {
 	// 	// TODO:
 	// 	fprintf(stderr, "si->si_timerid is the timeout timer's id\n");
 	// } else {
@@ -305,7 +305,7 @@ void grug_enable_on_fn_runtime_error_handling(void) {
 		static struct sigevent sev = {
 			.sigev_notify = SIGEV_SIGNAL,
 			.sigev_signo = SIGALRM,
-        	// .sigev_value.sival_ptr = &on_fn_timeout_timer_id, // TODO: Remove?
+			// .sigev_value.sival_ptr = &on_fn_timeout_timer_id, // TODO: Remove?
 		};
 		grug_assert(timer_create(CLOCK_MONOTONIC, &sev, &on_fn_timeout_timer_id) != -1, "timer_create: %s", strerror(errno));
 
@@ -329,17 +329,17 @@ void grug_enable_on_fn_runtime_error_handling(void) {
 	grug_assert(sigaction(SIGFPE, &alrm_and_fpe_sa, NULL) != -1, "sigaction: %s", strerror(errno));
 
 	// Set SIGALRM timeout
-    static struct itimerspec its = {
+	static struct itimerspec its = {
 		.it_value.tv_sec = GRUG_ON_FN_TIME_LIMIT_MS / 1000,
-    	.it_value.tv_nsec = (GRUG_ON_FN_TIME_LIMIT_MS % 1000) * 1000000,
+		.it_value.tv_nsec = (GRUG_ON_FN_TIME_LIMIT_MS % 1000) * 1000000,
 	};
-    grug_assert(timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) != -1, "timer_settime: %s", strerror(errno));
+	grug_assert(timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) != -1, "timer_settime: %s", strerror(errno));
 }
 
 void grug_disable_on_fn_runtime_error_handling(void) {
-    static struct itimerspec its = {0};
+	static struct itimerspec its = {0};
 
-    grug_assert(timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) != -1, "timer_settime: %s", strerror(errno));
+	grug_assert(timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) != -1, "timer_settime: %s", strerror(errno));
 
 	signal(SIGSEGV, SIG_DFL);
 	signal(SIGALRM, SIG_DFL);
@@ -2107,7 +2107,7 @@ static void consume_1_newline(size_t *token_index_ptr) {
 
 static f32 str_to_f32(char *str) {
 	char *end;
-    errno = 0;
+	errno = 0;
 	float f = strtof(str, &end);
 
 	if (errno == ERANGE) {
@@ -4272,7 +4272,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 		struct expr argument = call_expr.arguments[i];
 
 		// TODO: Verify that the argument has the same type as the one in grug_define_entity
-        // TODO: This should be done when the AST gets created, not during compilation!
+		// TODO: This should be done when the AST gets created, not during compilation!
 
 		compile_expr(argument);
 		stack_push_rax();
@@ -4572,15 +4572,15 @@ static u32 get_data_string_index(char *string) {
 }
 
 static void add_data_string(char *string) {
-    if (get_data_string_index(string) == UINT32_MAX) {
-        u32 bucket_index = elf_hash(string) % MAX_DATA_STRINGS;
+	if (get_data_string_index(string) == UINT32_MAX) {
+		u32 bucket_index = elf_hash(string) % MAX_DATA_STRINGS;
 
-        chains_data_strings[data_strings_size] = buckets_data_strings[bucket_index];
+		chains_data_strings[data_strings_size] = buckets_data_strings[bucket_index];
 
-        buckets_data_strings[bucket_index] = data_strings_size;
+		buckets_data_strings[bucket_index] = data_strings_size;
 
-        push_data_string(string);
-    }
+		push_data_string(string);
+	}
 }
 
 static void compile_expr(struct expr expr) {
@@ -4593,13 +4593,13 @@ static void compile_expr(struct expr expr) {
 			compile_unpadded(XOR_CLEAR_EAX);
 			break;
 		case STRING_EXPR:
-            add_data_string(expr.literal.string);
+			add_data_string(expr.literal.string);
 
 			compile_unpadded(LEA_STRINGS_TO_RAX);
 
-            // RIP-relative address of data string
-            push_data_string_code(expr.literal.string, codes_size);
-            compile_unpadded(PLACEHOLDER_32);
+			// RIP-relative address of data string
+			push_data_string_code(expr.literal.string, codes_size);
+			compile_unpadded(PLACEHOLDER_32);
 
 			break;
 		case IDENTIFIER_EXPR: {
@@ -4676,7 +4676,7 @@ static void compile_expr(struct expr expr) {
 			compile_logical_expr(expr.binary);
 			break;
 		case CALL_EXPR:
-            compile_call_expr(expr.call);
+			compile_call_expr(expr.call);
 			break;
 		case PARENTHESIZED_EXPR:
 			compile_expr(*expr.parenthesized);
@@ -4813,9 +4813,9 @@ static void add_variables_in_statements(struct statement *statements_offset, siz
 // From https://stackoverflow.com/a/9194117/13279557
 static size_t round_to_power_of_2(size_t n, size_t multiple) {
 	// Assert that `multiple` is a power of 2
-    assert(multiple && ((multiple & (multiple - 1)) == 0));
+	assert(multiple && ((multiple & (multiple - 1)) == 0));
 
-    return (n + multiple - 1) & -multiple;
+	return (n + multiple - 1) & -multiple;
 }
 
 static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, bool is_on_fn) {
@@ -5060,7 +5060,7 @@ static void init_data_strings(void) {
 		struct field field = define_fn.returned_compound_literal.fields[field_index];
 
 		if (field.expr_value.type == STRING_EXPR) {
-            add_data_string(field.expr_value.literal.string);
+			add_data_string(field.expr_value.literal.string);
 		}
 	}
 }
@@ -5685,7 +5685,7 @@ static void push_strtab(char *grug_path) {
 	// Global symbols
 	// TODO: Don't loop through local symbols
 	for (size_t i = 0; i < symbols_size; i++) {
-        push_string_bytes(shuffled_symbols[i]);
+		push_string_bytes(shuffled_symbols[i]);
 	}
 
 	strtab_size = bytes_size - strtab_offset;
@@ -5994,8 +5994,8 @@ static void push_dynstr(void) {
 	for (size_t i = 0; i < symbols_size; i++) {
 		char *symbol = symbols[i];
 
-        push_string_bytes(symbol);
-        dynstr_size += strlen(symbol) + 1;
+		push_string_bytes(symbol);
+		dynstr_size += strlen(symbol) + 1;
 	}
 
 	push_alignment(8);
@@ -6363,8 +6363,8 @@ static void init_symbol_name_strtab_offsets(void) {
 		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
 		char *symbol = symbols[symbol_index];
 
-        symbol_name_strtab_offsets[symbol_index] = offset;
-        offset += strlen(symbol) + 1;
+		symbol_name_strtab_offsets[symbol_index] = offset;
+		offset += strlen(symbol) + 1;
 	}
 }
 
@@ -6422,8 +6422,8 @@ static void init_symbol_name_dynstr_offsets(void) {
 	for (size_t i = 0, offset = 1; i < symbols_size; i++) {
 		char *symbol = symbols[i];
 
-        symbol_name_dynstr_offsets[i] = offset;
-        offset += strlen(symbol) + 1;
+		symbol_name_dynstr_offsets[i] = offset;
+		offset += strlen(symbol) + 1;
 	}
 }
 
