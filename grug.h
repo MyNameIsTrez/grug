@@ -8,6 +8,7 @@
 #include <stddef.h>
 
 #define GRUG_ON_FN_TIME_LIMIT_SECONDS 1
+#define MAX_RELOADS 420420
 
 #define grug_mod_had_runtime_error() grug_init_signal_handlers(), sigsetjmp(grug_runtime_error_jmp_buffer, 1)
 
@@ -63,7 +64,7 @@ enum grug_runtime_error {
 
 extern struct grug_mod_dir grug_mods;
 
-extern struct grug_modified *grug_reloads;
+extern struct grug_modified grug_reloads[MAX_RELOADS];
 extern size_t grug_reloads_size;
 
 extern struct grug_error grug_error;

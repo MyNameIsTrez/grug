@@ -6488,11 +6488,9 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 
 //// HOT RELOADING
 
-#define MAX_RELOADS 420420
-
 struct grug_mod_dir grug_mods;
 
-struct grug_modified *grug_reloads;
+struct grug_modified grug_reloads[MAX_RELOADS];
 size_t grug_reloads_size;
 
 static void regenerate_dll(char *grug_path, char *dll_path) {
