@@ -3827,8 +3827,6 @@ static char *define_fn_name;
 static char *data_strings[MAX_DATA_STRINGS];
 static size_t data_strings_size;
 
-// TODO: Replace this 420 define with the total number of data strings in the entire file
-#define MAX_BUCKETS_DATA_STRINGS 420
 static u32 buckets_data_strings[MAX_DATA_STRINGS];
 static u32 chains_data_strings[MAX_DATA_STRINGS];
 
@@ -4535,7 +4533,7 @@ static void push_data_string(char *string) {
 }
 
 static u32 get_data_string_index(char *string) {
-	u32 i = buckets_data_strings[elf_hash(string) % MAX_BUCKETS_DATA_STRINGS];
+	u32 i = buckets_data_strings[elf_hash(string) % MAX_DATA_STRINGS];
 
 	while (true) {
 		if (i == UINT32_MAX) {
@@ -4554,7 +4552,7 @@ static u32 get_data_string_index(char *string) {
 
 static void add_data_string(char *string) {
     if (get_data_string_index(string) == UINT32_MAX) {
-        u32 bucket_index = elf_hash(string) % MAX_BUCKETS_DATA_STRINGS;
+        u32 bucket_index = elf_hash(string) % MAX_DATA_STRINGS;
 
         chains_data_strings[data_strings_size] = buckets_data_strings[bucket_index];
 
@@ -5037,7 +5035,7 @@ static void compile_define_fn(void) {
 }
 
 static void init_data_strings(void) {
-	memset(buckets_data_strings, UINT32_MAX, MAX_BUCKETS_DATA_STRINGS * sizeof(u32));
+	memset(buckets_data_strings, UINT32_MAX, MAX_DATA_STRINGS * sizeof(u32));
 
 	size_t define_field_count = define_fn.returned_compound_literal.field_count;
 
