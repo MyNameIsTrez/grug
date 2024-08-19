@@ -16,18 +16,19 @@
 // 1. GRUG DOCUMENTATION
 // 2. INCLUDES AND DEFINES
 // 3. UTILS
-// 4. OPENING RESOURCES
-// 5. JSON
-// 6. PARSING MOD API JSON
-// 7. READING
-// 8. TOKENIZATION
-// 9. VERIFY AND TRIM SPACES
-// 10. PARSING
-// 11. PRINTING AST
-// 12. FILLING RESULT TYPES
-// 13. COMPILING
-// 14. LINKING
-// 15. HOT RELOADING
+// 4. RUNTIME ERROR HANDLING
+// 5. OPENING RESOURCES
+// 6. JSON
+// 7. PARSING MOD API JSON
+// 8. READING
+// 9. TOKENIZATION
+// 10. VERIFY AND TRIM SPACES
+// 11. PARSING
+// 12. PRINTING AST
+// 13. FILLING RESULT TYPES
+// 14. COMPILING
+// 15. LINKING
+// 16. HOT RELOADING
 //
 // ## Small example programs
 //
@@ -60,6 +61,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #define MAX_CHARACTERS_IN_FILE 420420
@@ -78,6 +80,7 @@
 #define MODS_DIR_PATH "mods"
 #define DLL_DIR_PATH "mod_dlls"
 #define MOD_API_JSON_PATH "mod_api.json"
+#define GRUG_ON_FN_TIME_LIMIT_MS 100
 
 // "The problem is that you can't meaningfully define a constant like this
 // in a header file. The maximum path size is actually to be something
@@ -146,95 +149,6 @@ typedef float f32;
 struct grug_error grug_error;
 struct grug_error previous_grug_error;
 static jmp_buf error_jmp_buffer;
-
-volatile sig_atomic_t grug_runtime_error;
-jmp_buf grug_runtime_error_jmp_buffer;
-
-static void grug_error_signal_handler(int sig) {
-	// It is important that we cancel grug mod's on fn timeout alarms asap,
-	// cause if there was a stack overflow, then the on fn didn't get the chance
-	// to deactivate the alarm
-	//
-	// The reason having an alarm be raised outside of the on fn is bad,
-	// is because this function always longjmps out of itself,
-	// meaning that if the alarm happens in the middle of the game's code,
-	// then it wouldn't get the chance to finish, causing havoc
-	alarm(0);
-
-	if (sig == SIGALRM) {
-		grug_runtime_error = GRUG_ON_FN_TIME_LIMIT_EXCEEDED;
-	} else if (sig == SIGSEGV) {
-		grug_runtime_error = GRUG_ON_FN_STACK_OVERFLOW;
-	} else if (sig == SIGFPE) {
-		grug_runtime_error = GRUG_ON_FN_ARITHMETIC_ERROR;
-	} else {
-		assert(false);
-	}
-	siglongjmp(grug_runtime_error_jmp_buffer, 1);
-}
-
-void grug_init_signal_handlers(void) {
-	static bool initialized = false;
-
-	if (!initialized) {
-		// Handle stack overflow, from https://stackoverflow.com/a/7342398/13279557
-		static char stack[SIGSTKSZ];
-		stack_t ss = {
-			.ss_size = SIGSTKSZ,
-			.ss_sp = stack,
-		};
-		if (sigaltstack(&ss, NULL) == -1) { // Set up SIGSEGV's stack
-			perror("sigaltstack");
-			exit(EXIT_FAILURE);
-		}
-
-		struct sigaction sa = {
-			.sa_handler = grug_error_signal_handler,
-			.sa_flags = SA_ONSTACK, // Give SIGSEGV its own stack
-		};
-		if (sigfillset(&sa.sa_mask) == -1) { // Block all other signals
-			perror("sigfillset");
-			exit(EXIT_FAILURE);
-		}
-
-		if (sigaction(SIGSEGV, &sa, NULL) == -1) {
-			perror("sigaction");
-			exit(EXIT_FAILURE);
-		}
-
-		sa.sa_flags = 0; // No need for SA_ONSTACK, like with SIGSEGV
-		if (sigaction(SIGALRM, &sa, NULL) == -1) {
-			perror("sigaction");
-			exit(EXIT_FAILURE);
-		}
-		if (sigaction(SIGFPE, &sa, NULL) == -1) {
-			perror("sigaction");
-			exit(EXIT_FAILURE);
-		}
-
-		initialized = true;
-	}
-}
-
-char *grug_get_runtime_error_reason(void) {
-	static char runtime_error_reason[420];
-
-	switch (grug_runtime_error) {
-		case GRUG_ON_FN_TIME_LIMIT_EXCEEDED:
-			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function took longer than %d second%s to run", GRUG_ON_FN_TIME_LIMIT_SECONDS, GRUG_ON_FN_TIME_LIMIT_SECONDS > 1 ? "s" : "");
-			break;
-		case GRUG_ON_FN_STACK_OVERFLOW:
-			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function caused a stack overflow, so check for accidental infinite recursion");
-			break;
-		case GRUG_ON_FN_ARITHMETIC_ERROR:
-			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function divided an i32 by 0");
-			break;
-		default:
-			grug_unreachable();
-	}
-
-	return runtime_error_reason;
-}
 
 //// UTILS
 
@@ -310,6 +224,128 @@ static char *get_file_extension(char *filename) {
 	return "";
 }
 
+//// RUNTIME ERROR HANDLING
+
+volatile sig_atomic_t grug_runtime_error;
+jmp_buf grug_runtime_error_jmp_buffer;
+
+static timer_t on_fn_timeout_timer_id;
+
+// TODO: Consider removing the si and uc args, which'd mean SA_SIGINFO can also be removed everywhere
+static void grug_error_signal_handler(int sig, siginfo_t *si, void *uc) {
+	// TODO: Remove these
+	(void)si;
+	(void)uc;
+
+	// It is important that we cancel grug mod's on fn timeout alarms asap,
+	// cause if there was a stack overflow, then the on fn didn't get the chance
+	// to deactivate the alarm
+	//
+	// The reason having an alarm be raised outside of the on fn is bad,
+	// is because this function always longjmps out of itself,
+	// meaning that if the alarm happens in the middle of the game's code,
+	// then it wouldn't get the chance to finish, causing havoc
+	// TODO: Disable the timer
+	// alarm(0);
+
+	// TODO: Figure out if I want this
+    // if (si->si_timerid == on_fn_timeout_timer_id) {
+	// 	// TODO:
+	// 	fprintf(stderr, "si->si_timerid is the timeout timer's id\n");
+	// } else {
+	// 	// TODO:
+	// 	fprintf(stderr, "si->si_timerid is NOT the timeout timer's id\n");
+	// }
+
+	if (sig == SIGALRM) {
+		grug_runtime_error = GRUG_ON_FN_TIME_LIMIT_EXCEEDED;
+	} else if (sig == SIGSEGV) {
+		grug_runtime_error = GRUG_ON_FN_STACK_OVERFLOW;
+	} else if (sig == SIGFPE) {
+		grug_runtime_error = GRUG_ON_FN_ARITHMETIC_ERROR;
+	} else {
+		assert(false);
+	}
+
+	siglongjmp(grug_runtime_error_jmp_buffer, 1);
+}
+
+void grug_init_signal_handlers(void) {
+	static bool initialized = false;
+
+	if (!initialized) {
+		// Handle stack overflow, from https://stackoverflow.com/a/7342398/13279557
+		static char stack[SIGSTKSZ];
+		stack_t ss = {
+			.ss_size = SIGSTKSZ,
+			.ss_sp = stack,
+		};
+		// Set up SIGSEGV's stack
+		grug_assert(sigaltstack(&ss, NULL) != -1, "sigaltstack: %s", strerror(errno));
+
+		struct sigaction sa = {
+			// .sa_handler = grug_error_signal_handler,
+			.sa_sigaction = grug_error_signal_handler,
+			.sa_flags = SA_SIGINFO | SA_ONSTACK, // Give SIGSEGV its own stack
+		};
+		// Block all other signals
+		grug_assert(sigfillset(&sa.sa_mask) != -1, "sigfillset: %s", strerror(errno));
+
+		grug_assert(sigaction(SIGSEGV, &sa, NULL) != -1, "sigaction: %s", strerror(errno));
+		sa.sa_flags = SA_SIGINFO; // These don't need SA_ONSTACK
+		grug_assert(sigaction(SIGALRM, &sa, NULL) != -1, "sigaction: %s", strerror(errno));
+		grug_assert(sigaction(SIGFPE, &sa, NULL) != -1, "sigaction: %s", strerror(errno));
+
+		initialized = true;
+	}
+}
+
+char *grug_get_runtime_error_reason(void) {
+	static char runtime_error_reason[420];
+
+	switch (grug_runtime_error) {
+		case GRUG_ON_FN_TIME_LIMIT_EXCEEDED:
+			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function took longer than %d second%s to run", GRUG_ON_FN_TIME_LIMIT_MS, GRUG_ON_FN_TIME_LIMIT_MS > 1 ? "s" : "");
+			break;
+		case GRUG_ON_FN_STACK_OVERFLOW:
+			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function caused a stack overflow, so check for accidental infinite recursion");
+			break;
+		case GRUG_ON_FN_ARITHMETIC_ERROR:
+			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function divided an i32 by 0");
+			break;
+		default:
+			grug_unreachable();
+	}
+
+	return runtime_error_reason;
+}
+
+void grug_on_fn_enable_runtime_error_handling(void) {
+    static struct itimerspec its = {
+		.it_value.tv_sec = GRUG_ON_FN_TIME_LIMIT_MS / 1000,
+    	.it_value.tv_nsec = (GRUG_ON_FN_TIME_LIMIT_MS % 1000) * 1000000,
+    	.it_interval.tv_sec = 0,
+    	.it_interval.tv_nsec = 0,
+	};
+
+    grug_assert(timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) != -1, "timer_settime: %s", strerror(errno));
+}
+
+void grug_on_fn_disable_runtime_error_handling(void) {
+    static struct itimerspec its = {0};
+
+    grug_assert(timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) != -1, "timer_settime: %s", strerror(errno));
+}
+
+static void create_on_fn_timeout_timer(void) {
+    static struct sigevent sev = {
+		.sigev_notify = SIGEV_SIGNAL,
+		.sigev_signo = SIGALRM,
+	};
+
+    grug_assert(timer_create(CLOCK_MONOTONIC, &sev, &on_fn_timeout_timer_id) != -1, "timer_create: %s", strerror(errno));
+}
+
 //// OPENING RESOURCES
 
 // TODO: Remove?
@@ -317,39 +353,39 @@ static char *get_file_extension(char *filename) {
 // static void open_resource(char *path) {
 // }
 
-static void open_resources_recursively(char *dir_path) {
-	DIR *dirp = opendir(dir_path);
-	grug_assert(dirp, "opendir: %s", strerror(errno));
+// static void open_resources_recursively(char *dir_path) {
+// 	DIR *dirp = opendir(dir_path);
+// 	grug_assert(dirp, "opendir: %s", strerror(errno));
 
-	errno = 0;
-	struct dirent *dp;
-	while ((dp = readdir(dirp))) {
-		if (streq(dp->d_name, ".") || streq(dp->d_name, "..")) {
-			continue;
-		}
+// 	errno = 0;
+// 	struct dirent *dp;
+// 	while ((dp = readdir(dirp))) {
+// 		if (streq(dp->d_name, ".") || streq(dp->d_name, "..")) {
+// 			continue;
+// 		}
 
-		char entry_path[STUPID_MAX_PATH];
-		snprintf(entry_path, sizeof(entry_path), "%s/%s", dir_path, dp->d_name);
+// 		char entry_path[STUPID_MAX_PATH];
+// 		snprintf(entry_path, sizeof(entry_path), "%s/%s", dir_path, dp->d_name);
 
-		struct stat entry_stat;
-		grug_assert(stat(entry_path, &entry_stat) != -1, "stat: %s", strerror(errno));
+// 		struct stat entry_stat;
+// 		grug_assert(stat(entry_path, &entry_stat) != -1, "stat: %s", strerror(errno));
 
-		if (S_ISDIR(entry_stat.st_mode)) {
-			open_resources_recursively(entry_path);
-		} else if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(dp->d_name), ".grug")) {
-			printf("grug file: %s\n", entry_path);
-		}
-	}
-	grug_assert(errno == 0, "readdir: %s", strerror(errno));
+// 		if (S_ISDIR(entry_stat.st_mode)) {
+// 			open_resources_recursively(entry_path);
+// 		} else if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(dp->d_name), ".grug")) {
+// 			printf("grug file: %s\n", entry_path);
+// 		}
+// 	}
+// 	grug_assert(errno == 0, "readdir: %s", strerror(errno));
 
-	closedir(dirp);
-}
+// 	closedir(dirp);
+// }
 
-static void open_resources(void) {
-	printf("resources:\n");
+// static void open_resources(void) {
+// 	printf("resources:\n");
 
-	open_resources_recursively(MODS_DIR_PATH);
-}
+// 	open_resources_recursively(MODS_DIR_PATH);
+// }
 
 //// JSON
 
@@ -3762,8 +3798,6 @@ static void fill_result_types(void) {
 #define XOR_CLEAR_EAX 0xc031 // xor eax, eax
 #define LEA_STRINGS_TO_RAX 0x58d48 // lea rax, strings[rel n]
 
-#define XOR_CLEAR_EDI 0xff31 // xor edi, edi
-
 #define MOV_EAX_TO_XMM0 0xc06e0f66 // movd xmm0, eax
 #define MOV_EAX_TO_XMM1 0xc86e0f66 // movd xmm1, eax
 #define MOV_EAX_TO_XMM2 0xd06e0f66 // movd xmm2, eax
@@ -3792,8 +3826,6 @@ static void fill_result_types(void) {
 #define MOV_XMM0_TO_EAX 0xc07e0f66 // movd eax, xmm0
 
 #define MOV_TO_EAX 0xb8 // mov eax, n
-
-#define MOV_TO_EDI 0xbf // mov edi, n
 
 #define NOP_32_BITS 0x401f0f // no nasm equivalent
 #define PUSH_REL 0x35ff // TODO: what nasm is this?
@@ -4716,9 +4748,8 @@ static void compile_statements(struct statement *statements_offset, size_t state
 				}
 
 				if (in_on_fn) {
-					compile_unpadded(XOR_CLEAR_EDI);
 					compile_byte(CALL);
-					push_system_fn_call("alarm", codes_size);
+					push_system_fn_call("grug_on_fn_disable_runtime_error_handling", codes_size);
 					compile_unpadded(PLACEHOLDER_32);
 				}
 
@@ -4877,10 +4908,8 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 	}
 
 	if (is_on_fn) {
-		compile_byte(MOV_TO_EDI);
-		compile_32(GRUG_ON_FN_TIME_LIMIT_SECONDS);
 		compile_byte(CALL);
-		push_system_fn_call("alarm", codes_size);
+		push_system_fn_call("grug_on_fn_enable_runtime_error_handling", codes_size);
 		compile_unpadded(PLACEHOLDER_32);
 
 		in_on_fn = true;
@@ -4891,9 +4920,8 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 	if (is_on_fn) {
 		in_on_fn = false;
 
-		compile_unpadded(XOR_CLEAR_EDI);
 		compile_byte(CALL);
-		push_system_fn_call("alarm", codes_size);
+		push_system_fn_call("grug_on_fn_disable_runtime_error_handling", codes_size);
 		compile_unpadded(PLACEHOLDER_32);
 	}
 
@@ -6551,6 +6579,13 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
+
+	static bool initialized = false;
+	if (!initialized) {
+		create_on_fn_timeout_timer();
+		initialized = true;
+	}
+
 	strncpy(grug_error.path, grug_path, sizeof(grug_error.path) - 1);
 	grug_error.path[sizeof(grug_error.path) - 1] = '\0';
 	regenerate_dll(grug_path, dll_path);
@@ -6874,10 +6909,11 @@ bool grug_regenerate_modified_mods(void) {
 		return true;
 	}
 
-	static bool opened_resources = false;
-	if (!opened_resources) {
-		open_resources();
-		opened_resources = true;
+	static bool initialized = false;
+	if (!initialized) {
+		create_on_fn_timeout_timer();
+		// open_resources();
+		initialized = true;
 	}
 
 	grug_reloads_size = 0;

@@ -7,7 +7,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#define GRUG_ON_FN_TIME_LIMIT_SECONDS 1
 #define MAX_RELOADS 420420
 
 #define grug_mod_had_runtime_error() grug_init_signal_handlers(), sigsetjmp(grug_runtime_error_jmp_buffer, 1)
