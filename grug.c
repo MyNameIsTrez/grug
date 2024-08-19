@@ -1698,26 +1698,44 @@ static void verify_and_trim_spaces(void) {
 
 				struct token next_token = peek_token(i + 1);
 				switch (next_token.type) {
-					case OPEN_PARENTHESIS_TOKEN:
-					case CLOSE_PARENTHESIS_TOKEN:
-						break;
 					case OPEN_BRACE_TOKEN:
 						depth++;
 						assert_spaces(i, 1);
 						break;
-					case CLOSE_BRACE_TOKEN:
-						break;
 					case PLUS_TOKEN:
-						assert_spaces(i, 1);
-						break;
-					case MINUS_TOKEN:
-						break;
 					case MULTIPLICATION_TOKEN:
 					case DIVISION_TOKEN:
 					case REMAINDER_TOKEN:
 					case COMMA_TOKEN:
+					case ELSE_TOKEN: // Skip the space in "} else"
 						assert_spaces(i, 1);
 						break;
+					case IF_TOKEN:
+					case WHILE_TOKEN:
+					case BREAK_TOKEN:
+					case RETURN_TOKEN:
+					case CONTINUE_TOKEN:
+					case PERIOD_TOKEN:
+						assert_spaces(i, depth * SPACES_PER_INDENT);
+						break;
+					case SPACES_TOKEN:
+						grug_unreachable();
+					case NEWLINES_TOKEN:
+						grug_error("Unexpected trailing whitespace '%s' at token index %zu", token.str, i);
+					case COMMENT_TOKEN:
+						// TODO: Ideally we'd assert there only ever being 1 space,
+						// but the problem is that a standalone comment is allowed to have indentation
+						// assert_spaces(i, 1);
+
+						grug_assert(strlen(next_token.str) >= 2 && next_token.str[1] == ' ', "Expected a single space between the '#' in '%s' and the rest of the comment at token index %zu", next_token.str, i + 1);
+
+						grug_assert(!isspace(next_token.str[strlen(next_token.str) - 1]), "Unexpected trailing whitespace in the comment token '%s' at token index %zu", next_token.str, i + 1);
+
+						break;
+					case OPEN_PARENTHESIS_TOKEN:
+					case CLOSE_PARENTHESIS_TOKEN:
+					case CLOSE_BRACE_TOKEN:
+					case MINUS_TOKEN:
 					case COLON_TOKEN:
 					case EQUALS_TOKEN:
 					case NOT_EQUALS_TOKEN:
@@ -1731,41 +1749,10 @@ static void verify_and_trim_spaces(void) {
 					case NOT_TOKEN:
 					case TRUE_TOKEN:
 					case FALSE_TOKEN:
-						break;
-					case IF_TOKEN:
-						assert_spaces(i, depth * SPACES_PER_INDENT);
-						break;
-					case ELSE_TOKEN: // Skip the space in "} else"
-						assert_spaces(i, 1);
-						break;
-					case WHILE_TOKEN:
-					case BREAK_TOKEN:
-					case RETURN_TOKEN:
-					case CONTINUE_TOKEN:
-						assert_spaces(i, depth * SPACES_PER_INDENT);
-						break;
-					case SPACES_TOKEN:
-						grug_unreachable();
-					case NEWLINES_TOKEN:
-						grug_error("Unexpected trailing whitespace '%s' at token index %zu", token.str, i);
 					case STRING_TOKEN:
-						break;
-					case PERIOD_TOKEN:
-						assert_spaces(i, depth * SPACES_PER_INDENT);
-						break;
 					case WORD_TOKEN:
 					case I32_TOKEN:
 					case F32_TOKEN:
-						break;
-					case COMMENT_TOKEN:
-						// TODO: Ideally we'd assert there only ever being 1 space,
-						// but the problem is that a standalone comment is allowed to have indentation
-						// assert_spaces(i, 1);
-
-						grug_assert(strlen(next_token.str) >= 2 && next_token.str[1] == ' ', "Expected a single space between the '#' in '%s' and the rest of the comment at token index %zu", next_token.str, i + 1);
-
-						grug_assert(!isspace(next_token.str[strlen(next_token.str) - 1]), "Unexpected trailing whitespace in the comment token '%s' at token index %zu", next_token.str, i + 1);
-
 						break;
 				}
 				break;
