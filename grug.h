@@ -9,7 +9,7 @@
 
 #define MAX_RELOADS 420420
 
-#define grug_mod_had_runtime_error() grug_init_signal_handlers(), sigsetjmp(grug_runtime_error_jmp_buffer, 1)
+#define grug_mod_had_runtime_error() sigsetjmp(grug_runtime_error_jmp_buffer, 1)
 
 typedef void (*grug_define_fn_t)(void);
 typedef void (*grug_init_globals_fn_t)(void *globals);
@@ -37,6 +37,7 @@ struct grug_mod_dir {
 };
 
 struct grug_modified {
+	char path[4096];
 	void *old_dll;
 	void *new_dll;
 	grug_define_fn_t define_fn;
@@ -44,13 +45,12 @@ struct grug_modified {
 	grug_init_globals_fn_t init_globals_fn;
 	char *define_type;
 	void *on_fns;
-	char path[4096];
 };
 
 struct grug_error {
-	bool has_changed;
-	char msg[420];
 	char path[4096];
+	char msg[420];
+	bool has_changed;
 	int line_number;
 	int grug_c_line_number;
 };
@@ -74,9 +74,6 @@ extern jmp_buf grug_runtime_error_jmp_buffer;
 bool grug_regenerate_modified_mods(void);
 void grug_free_mods(void);
 char *grug_get_runtime_error_reason(void);
-
-// Don't call this; this is just for grug_mod_had_runtime_error()
-void grug_init_signal_handlers(void);
 
 // For the grug-tests repository
 bool grug_test_regenerate_dll(char *grug_file_path, char *dll_path);

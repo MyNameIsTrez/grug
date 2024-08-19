@@ -1,6 +1,3 @@
-// This is a personal academic project. Dear PVS-Studio, please check it.
-// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
-
 //// GRUG DOCUMENTATION
 //
 // See the bottom of this file for the MIT license
@@ -249,6 +246,7 @@ static void grug_error_signal_handler(int sig, siginfo_t *si, void *uc) {
 	// alarm(0);
 
 	// TODO: Figure out if I want this
+	// TODO: Is there a way to also be able to tell whether a SIGSEGV and SIGFPE is from the on fn?
     // if (si->si_timerid == on_fn_timeout_timer_id) {
 	// 	// TODO:
 	// 	fprintf(stderr, "si->si_timerid is the timeout timer's id\n");
@@ -268,36 +266,6 @@ static void grug_error_signal_handler(int sig, siginfo_t *si, void *uc) {
 	}
 
 	siglongjmp(grug_runtime_error_jmp_buffer, 1);
-}
-
-void grug_init_signal_handlers(void) {
-	static bool initialized = false;
-
-	if (!initialized) {
-		// Handle stack overflow, from https://stackoverflow.com/a/7342398/13279557
-		static char stack[SIGSTKSZ];
-		stack_t ss = {
-			.ss_size = SIGSTKSZ,
-			.ss_sp = stack,
-		};
-		// Set up SIGSEGV's stack
-		grug_assert(sigaltstack(&ss, NULL) != -1, "sigaltstack: %s", strerror(errno));
-
-		struct sigaction sa = {
-			// .sa_handler = grug_error_signal_handler,
-			.sa_sigaction = grug_error_signal_handler,
-			.sa_flags = SA_SIGINFO | SA_ONSTACK, // Give SIGSEGV its own stack
-		};
-		// Block all other signals
-		grug_assert(sigfillset(&sa.sa_mask) != -1, "sigfillset: %s", strerror(errno));
-
-		grug_assert(sigaction(SIGSEGV, &sa, NULL) != -1, "sigaction: %s", strerror(errno));
-		sa.sa_flags = SA_SIGINFO; // These don't need SA_ONSTACK
-		grug_assert(sigaction(SIGALRM, &sa, NULL) != -1, "sigaction: %s", strerror(errno));
-		grug_assert(sigaction(SIGFPE, &sa, NULL) != -1, "sigaction: %s", strerror(errno));
-
-		initialized = true;
-	}
 }
 
 char *grug_get_runtime_error_reason(void) {
@@ -321,29 +289,57 @@ char *grug_get_runtime_error_reason(void) {
 }
 
 void grug_on_fn_enable_runtime_error_handling(void) {
+	static bool initialized = false;
+	if (!initialized) {
+		// Handle stack overflow, from https://stackoverflow.com/a/7342398/13279557
+		static char stack[SIGSTKSZ];
+		stack_t ss = {
+			.ss_size = SIGSTKSZ,
+			.ss_sp = stack,
+		};
+
+		// Set up SIGSEGV's stack
+		grug_assert(sigaltstack(&ss, NULL) != -1, "sigaltstack: %s", strerror(errno));
+
+		// Create the SIGALRM timeout timer
+		static struct sigevent sev = {
+			.sigev_notify = SIGEV_SIGNAL,
+			.sigev_signo = SIGALRM,
+        	// .sigev_value.sival_ptr = &on_fn_timeout_timer_id, // TODO: Remove?
+		};
+		grug_assert(timer_create(CLOCK_MONOTONIC, &sev, &on_fn_timeout_timer_id) != -1, "timer_create: %s", strerror(errno));
+
+		initialized = true;
+	}
+
+	// Set SIGALRM timeout
     static struct itimerspec its = {
 		.it_value.tv_sec = GRUG_ON_FN_TIME_LIMIT_MS / 1000,
     	.it_value.tv_nsec = (GRUG_ON_FN_TIME_LIMIT_MS % 1000) * 1000000,
-    	.it_interval.tv_sec = 0,
-    	.it_interval.tv_nsec = 0,
 	};
-
     grug_assert(timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) != -1, "timer_settime: %s", strerror(errno));
+
+	static struct sigaction sigsegv_sa = {
+		// .sa_handler = grug_error_signal_handler,
+		.sa_sigaction = grug_error_signal_handler,
+		.sa_flags = SA_SIGINFO | SA_ONSTACK, // Give SIGSEGV its own stack
+	};
+	grug_assert(sigfillset(&sigsegv_sa.sa_mask) != -1, "sigfillset: %s", strerror(errno)); // Block all other signals
+	grug_assert(sigaction(SIGSEGV, &sigsegv_sa, NULL) != -1, "sigaction: %s", strerror(errno));
+
+	static struct sigaction alrm_and_fpe_sa = {
+		// .sa_handler = grug_error_signal_handler,
+		.sa_sigaction = grug_error_signal_handler,
+		.sa_flags = SA_SIGINFO,
+	};
+	grug_assert(sigaction(SIGALRM, &alrm_and_fpe_sa, NULL) != -1, "sigaction: %s", strerror(errno));
+	grug_assert(sigaction(SIGFPE, &alrm_and_fpe_sa, NULL) != -1, "sigaction: %s", strerror(errno));
 }
 
 void grug_on_fn_disable_runtime_error_handling(void) {
     static struct itimerspec its = {0};
 
     grug_assert(timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) != -1, "timer_settime: %s", strerror(errno));
-}
-
-static void create_on_fn_timeout_timer(void) {
-    static struct sigevent sev = {
-		.sigev_notify = SIGEV_SIGNAL,
-		.sigev_signo = SIGALRM,
-	};
-
-    grug_assert(timer_create(CLOCK_MONOTONIC, &sev, &on_fn_timeout_timer_id) != -1, "timer_create: %s", strerror(errno));
 }
 
 //// OPENING RESOURCES
@@ -6580,12 +6576,6 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path) {
 		return true;
 	}
 
-	static bool initialized = false;
-	if (!initialized) {
-		create_on_fn_timeout_timer();
-		initialized = true;
-	}
-
 	strncpy(grug_error.path, grug_path, sizeof(grug_error.path) - 1);
 	grug_error.path[sizeof(grug_error.path) - 1] = '\0';
 	regenerate_dll(grug_path, dll_path);
@@ -6909,12 +6899,11 @@ bool grug_regenerate_modified_mods(void) {
 		return true;
 	}
 
-	static bool initialized = false;
-	if (!initialized) {
-		create_on_fn_timeout_timer();
-		// open_resources();
-		initialized = true;
-	}
+	// static bool initialized = false;
+	// if (!initialized) {
+	// 	// open_resources();
+	// 	initialized = true;
+	// }
 
 	grug_reloads_size = 0;
 
