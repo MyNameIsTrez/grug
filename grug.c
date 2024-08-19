@@ -228,42 +228,95 @@ jmp_buf grug_runtime_error_jmp_buffer;
 
 static timer_t on_fn_timeout_timer_id;
 
-// TODO: Consider removing the si and uc args, which'd mean SA_SIGINFO can also be removed everywhere
-static void grug_error_signal_handler(int sig, siginfo_t *si, void *uc) {
-	// TODO: Remove these
-	(void)si;
-	(void)uc;
+void grug_disable_on_fn_runtime_error_handling(void) {
+	// Disable the SIGALRM timeout timer
+	static struct itimerspec its = {0};
+	// Can't use grug_assert() here, since its snprintf() isn't in the async-signal-safe function list:
+	// https://stackoverflow.com/a/67840070/13279557
+	if (timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) == -1) {
+		abort();
+	}
 
-	// It is important that we cancel grug mod's on fn timeout alarms asap,
+	// TODO: Try using this, instead of the sigaction() calls below
+	signal(SIGSEGV, SIG_IGN);
+	signal(SIGALRM, SIG_IGN);
+	signal(SIGFPE, SIG_IGN);
+	signal(SIGSEGV, SIG_DFL);
+	signal(SIGALRM, SIG_DFL);
+	signal(SIGFPE, SIG_DFL);
+
+	// static struct sigaction ignore_sa = {
+	// 	.sa_handler = SIG_IGN,
+	// 	.sa_flags = 0,
+	// };
+	// static bool initialized = false;
+	// if (!initialized) {
+	// 	if (sigemptyset(&ignore_sa.sa_mask) == -1) {
+	// 		abort();
+	// 	}
+	// 	initialized = true;
+	// }
+
+    // if (sigaction(SIGSEGV, &ignore_sa, NULL) == -1) {
+    //     abort();
+    // }
+    // if (sigaction(SIGALRM, &ignore_sa, NULL) == -1) {
+    //     abort();
+    // }
+    // if (sigaction(SIGFPE, &ignore_sa, NULL) == -1) {
+    //     abort();
+    // }
+
+	// static struct sigaction sa = {
+	// 	.sa_handler = SIG_DFL,
+	// };
+	// // Can't use grug_assert() here, since its snprintf() isn't in the async-signal-safe function list:
+	// // https://stackoverflow.com/a/67840070/13279557
+	// if (sigaction(SIGSEGV, &sa, NULL) == -1) {
+	// 	abort();
+	// }
+	// if (sigaction(SIGALRM, &sa, NULL) == -1) {
+	// 	abort();
+	// }
+	// if (sigaction(SIGFPE, &sa, NULL) == -1) {
+	// 	abort();
+	// }
+}
+
+static void grug_error_signal_handler_segv(int sig) {
+	write(STDERR_FILENO, "segv\n", 5);
+
+	// It is important that we cancel on fn timeout alarms asap,
 	// cause if there was a stack overflow, then the on fn didn't get the chance
-	// to deactivate the alarm
+	// to deactivate its own alarm
 	//
 	// The reason having an alarm be raised outside of the on fn is bad,
 	// is because this function always longjmps out of itself,
 	// meaning that if the alarm happens in the middle of the game's code,
-	// then it wouldn't get the chance to finish, causing havoc
-	// TODO: Disable the timer
-	// alarm(0);
+	// then only a slice of the game's code would be executed, causing havoc
+	grug_disable_on_fn_runtime_error_handling();
 
-	// TODO: Figure out if I want this
-	// TODO: Is there a way to also be able to tell whether a SIGSEGV and SIGFPE is from the on fn?
-	// if (si->si_timerid == on_fn_timeout_timer_id) {
-	// 	// TODO:
-	// 	fprintf(stderr, "si->si_timerid is the timeout timer's id\n");
-	// } else {
-	// 	// TODO:
-	// 	fprintf(stderr, "si->si_timerid is NOT the timeout timer's id\n");
-	// }
+	grug_runtime_error = GRUG_ON_FN_STACK_OVERFLOW;
 
-	if (sig == SIGALRM) {
-		grug_runtime_error = GRUG_ON_FN_TIME_LIMIT_EXCEEDED;
-	} else if (sig == SIGSEGV) {
-		grug_runtime_error = GRUG_ON_FN_STACK_OVERFLOW;
-	} else if (sig == SIGFPE) {
-		grug_runtime_error = GRUG_ON_FN_ARITHMETIC_ERROR;
-	} else {
-		assert(false);
-	}
+	siglongjmp(grug_runtime_error_jmp_buffer, 1);
+}
+
+static void grug_error_signal_handler_alrm(int sig) {
+	write(STDERR_FILENO, "alrm\n", 5);
+
+	grug_disable_on_fn_runtime_error_handling();
+
+	grug_runtime_error = GRUG_ON_FN_TIME_LIMIT_EXCEEDED;
+
+	siglongjmp(grug_runtime_error_jmp_buffer, 1);
+}
+
+static void grug_error_signal_handler_fpe(int sig) {
+	write(STDERR_FILENO, "fpe\n", 4);
+
+	grug_disable_on_fn_runtime_error_handling();
+
+	grug_runtime_error = GRUG_ON_FN_ARITHMETIC_ERROR;
 
 	siglongjmp(grug_runtime_error_jmp_buffer, 1);
 }
@@ -289,6 +342,20 @@ char *grug_get_runtime_error_reason(void) {
 }
 
 void grug_enable_on_fn_runtime_error_handling(void) {
+	// TODO: Try removing SA_RESETHAND and SA_NODEFER from these
+	static struct sigaction sigsegv_sa = {
+		.sa_handler = grug_error_signal_handler_segv,
+		.sa_flags = SA_RESETHAND | SA_NODEFER | SA_ONSTACK, // SA_ONSTACK gives SIGSEGV its own stack
+	};
+	static struct sigaction alrm_sa = {
+		.sa_handler = grug_error_signal_handler_alrm,
+		.sa_flags = SA_RESETHAND | SA_NODEFER,
+	};
+	static struct sigaction fpe_sa = {
+		.sa_handler = grug_error_signal_handler_fpe,
+		.sa_flags = SA_RESETHAND | SA_NODEFER,
+	};
+
 	static bool initialized = false;
 	if (!initialized) {
 		// Handle stack overflow, from https://stackoverflow.com/a/7342398/13279557
@@ -309,24 +376,17 @@ void grug_enable_on_fn_runtime_error_handling(void) {
 		};
 		grug_assert(timer_create(CLOCK_MONOTONIC, &sev, &on_fn_timeout_timer_id) != -1, "timer_create: %s", strerror(errno));
 
+		grug_assert(sigemptyset(&sigsegv_sa.sa_mask) != -1, "sigemptyset: %s", strerror(errno));
+		grug_assert(sigemptyset(&alrm_sa.sa_mask) != -1, "sigemptyset: %s", strerror(errno));
+		grug_assert(sigemptyset(&fpe_sa.sa_mask) != -1, "sigemptyset: %s", strerror(errno));
+
 		initialized = true;
 	}
 
-	static struct sigaction sigsegv_sa = {
-		// .sa_handler = grug_error_signal_handler, // TODO: Remove?
-		.sa_sigaction = grug_error_signal_handler,
-		.sa_flags = SA_SIGINFO | SA_ONSTACK, // Give SIGSEGV its own stack
-	};
-	grug_assert(sigfillset(&sigsegv_sa.sa_mask) != -1, "sigfillset: %s", strerror(errno)); // Block all other signals
+	// Let signals use our handlers
 	grug_assert(sigaction(SIGSEGV, &sigsegv_sa, NULL) != -1, "sigaction: %s", strerror(errno));
-
-	static struct sigaction alrm_and_fpe_sa = {
-		// .sa_handler = grug_error_signal_handler, // TODO: Remove?
-		.sa_sigaction = grug_error_signal_handler,
-		.sa_flags = SA_SIGINFO,
-	};
-	grug_assert(sigaction(SIGALRM, &alrm_and_fpe_sa, NULL) != -1, "sigaction: %s", strerror(errno));
-	grug_assert(sigaction(SIGFPE, &alrm_and_fpe_sa, NULL) != -1, "sigaction: %s", strerror(errno));
+	grug_assert(sigaction(SIGALRM, &alrm_sa, NULL) != -1, "sigaction: %s", strerror(errno));
+	grug_assert(sigaction(SIGFPE, &fpe_sa, NULL) != -1, "sigaction: %s", strerror(errno));
 
 	// Set SIGALRM timeout
 	static struct itimerspec its = {
@@ -334,16 +394,6 @@ void grug_enable_on_fn_runtime_error_handling(void) {
 		.it_value.tv_nsec = (GRUG_ON_FN_TIME_LIMIT_MS % 1000) * 1000000,
 	};
 	grug_assert(timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) != -1, "timer_settime: %s", strerror(errno));
-}
-
-void grug_disable_on_fn_runtime_error_handling(void) {
-	static struct itimerspec its = {0};
-
-	grug_assert(timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) != -1, "timer_settime: %s", strerror(errno));
-
-	signal(SIGSEGV, SIG_DFL);
-	signal(SIGALRM, SIG_DFL);
-	signal(SIGFPE, SIG_DFL);
 }
 
 //// OPENING RESOURCES
