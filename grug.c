@@ -288,7 +288,6 @@ static unsigned long bfd_hash(const char *string) {
 	unsigned int c;
 
 	hash = 0;
-	len = 0;
 	s = (const unsigned char *) string;
 	while ((c = *s++) != '\0') {
 		hash += c + (c << 17);
