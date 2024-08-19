@@ -1,3 +1,6 @@
+// This is a personal academic project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
+
 //// GRUG DOCUMENTATION
 //
 // See the bottom of this file for the MIT license
@@ -2209,7 +2212,7 @@ static struct expr parse_call(size_t *i) {
 
 			expr.call.arguments = exprs + exprs_size;
 			for (size_t argument_index = 0; argument_index < expr.call.argument_count; argument_index++) {
-				push_expr(local_call_arguments[argument_index]);
+				(void)push_expr(local_call_arguments[argument_index]);
 			}
 		}
 	}
