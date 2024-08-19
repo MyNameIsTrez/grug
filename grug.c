@@ -6488,11 +6488,12 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 
 //// HOT RELOADING
 
+#define MAX_RELOADS 420420
+
 struct grug_mod_dir grug_mods;
 
 struct grug_modified *grug_reloads;
 size_t grug_reloads_size;
-static size_t reloads_capacity;
 
 static void regenerate_dll(char *grug_path, char *dll_path) {
 	grug_log("# Regenerating %s\n", dll_path);
@@ -6615,11 +6616,7 @@ static void *grug_get(void *dll, char *symbol_name) {
 }
 
 static void push_reload(struct grug_modified modified) {
-	if (grug_reloads_size >= reloads_capacity) {
-		reloads_capacity = reloads_capacity == 0 ? 1 : reloads_capacity * 2;
-		grug_reloads = realloc(grug_reloads, reloads_capacity * sizeof(*grug_reloads));
-		grug_assert(grug_reloads, "realloc: %s", strerror(errno));
-	}
+	grug_assert(grug_reloads_size < MAX_RELOADS, "There are more than %d modified grug files, exceeding MAX_RELOADS", MAX_RELOADS);
 	grug_reloads[grug_reloads_size++] = modified;
 }
 
