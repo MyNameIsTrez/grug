@@ -288,7 +288,7 @@ char *grug_get_runtime_error_reason(void) {
 	return runtime_error_reason;
 }
 
-void grug_on_fn_enable_runtime_error_handling(void) {
+void grug_enable_on_fn_runtime_error_handling(void) {
 	static bool initialized = false;
 	if (!initialized) {
 		// Handle stack overflow, from https://stackoverflow.com/a/7342398/13279557
@@ -336,7 +336,7 @@ void grug_on_fn_enable_runtime_error_handling(void) {
 	grug_assert(sigaction(SIGFPE, &alrm_and_fpe_sa, NULL) != -1, "sigaction: %s", strerror(errno));
 }
 
-void grug_on_fn_disable_runtime_error_handling(void) {
+void grug_disable_on_fn_runtime_error_handling(void) {
     static struct itimerspec its = {0};
 
     grug_assert(timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) != -1, "timer_settime: %s", strerror(errno));
@@ -4745,7 +4745,7 @@ static void compile_statements(struct statement *statements_offset, size_t state
 
 				if (in_on_fn) {
 					compile_byte(CALL);
-					push_system_fn_call("grug_on_fn_disable_runtime_error_handling", codes_size);
+					push_system_fn_call("grug_disable_on_fn_runtime_error_handling", codes_size);
 					compile_unpadded(PLACEHOLDER_32);
 				}
 
@@ -4905,7 +4905,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 
 	if (is_on_fn) {
 		compile_byte(CALL);
-		push_system_fn_call("grug_on_fn_enable_runtime_error_handling", codes_size);
+		push_system_fn_call("grug_enable_on_fn_runtime_error_handling", codes_size);
 		compile_unpadded(PLACEHOLDER_32);
 
 		in_on_fn = true;
@@ -4917,7 +4917,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 		in_on_fn = false;
 
 		compile_byte(CALL);
-		push_system_fn_call("grug_on_fn_disable_runtime_error_handling", codes_size);
+		push_system_fn_call("grug_disable_on_fn_runtime_error_handling", codes_size);
 		compile_unpadded(PLACEHOLDER_32);
 	}
 
