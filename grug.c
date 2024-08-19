@@ -312,15 +312,8 @@ void grug_enable_on_fn_runtime_error_handling(void) {
 		initialized = true;
 	}
 
-	// Set SIGALRM timeout
-    static struct itimerspec its = {
-		.it_value.tv_sec = GRUG_ON_FN_TIME_LIMIT_MS / 1000,
-    	.it_value.tv_nsec = (GRUG_ON_FN_TIME_LIMIT_MS % 1000) * 1000000,
-	};
-    grug_assert(timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) != -1, "timer_settime: %s", strerror(errno));
-
 	static struct sigaction sigsegv_sa = {
-		// .sa_handler = grug_error_signal_handler,
+		// .sa_handler = grug_error_signal_handler, // TODO: Remove?
 		.sa_sigaction = grug_error_signal_handler,
 		.sa_flags = SA_SIGINFO | SA_ONSTACK, // Give SIGSEGV its own stack
 	};
@@ -328,18 +321,29 @@ void grug_enable_on_fn_runtime_error_handling(void) {
 	grug_assert(sigaction(SIGSEGV, &sigsegv_sa, NULL) != -1, "sigaction: %s", strerror(errno));
 
 	static struct sigaction alrm_and_fpe_sa = {
-		// .sa_handler = grug_error_signal_handler,
+		// .sa_handler = grug_error_signal_handler, // TODO: Remove?
 		.sa_sigaction = grug_error_signal_handler,
 		.sa_flags = SA_SIGINFO,
 	};
 	grug_assert(sigaction(SIGALRM, &alrm_and_fpe_sa, NULL) != -1, "sigaction: %s", strerror(errno));
 	grug_assert(sigaction(SIGFPE, &alrm_and_fpe_sa, NULL) != -1, "sigaction: %s", strerror(errno));
+
+	// Set SIGALRM timeout
+    static struct itimerspec its = {
+		.it_value.tv_sec = GRUG_ON_FN_TIME_LIMIT_MS / 1000,
+    	.it_value.tv_nsec = (GRUG_ON_FN_TIME_LIMIT_MS % 1000) * 1000000,
+	};
+    grug_assert(timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) != -1, "timer_settime: %s", strerror(errno));
 }
 
 void grug_disable_on_fn_runtime_error_handling(void) {
     static struct itimerspec its = {0};
 
     grug_assert(timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) != -1, "timer_settime: %s", strerror(errno));
+
+	signal(SIGSEGV, SIG_DFL);
+	signal(SIGALRM, SIG_DFL);
+	signal(SIGFPE, SIG_DFL);
 }
 
 //// OPENING RESOURCES
