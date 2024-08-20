@@ -273,7 +273,7 @@ void grug_disable_on_fn_runtime_error_handling(void) {
     }
 
 	static struct sigaction sa = {
-		.sa_handler = SIG_DFL,
+		.sa_handler = SIG_DFL, // TODO: This should instead set it back to the previous handler, which may come from another library
 	};
 	// Can't use grug_assert() here, since its snprintf() isn't in the async-signal-safe function list:
 	// https://stackoverflow.com/a/67840070/13279557
@@ -332,26 +332,6 @@ static void grug_error_signal_handler_fpe(int sig) {
 	siglongjmp(grug_runtime_error_jmp_buffer, 1);
 }
 
-char *grug_get_runtime_error_reason(void) {
-	static char runtime_error_reason[420];
-
-	switch (grug_runtime_error) {
-		case GRUG_ON_FN_TIME_LIMIT_EXCEEDED:
-			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function took longer than %d millisecond%s to run", GRUG_ON_FN_TIME_LIMIT_MS, GRUG_ON_FN_TIME_LIMIT_MS > 1 ? "s" : "");
-			break;
-		case GRUG_ON_FN_STACK_OVERFLOW:
-			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function caused a stack overflow, so check for accidental infinite recursion");
-			break;
-		case GRUG_ON_FN_ARITHMETIC_ERROR:
-			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function divided an i32 by 0");
-			break;
-		default:
-			grug_unreachable();
-	}
-
-	return runtime_error_reason;
-}
-
 void grug_enable_on_fn_runtime_error_handling(void) {
 	// TODO: Try removing SA_RESETHAND and SA_NODEFER from these
 	static struct sigaction sigsegv_sa = {
@@ -360,11 +340,9 @@ void grug_enable_on_fn_runtime_error_handling(void) {
 	};
 	static struct sigaction alrm_sa = {
 		.sa_handler = grug_error_signal_handler_alrm,
-		.sa_flags = 0,
 	};
 	static struct sigaction fpe_sa = {
 		.sa_handler = grug_error_signal_handler_fpe,
-		.sa_flags = 0,
 	};
 
 	static bool initialized = false;
@@ -405,6 +383,26 @@ void grug_enable_on_fn_runtime_error_handling(void) {
 		.it_value.tv_nsec = (GRUG_ON_FN_TIME_LIMIT_MS % 1000) * 1000000,
 	};
 	grug_assert(timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) != -1, "timer_settime: %s", strerror(errno));
+}
+
+char *grug_get_runtime_error_reason(void) {
+	static char runtime_error_reason[420];
+
+	switch (grug_runtime_error) {
+		case GRUG_ON_FN_TIME_LIMIT_EXCEEDED:
+			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function took longer than %d millisecond%s to run", GRUG_ON_FN_TIME_LIMIT_MS, GRUG_ON_FN_TIME_LIMIT_MS > 1 ? "s" : "");
+			break;
+		case GRUG_ON_FN_STACK_OVERFLOW:
+			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function caused a stack overflow, so check for accidental infinite recursion");
+			break;
+		case GRUG_ON_FN_ARITHMETIC_ERROR:
+			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function divided an i32 by 0");
+			break;
+		default:
+			grug_unreachable();
+	}
+
+	return runtime_error_reason;
 }
 
 //// OPENING RESOURCES
