@@ -240,16 +240,16 @@ void grug_disable_on_fn_runtime_error_handling(void) {
 	}
 
 	// TODO: REMOVE THESE
-	fprintf(stderr, "new.it_value.tv_sec: %ld\n", new.it_value.tv_sec);
-	fprintf(stderr, "new.it_value.tv_nsec: %ld\n", new.it_value.tv_nsec);
-	fprintf(stderr, "new.it_interval.tv_sec: %ld\n", new.it_interval.tv_sec);
-	fprintf(stderr, "new.it_interval.tv_nsec: %ld\n", new.it_interval.tv_nsec);
+	// fprintf(stderr, "new.it_value.tv_sec: %ld\n", new.it_value.tv_sec);
+	// fprintf(stderr, "new.it_value.tv_nsec: %ld\n", new.it_value.tv_nsec);
+	// fprintf(stderr, "new.it_interval.tv_sec: %ld\n", new.it_interval.tv_sec);
+	// fprintf(stderr, "new.it_interval.tv_nsec: %ld\n", new.it_interval.tv_nsec);
 
 	// TODO: REMOVE THESE
-	fprintf(stderr, "old.it_value.tv_sec: %ld\n", old.it_value.tv_sec);
-	fprintf(stderr, "old.it_value.tv_nsec: %ld\n", old.it_value.tv_nsec);
-	fprintf(stderr, "old.it_interval.tv_sec: %ld\n", old.it_interval.tv_sec);
-	fprintf(stderr, "old.it_interval.tv_nsec: %ld\n", old.it_interval.tv_nsec);
+	// fprintf(stderr, "old.it_value.tv_sec: %ld\n", old.it_value.tv_sec);
+	// fprintf(stderr, "old.it_value.tv_nsec: %ld\n", old.it_value.tv_nsec);
+	// fprintf(stderr, "old.it_interval.tv_sec: %ld\n", old.it_interval.tv_sec);
+	// fprintf(stderr, "old.it_interval.tv_nsec: %ld\n", old.it_interval.tv_nsec);
 
 	// TODO: I think this block of code can be removed?
 	static struct sigaction ignore_sa = {
@@ -289,7 +289,9 @@ void grug_disable_on_fn_runtime_error_handling(void) {
 }
 
 static void grug_error_signal_handler_segv(int sig) {
-	write(STDERR_FILENO, "segv\n", 5); // TODO: REMOVE
+	(void)sig; // TODO: REMOVE
+
+	// write(STDERR_FILENO, "segv\n", 5); // TODO: REMOVE
 
 	// It is important that we cancel on fn timeout alarms asap,
 	// cause if there was a stack overflow, then the on fn didn't get the chance
@@ -307,7 +309,9 @@ static void grug_error_signal_handler_segv(int sig) {
 }
 
 static void grug_error_signal_handler_alrm(int sig) {
-	write(STDERR_FILENO, "alrm\n", 5); // TODO: REMOVE
+	(void)sig; // TODO: REMOVE
+
+	// write(STDERR_FILENO, "alrm\n", 5); // TODO: REMOVE
 
 	grug_disable_on_fn_runtime_error_handling();
 
@@ -317,7 +321,9 @@ static void grug_error_signal_handler_alrm(int sig) {
 }
 
 static void grug_error_signal_handler_fpe(int sig) {
-	write(STDERR_FILENO, "fpe\n", 4); // TODO: REMOVE
+	(void)sig; // TODO: REMOVE
+
+	// write(STDERR_FILENO, "fpe\n", 4); // TODO: REMOVE
 
 	grug_disable_on_fn_runtime_error_handling();
 
