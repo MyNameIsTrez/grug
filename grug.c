@@ -226,6 +226,10 @@ static char *get_file_extension(char *filename) {
 volatile sig_atomic_t grug_runtime_error;
 jmp_buf grug_runtime_error_jmp_buffer;
 
+static struct sigaction previous_segv_sa;
+static struct sigaction previous_alrm_sa;
+static struct sigaction previous_fpe_sa;
+
 static timer_t on_fn_timeout_timer_id;
 
 void grug_disable_on_fn_runtime_error_handling(void) {
@@ -272,18 +276,13 @@ void grug_disable_on_fn_runtime_error_handling(void) {
         abort();
     }
 
-	static struct sigaction sa = {
-		.sa_handler = SIG_DFL, // TODO: This should instead set it back to the previous handler, which may come from another library
-	};
-	// Can't use grug_assert() here, since its snprintf() isn't in the async-signal-safe function list:
-	// https://stackoverflow.com/a/67840070/13279557
-	if (sigaction(SIGSEGV, &sa, NULL) == -1) {
+	if (sigaction(SIGSEGV, &previous_segv_sa, NULL) == -1) {
 		abort();
 	}
-	if (sigaction(SIGALRM, &sa, NULL) == -1) {
+	if (sigaction(SIGALRM, &previous_alrm_sa, NULL) == -1) {
 		abort();
 	}
-	if (sigaction(SIGFPE, &sa, NULL) == -1) {
+	if (sigaction(SIGFPE, &previous_fpe_sa, NULL) == -1) {
 		abort();
 	}
 }
@@ -373,9 +372,9 @@ void grug_enable_on_fn_runtime_error_handling(void) {
 	}
 
 	// Register our handlers
-	grug_assert(sigaction(SIGSEGV, &sigsegv_sa, NULL) != -1, "sigaction: %s", strerror(errno));
-	grug_assert(sigaction(SIGALRM, &alrm_sa, NULL) != -1, "sigaction: %s", strerror(errno));
-	grug_assert(sigaction(SIGFPE, &fpe_sa, NULL) != -1, "sigaction: %s", strerror(errno));
+	grug_assert(sigaction(SIGSEGV, &sigsegv_sa, &previous_segv_sa) != -1, "sigaction: %s", strerror(errno));
+	grug_assert(sigaction(SIGALRM, &alrm_sa, &previous_alrm_sa) != -1, "sigaction: %s", strerror(errno));
+	grug_assert(sigaction(SIGFPE, &fpe_sa, &previous_fpe_sa) != -1, "sigaction: %s", strerror(errno));
 
 	// Set SIGALRM timeout
 	static struct itimerspec its = {
