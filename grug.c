@@ -232,6 +232,8 @@ static struct sigaction previous_fpe_sa;
 
 static timer_t on_fn_timeout_timer_id;
 
+sigset_t grug_block_alrm_mask;
+
 void grug_disable_on_fn_runtime_error_handling(void) {
 	// Disable the SIGALRM timeout timer
 	static struct itimerspec new = {0};
@@ -346,6 +348,9 @@ void grug_enable_on_fn_runtime_error_handling(void) {
 
 	static bool initialized = false;
 	if (!initialized) {
+		grug_assert(sigemptyset(&grug_block_alrm_mask) != -1, "sigemptyset: %s", strerror(errno));
+		grug_assert(sigaddset(&grug_block_alrm_mask, SIGALRM) != -1, "sigaddset: %s", strerror(errno));
+
 		// Handle stack overflow, from https://stackoverflow.com/a/7342398/13279557
 		static char stack[SIGSTKSZ];
 		stack_t ss = {
@@ -3854,6 +3859,8 @@ static void fill_result_types(void) {
 
 #define XOR_EAX_BY_N 0x35 // xor eax, n
 #define XOR_CLEAR_EAX 0xc031 // xor eax, eax
+#define XOR_CLEAR_EDI 0xff31 // xor edi, edi
+#define XOR_CLEAR_EDX 0xd231 // xor edx, edx
 #define LEA_STRINGS_TO_RAX 0x58d48 // lea rax, strings[rel n]
 
 #define MOV_EAX_TO_XMM0 0xc06e0f66 // movd xmm0, eax
@@ -3884,6 +3891,7 @@ static void fill_result_types(void) {
 #define MOV_XMM0_TO_EAX 0xc07e0f66 // movd eax, xmm0
 
 #define MOV_TO_EAX 0xb8 // mov eax, n
+#define MOV_TO_EDI 0xbf // mov edi, n
 
 #define NOP_32_BITS 0x401f0f // no nasm equivalent
 #define PUSH_REL 0x35ff // TODO: what nasm is this?
@@ -4973,7 +4981,24 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 		in_on_fn = true;
 	}
 
+	// Compile sigprocmask(SIG_BLOCK, &grug_block_alrm_mask, NULL);
+	compile_unpadded(XOR_CLEAR_EDI);
+	// TODO: Set rsi
+	compile_unpadded(XOR_CLEAR_EDX);
+	compile_byte(CALL);
+	push_system_fn_call("sigprocmask", codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+
 	compile_statements(body_statements, body_statement_count);
+
+	// Compile sigprocmask(SIG_UNBLOCK, &grug_block_alrm_mask, NULL);
+	compile_unpadded(MOV_TO_EDI);
+	compile_32(1);
+	// TODO: Set rsi
+	compile_unpadded(XOR_CLEAR_EDX);
+	compile_byte(CALL);
+	push_system_fn_call("sigprocmask", codes_size);
+	compile_unpadded(PLACEHOLDER_32);
 
 	if (is_on_fn) {
 		in_on_fn = false;
