@@ -232,7 +232,7 @@ static struct sigaction previous_fpe_sa;
 
 static timer_t on_fn_timeout_timer_id;
 
-sigset_t grug_block_alrm_mask;
+sigset_t grug_block_mask;
 
 void grug_disable_on_fn_runtime_error_handling(void) {
 	// Disable the SIGALRM timeout timer
@@ -348,8 +348,10 @@ void grug_enable_on_fn_runtime_error_handling(void) {
 
 	static bool initialized = false;
 	if (!initialized) {
-		grug_assert(sigemptyset(&grug_block_alrm_mask) != -1, "sigemptyset: %s", strerror(errno));
-		grug_assert(sigaddset(&grug_block_alrm_mask, SIGALRM) != -1, "sigaddset: %s", strerror(errno));
+		grug_assert(sigemptyset(&grug_block_mask) != -1, "sigemptyset: %s", strerror(errno));
+		grug_assert(sigaddset(&grug_block_mask, SIGSEGV) != -1, "sigaddset: %s", strerror(errno));
+		grug_assert(sigaddset(&grug_block_mask, SIGALRM) != -1, "sigaddset: %s", strerror(errno));
+		grug_assert(sigaddset(&grug_block_mask, SIGFPE) != -1, "sigaddset: %s", strerror(errno));
 
 		// Handle stack overflow, from https://stackoverflow.com/a/7342398/13279557
 		static char stack[SIGSTKSZ];
@@ -4981,7 +4983,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 		in_on_fn = true;
 	}
 
-	// Compile sigprocmask(SIG_BLOCK, &grug_block_alrm_mask, NULL);
+	// Compile sigprocmask(SIG_BLOCK, &grug_block_mask, NULL);
 	compile_unpadded(XOR_CLEAR_EDI);
 	// TODO: Set rsi
 	compile_unpadded(XOR_CLEAR_EDX);
@@ -4991,7 +4993,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 
 	compile_statements(body_statements, body_statement_count);
 
-	// Compile sigprocmask(SIG_UNBLOCK, &grug_block_alrm_mask, NULL);
+	// Compile sigprocmask(SIG_UNBLOCK, &grug_block_mask, NULL);
 	compile_unpadded(MOV_TO_EDI);
 	compile_32(1);
 	// TODO: Set rsi
