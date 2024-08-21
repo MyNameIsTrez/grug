@@ -77,7 +77,7 @@
 #define MODS_DIR_PATH "mods"
 #define DLL_DIR_PATH "mod_dlls"
 #define MOD_API_JSON_PATH "mod_api.json"
-#define GRUG_ON_FN_TIME_LIMIT_MS 100
+#define GRUG_ON_FN_TIME_LIMIT_MS 1000
 
 // "The problem is that you can't meaningfully define a constant like this
 // in a header file. The maximum path size is actually to be something
