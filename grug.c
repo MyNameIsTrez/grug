@@ -5244,6 +5244,7 @@ static size_t shindex_plt;
 static size_t shindex_text;
 static size_t shindex_eh_frame;
 static size_t shindex_dynamic;
+static size_t shindex_got;
 static size_t shindex_got_plt;
 static size_t shindex_data;
 static size_t shindex_symtab;
@@ -5256,6 +5257,7 @@ static size_t symbols_size;
 static size_t on_fns_symbol_offset;
 
 static size_t data_symbols_size;
+static size_t extern_data_symbols_size;
 
 static size_t symbol_name_dynstr_offsets[MAX_SYMBOLS];
 static size_t symbol_name_strtab_offsets[MAX_SYMBOLS];
@@ -5269,6 +5271,7 @@ static size_t shuffled_symbols_size;
 static size_t shuffled_symbol_index_to_symbol_index[MAX_SYMBOLS];
 static size_t symbol_index_to_shuffled_symbol_index[MAX_SYMBOLS];
 
+static size_t first_extern_data_symbol_index;
 static size_t first_used_extern_fn_symbol_index;
 
 static size_t data_offsets[MAX_SYMBOLS];
@@ -5298,6 +5301,8 @@ static size_t text_offset;
 static size_t eh_frame_offset;
 static size_t dynamic_offset;
 static size_t dynamic_size;
+static size_t got_offset;
+static size_t got_size;
 static size_t got_plt_offset;
 static size_t got_plt_size;
 static size_t data_offset;
@@ -5319,6 +5324,7 @@ static size_t plt_shstrtab_offset;
 static size_t text_shstrtab_offset;
 static size_t eh_frame_shstrtab_offset;
 static size_t dynamic_shstrtab_offset;
+static size_t got_shstrtab_offset;
 static size_t got_plt_shstrtab_offset;
 static size_t data_shstrtab_offset;
 static size_t symtab_shstrtab_offset;
@@ -5333,6 +5339,7 @@ static u32 chains_game_fn_offsets[MAX_GAME_FN_OFFSETS];
 static void reset_generate_shared_object(void) {
 	symbols_size = 0;
 	data_symbols_size = 0;
+	extern_data_symbols_size = 0;
 	shuffled_symbols_size = 0;
 	bytes_size = 0;
 	game_fn_offsets_size = 0;
@@ -5469,17 +5476,56 @@ static void patch_rela_dyn(void) {
 		if (on_fn) {
 			size_t on_fn_index = on_fn - on_fns;
 			size_t symbol_index = on_fns_symbol_offset + on_fn_index;
-			size_t text_index = symbol_index - data_symbols_size - extern_fns_size;
+			size_t text_index = symbol_index - data_symbols_size - extern_data_symbols_size - extern_fns_size;
 
 			overwrite_64(got_plt_offset + got_plt_size + on_fn_data_offset, bytes_offset);
-			bytes_offset += sizeof(u64);
-			overwrite_64(R_X86_64_RELATIVE, bytes_offset);
-			bytes_offset += sizeof(u64);
+			bytes_offset += 2 * sizeof(u64);
 			overwrite_64(text_offset + text_offsets[text_index], bytes_offset);
 			bytes_offset += sizeof(u64);
 		}
 		on_fn_data_offset += sizeof(size_t);
 	}
+
+	// TODO: Write this
+	// overwrite_64(got_offset, bytes_offset);
+	// bytes_offset += 2 * sizeof(u64);
+	// overwrite_64(0x69, bytes_offset);
+}
+
+static u32 get_symbol_offset(size_t symbol_index) {
+	bool is_data = symbol_index < data_symbols_size;
+	bool is_extern_data = symbol_index < first_extern_data_symbol_index + extern_data_symbols_size;
+	bool is_extern = symbol_index < first_used_extern_fn_symbol_index + extern_fns_size;
+
+	if (is_data) {
+		return data_offset + data_offsets[symbol_index];
+	}
+	if (is_extern_data) {
+		return 0;
+	}
+	if (is_extern) {
+		return 0;
+	}
+
+	return text_offset + text_offsets[symbol_index - data_symbols_size - extern_fns_size];
+}
+
+static u16 get_symbol_shndx(size_t symbol_index) {
+	bool is_data = symbol_index < data_symbols_size;
+	bool is_extern_data = symbol_index < first_extern_data_symbol_index + extern_data_symbols_size;
+	bool is_extern = symbol_index < first_used_extern_fn_symbol_index + extern_fns_size;
+
+	if (is_data) {
+		return shindex_data;
+	}
+	if (is_extern_data) {
+		return SHN_UNDEF;
+	}
+	if (is_extern) {
+		return SHN_UNDEF;
+	}
+
+	return shindex_text;
 }
 
 static void patch_dynsym(void) {
@@ -5488,19 +5534,13 @@ static void patch_dynsym(void) {
 	for (size_t i = 0; i < symbols_size; i++) {
 		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
 
-		bool is_data = symbol_index < data_symbols_size;
-		bool is_extern = symbol_index < data_symbols_size + extern_fns_size;
-
-		u16 shndx = is_data ? shindex_data : is_extern ? SHN_UNDEF : shindex_text;
-		u32 offset = is_data ? data_offset + data_offsets[symbol_index] : is_extern ? 0 : text_offset + text_offsets[symbol_index - data_symbols_size - extern_fns_size];
-
 		overwrite_32(symbol_name_dynstr_offsets[symbol_index], bytes_offset);
 		bytes_offset += sizeof(u32);
 		overwrite_16(ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), bytes_offset);
 		bytes_offset += sizeof(u16);
-		overwrite_16(shndx, bytes_offset);
+		overwrite_16(get_symbol_shndx(symbol_index), bytes_offset);
 		bytes_offset += sizeof(u16);
-		overwrite_32(offset, bytes_offset);
+		overwrite_32(get_symbol_offset(symbol_index), bytes_offset);
 		bytes_offset += sizeof(u32);
 
 		bytes_offset += SYMTAB_ENTRY_SIZE - sizeof(u32) - sizeof(u16) - sizeof(u16) - sizeof(u32);
@@ -5589,37 +5629,37 @@ static void patch_text(void) {
 }
 
 static void patch_program_headers(void) {
-	// Segment 0
+	// .hash, .dynsym, .dynstr, .rela.dyn, .rela.plt segment
 	overwrite_64(segment_0_size, 0x60); // file_size
 	overwrite_64(segment_0_size, 0x68); // mem_size
 
-	// Segment 1
+	// .plt, .text segment
 	overwrite_64(plt_offset, 0x80); // offset
 	overwrite_64(plt_offset, 0x88); // virtual_address
 	overwrite_64(plt_offset, 0x90); // physical_address
 	overwrite_64(plt_size + text_size, 0x98); // file_size
 	overwrite_64(plt_size + text_size, 0xa0); // mem_size
 
-	// Segment 2
+	// .eh_frame segment
 	overwrite_64(eh_frame_offset, 0xb8); // offset
 	overwrite_64(eh_frame_offset, 0xc0); // virtual_address
 	overwrite_64(eh_frame_offset, 0xc8); // physical_address
 
-	// Segment 3
+	// .dynamic, .got, .got.plt, .data
 	overwrite_64(dynamic_offset, 0xf0); // offset
 	overwrite_64(dynamic_offset, 0xf8); // virtual_address
 	overwrite_64(dynamic_offset, 0x100); // physical_address
-	overwrite_64(dynamic_size + got_plt_size + data_size, 0x108); // file_size
-	overwrite_64(dynamic_size + got_plt_size + data_size, 0x110); // mem_size
+	overwrite_64(dynamic_size + got_size + got_plt_size + data_size, 0x108); // file_size
+	overwrite_64(dynamic_size + got_size + got_plt_size + data_size, 0x110); // mem_size
 
-	// Segment 4
+	// .dynamic segment
 	overwrite_64(dynamic_offset, 0x128); // offset
 	overwrite_64(dynamic_offset, 0x130); // virtual_address
 	overwrite_64(dynamic_offset, 0x138); // physical_address
 	overwrite_64(dynamic_size, 0x140); // file_size
 	overwrite_64(dynamic_size, 0x148); // mem_size
 
-	// Segment 5
+	// .dynamic segment
 	overwrite_64(dynamic_offset, 0x160); // offset
 	overwrite_64(dynamic_offset, 0x168); // virtual_address
 	overwrite_64(dynamic_offset, 0x170); // physical_address
@@ -5740,6 +5780,10 @@ static void push_shstrtab(void) {
 	push_string_bytes(".dynamic");
 	offset += sizeof(".dynamic");
 
+	got_shstrtab_offset = offset;
+	push_string_bytes(".got");
+	offset += sizeof(".got");
+
 	got_plt_shstrtab_offset = offset;
 	push_string_bytes(".got.plt");
 	offset += sizeof(".got.plt");
@@ -5837,13 +5881,7 @@ static void push_symtab(char *grug_path) {
 	for (size_t i = 0; i < symbols_size; i++) {
 		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
 
-		bool is_data = symbol_index < data_symbols_size;
-		bool is_extern = symbol_index < data_symbols_size + extern_fns_size;
-
-		u16 shndx = is_data ? shindex_data : is_extern ? SHN_UNDEF : shindex_text;
-		u32 offset = is_data ? data_offset + data_offsets[symbol_index] : is_extern ? 0 : text_offset + text_offsets[symbol_index - data_symbols_size - extern_fns_size];
-
-		push_symbol_entry(name_offset + symbol_name_strtab_offsets[symbol_index], ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), shndx, offset);
+		push_symbol_entry(name_offset + symbol_name_strtab_offsets[symbol_index], ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), get_symbol_shndx(symbol_index), get_symbol_offset(symbol_index));
 	}
 
 	symtab_size = bytes_size - symtab_offset;
@@ -5871,7 +5909,7 @@ static void push_data(void) {
 			previous_on_fn_index = on_fn_index;
 
 			size_t symbol_index = on_fns_symbol_offset + on_fn_index;
-			size_t text_index = symbol_index - data_symbols_size - extern_fns_size;
+			size_t text_index = symbol_index - data_symbols_size - extern_data_symbols_size - extern_fns_size;
 			push_64(text_offset + text_offsets[text_index]);
 		} else {
 			push_64(0x0);
@@ -5908,6 +5946,17 @@ static void push_got_plt(void) {
 	got_plt_size = bytes_size - got_plt_offset;
 }
 
+static void push_got(void) {
+	grug_log_section(".got");
+
+	got_offset = bytes_size;
+
+	// This is for the grug_block_mask extern global
+	push_zeros(8);
+
+	got_size = bytes_size - got_offset;
+}
+
 // See https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-42444.html
 static void push_dynamic_entry(u64 tag, u64 value) {
 	push_64(tag);
@@ -5941,7 +5990,8 @@ static void push_dynamic(void) {
 
 	if (on_fns_size > 0) {
 		push_dynamic_entry(DT_RELA, rela_dyn_offset);
-		push_dynamic_entry(DT_RELASZ, RELA_ENTRY_SIZE * on_fns_size);
+		size_t has_grug_block_mask = 1;
+		push_dynamic_entry(DT_RELASZ, RELA_ENTRY_SIZE * (on_fns_size + has_grug_block_mask));
 		push_dynamic_entry(DT_RELAENT, RELA_ENTRY_SIZE);
 		push_dynamic_entry(DT_RELACOUNT, on_fns_size);
 	}
@@ -6060,9 +6110,12 @@ static void push_rela_dyn(void) {
 	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
 		struct on_fn *on_fn = get_on_fn(grug_define_entity->on_functions[i].name);
 		if (on_fn) {
-			push_rela(PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64);
+			push_rela(PLACEHOLDER_64, ELF64_R_INFO(0, R_X86_64_RELATIVE), PLACEHOLDER_64);
 		}
 	}
+
+	// This is for the grug_block_mask extern global
+	push_rela(PLACEHOLDER_64, ELF64_R_INFO(4, R_X86_64_GLOB_DAT), PLACEHOLDER_64);
 
 	rela_dyn_size = bytes_size - rela_dyn_offset;
 }
@@ -6203,6 +6256,9 @@ static void push_section_headers(void) {
 	// .dynamic: Dynamic linking information section
 	push_section_header(dynamic_shstrtab_offset, SHT_DYNAMIC, SHF_WRITE | SHF_ALLOC, dynamic_offset, dynamic_offset, dynamic_size, shindex_dynstr, 0, 8, 16);
 
+	// .got: Global offset table section
+	push_section_header(got_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, got_offset, got_offset, got_size, SHN_UNDEF, 0, 8, 8);
+
 	// .got.plt: Global offset table procedure linkage table section
 	push_section_header(got_plt_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, got_plt_offset, got_plt_offset, got_plt_size, SHN_UNDEF, 0, 8, 8);
 
@@ -6262,7 +6318,7 @@ static void push_program_headers(void) {
 	// 0xb0 to 0xe8
 	push_program_header(PT_LOAD, PF_R, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, 0, 0, 0x1000);
 
-	// .dynamic, .got.plt, .data
+	// .dynamic, .got, .got.plt, .data
 	// 0xe8 to 0x120
 	push_program_header(PT_LOAD, PF_R | PF_W, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, 0x1000);
 
@@ -6393,6 +6449,8 @@ static void push_bytes(char *grug_path) {
 	bytes_size = eh_frame_offset;
 
 	push_dynamic();
+
+	push_got();
 
 	push_got_plt();
 
@@ -6532,6 +6590,7 @@ static void init_section_header_indices(void) {
 	shindex_text = shindex++;
 	shindex_eh_frame = shindex++;
 	shindex_dynamic = shindex++;
+	shindex_got = shindex++;
 	shindex_got_plt = shindex++;
 	shindex_data = shindex++;
 	shindex_symtab = shindex++;
@@ -6562,7 +6621,11 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 		data_symbols_size++;
 	}
 
-	first_used_extern_fn_symbol_index = data_symbols_size;
+	first_extern_data_symbol_index = data_symbols_size;
+	push_symbol("grug_block_mask");
+	extern_data_symbols_size++;
+
+	first_used_extern_fn_symbol_index = first_extern_data_symbol_index + extern_data_symbols_size;
 	for (size_t i = 0; i < extern_fns_size; i++) {
 		push_symbol(used_extern_fns[i]);
 	}
