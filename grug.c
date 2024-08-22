@@ -5315,6 +5315,8 @@ static size_t symbol_index_to_shuffled_symbol_index[MAX_SYMBOLS];
 static size_t first_extern_data_symbol_index;
 static size_t first_used_extern_fn_symbol_index;
 
+static size_t grug_block_mask_symbol_index;
+
 static size_t data_offsets[MAX_SYMBOLS];
 static size_t data_string_offsets[MAX_SYMBOLS];
 
@@ -6155,7 +6157,8 @@ static void push_rela_dyn(void) {
 	}
 
 	// This is for the grug_block_mask extern global
-	push_rela(PLACEHOLDER_64, ELF64_R_INFO(4, R_X86_64_GLOB_DAT), PLACEHOLDER_64);
+	// `1 +` skips the first symbol, which is always undefined
+	push_rela(PLACEHOLDER_64, ELF64_R_INFO(1 + symbol_index_to_shuffled_symbol_index[grug_block_mask_symbol_index], R_X86_64_GLOB_DAT), PLACEHOLDER_64);
 
 	rela_dyn_size = bytes_size - rela_dyn_offset;
 }
@@ -6668,6 +6671,7 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 	}
 
 	first_extern_data_symbol_index = data_symbols_size;
+	grug_block_mask_symbol_index = symbols_size;
 	push_symbol("grug_block_mask");
 	extern_data_symbols_size++;
 
