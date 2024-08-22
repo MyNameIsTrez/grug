@@ -258,25 +258,25 @@ void grug_disable_on_fn_runtime_error_handling(void) {
 	// fprintf(stderr, "old.it_interval.tv_nsec: %ld\n", old.it_interval.tv_nsec);
 
 	// TODO: I think this block of code can be removed?
-	static struct sigaction ignore_sa = {
-		.sa_handler = SIG_IGN,
-	};
-	static bool initialized = false;
-	if (!initialized) {
-		if (sigemptyset(&ignore_sa.sa_mask) == -1) { // TODO: Is calling this necessary? Doesn't zero-initialization of the struct do this already?
-			abort();
-		}
-		initialized = true;
-	}
-    if (sigaction(SIGSEGV, &ignore_sa, NULL) == -1) {
-        abort();
-    }
-    if (sigaction(SIGALRM, &ignore_sa, NULL) == -1) {
-        abort();
-    }
-    if (sigaction(SIGFPE, &ignore_sa, NULL) == -1) {
-        abort();
-    }
+	// static struct sigaction ignore_sa = {
+	// 	.sa_handler = SIG_IGN,
+	// };
+	// static bool initialized = false;
+	// if (!initialized) {
+	// 	if (sigemptyset(&ignore_sa.sa_mask) == -1) { // TODO: Is calling this necessary? Doesn't zero-initialization of the struct do this already?
+	// 		abort();
+	// 	}
+	// 	initialized = true;
+	// }
+    // if (sigaction(SIGSEGV, &ignore_sa, NULL) == -1) {
+    //     abort();
+    // }
+    // if (sigaction(SIGALRM, &ignore_sa, NULL) == -1) {
+    //     abort();
+    // }
+    // if (sigaction(SIGFPE, &ignore_sa, NULL) == -1) {
+    //     abort();
+    // }
 
 	if (sigaction(SIGSEGV, &previous_segv_sa, NULL) == -1) {
 		abort();
