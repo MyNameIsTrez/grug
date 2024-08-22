@@ -349,9 +349,7 @@ void grug_enable_on_fn_runtime_error_handling(void) {
 	static bool initialized = false;
 	if (!initialized) {
 		grug_assert(sigemptyset(&grug_block_mask) != -1, "sigemptyset: %s", strerror(errno));
-		grug_assert(sigaddset(&grug_block_mask, SIGSEGV) != -1, "sigaddset: %s", strerror(errno));
 		grug_assert(sigaddset(&grug_block_mask, SIGALRM) != -1, "sigaddset: %s", strerror(errno));
-		grug_assert(sigaddset(&grug_block_mask, SIGFPE) != -1, "sigaddset: %s", strerror(errno));
 
 		// Handle stack overflow, from https://stackoverflow.com/a/7342398/13279557
 		static char stack[SIGSTKSZ];
