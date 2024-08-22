@@ -3138,6 +3138,7 @@ static void print_ast(void) {
 
 #define MAX_VARIABLES_PER_FUNCTION 420420
 
+#define GLOBAL_OFFSET_TABLE_POINTER_SIZE sizeof(void *)
 #define GLOBAL_VARIABLES_POINTER_SIZE sizeof(void *)
 
 struct variable {
@@ -3508,8 +3509,7 @@ static void init_argument_variables(struct argument *fn_arguments, size_t argume
 	variables_size = 0;
 	memset(buckets_variables, UINT32_MAX, MAX_VARIABLES_PER_FUNCTION * sizeof(u32));
 
-	// Reserve space for the secret global variables pointer
-	stack_frame_bytes = GLOBAL_VARIABLES_POINTER_SIZE;
+	stack_frame_bytes = GLOBAL_OFFSET_TABLE_POINTER_SIZE + GLOBAL_VARIABLES_POINTER_SIZE;
 
 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
 		struct argument arg = fn_arguments[argument_index];
@@ -3747,8 +3747,8 @@ static void fill_result_types(void) {
 #define MAX_STACK_SIZE 420420
 #define MAX_LOOP_DEPTH 420
 #define MAX_BREAK_STATEMENTS_PER_LOOP 420
-
-#define NEST_INSTRUCTION_OFFSET 4
+#define MAX_GOT_ACCESSES (MAX_ON_FNS_IN_FILE + MAX_HELPER_FNS_IN_FILE)
+#define NEXT_INSTRUCTION_OFFSET sizeof(u32)
 
 // 0xDEADBEEF in little-endian
 #define PLACEHOLDER_16 0xADDE
@@ -3788,6 +3788,7 @@ static void fill_result_types(void) {
 #define MOV_XMM6_TO_DEREF_RBP 0x75110ff3 // movss rbp[n], xmm6
 #define MOV_XMM7_TO_DEREF_RBP 0x7d110ff3 // movss rbp[n], xmm7
 
+#define MOV_RBX_TO_DEREF_RBP 0x5d8948 // mov rbp[n], rbx
 #define MOV_RDI_TO_DEREF_RBP 0x7d8948 // mov rbp[n], rdi
 #define MOV_RSI_TO_DEREF_RBP 0x758948 // mov rbp[n], rsi
 #define MOV_RDX_TO_DEREF_RBP 0x558948 // mov rbp[n], rdx
@@ -3797,11 +3798,13 @@ static void fill_result_types(void) {
 
 #define DEREF_RBP_TO_EAX 0x458b // mov eax, rbp[n]
 #define DEREF_RBP_TO_RAX 0x458b48 // mov rax, rbp[n]
+#define DEREF_RBP_TO_RBX 0x5d8b48 // mov rbx, rbp[n]
+#define DEREF_RBP_TO_R11 0x5d8b4c // mov r11, rbp[n]
+
+#define DEREF_RBX_TO_RSI 0xb38b48 // mov rsi, rbx[n]
 
 #define MOV_EAX_TO_DEREF_RBP 0x4589 // mov rbp[n], eax
 #define MOV_RAX_TO_DEREF_RBP 0x458948 // mov rbp[n], rax
-
-#define DEREF_RBP_TO_R11 0x5d8b4c // mov r11, rbp[n]
 
 #define DEREF_RAX_TO_EAX 0x408b // mov eax, rax[n]
 #define DEREF_RAX_TO_RAX 0x408b48 // mov rax, rax[n]
@@ -3863,6 +3866,8 @@ static void fill_result_types(void) {
 #define XOR_CLEAR_EDX 0xd231 // xor edx, edx
 #define LEA_STRINGS_TO_RAX 0x58d48 // lea rax, strings[rel n]
 
+#define LEA_RIP_TO_RBX 0x1d8d48 // lea rbx, [rel $$]
+
 #define MOV_EAX_TO_XMM0 0xc06e0f66 // movd xmm0, eax
 #define MOV_EAX_TO_XMM1 0xc86e0f66 // movd xmm1, eax
 #define MOV_EAX_TO_XMM2 0xd06e0f66 // movd xmm2, eax
@@ -3892,6 +3897,8 @@ static void fill_result_types(void) {
 
 #define MOV_TO_EAX 0xb8 // mov eax, n
 #define MOV_TO_EDI 0xbf // mov edi, n
+
+#define ADD_TO_RBX 0xc38148 // add rbx, n
 
 #define NOP_32_BITS 0x401f0f // no nasm equivalent
 #define PUSH_REL 0x35ff // TODO: what nasm is this?
@@ -3959,7 +3966,10 @@ struct loop_break_statements {
 static struct loop_break_statements loop_break_statements_stack[MAX_LOOP_DEPTH];
 static size_t loop_break_statements_stack_size;
 
-bool in_on_fn;
+static size_t got_accesses[MAX_GOT_ACCESSES];
+static size_t got_accesses_size;
+
+static bool in_on_fn;
 
 static void reset_compiling(void) {
 	codes_size = 0;
@@ -3973,6 +3983,7 @@ static void reset_compiling(void) {
 	stack_size = 0;
 	start_of_loop_jump_offsets_size = 0;
 	loop_break_statements_stack_size = 0;
+	got_accesses_size = 0;
 	in_on_fn = false;
 }
 
@@ -4274,7 +4285,7 @@ static void compile_while_statement(struct while_statement while_statement) {
 	compile_statements(while_statement.body_statements, while_statement.body_statement_count);
 
 	compile_unpadded(JMP_32_BIT_OFFSET);
-	compile_32(start_of_loop_jump_offset - (codes_size + NEST_INSTRUCTION_OFFSET));
+	compile_32(start_of_loop_jump_offset - (codes_size + NEXT_INSTRUCTION_OFFSET));
 
 	overwrite_jmp_address(end_jump_offset, codes_size);
 
@@ -4837,7 +4848,7 @@ static void compile_statements(struct statement *statements_offset, size_t state
 			case CONTINUE_STATEMENT:
 				compile_unpadded(JMP_32_BIT_OFFSET);
 				size_t start_of_loop_jump_offset = start_of_loop_jump_offsets[start_of_loop_jump_offsets_size - 1];
-				compile_32(start_of_loop_jump_offset - (codes_size + NEST_INSTRUCTION_OFFSET));
+				compile_32(start_of_loop_jump_offset - (codes_size + NEXT_INSTRUCTION_OFFSET));
 				break;
 		}
 	}
@@ -4876,6 +4887,12 @@ static void add_variables_in_statements(struct statement *statements_offset, siz
 	}
 }
 
+static void push_got_access(size_t codes_offset) {
+	grug_assert(got_accesses_size < MAX_GOT_ACCESSES, "There are more than %d global offset table accesses, exceeding MAX_GOT_ACCESSES", MAX_GOT_ACCESSES);
+
+	got_accesses[got_accesses_size++] = codes_offset;
+}
+
 // From https://stackoverflow.com/a/9194117/13279557
 static size_t round_to_power_of_2(size_t n, size_t multiple) {
 	// Assert that `multiple` is a power of 2
@@ -4909,11 +4926,21 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 		compile_32(stack_frame_bytes);
 	}
 
+	compile_unpadded(MOV_RBX_TO_DEREF_RBP);
+	compile_byte(-(u8)GLOBAL_OFFSET_TABLE_POINTER_SIZE);
+
 	// We need to push the secret global variables pointer to the function call's stack frame,
 	// because the RDI register will get clobbered when this function calls another function:
 	// https://stackoverflow.com/a/55387707/13279557
 	compile_unpadded(MOV_RDI_TO_DEREF_RBP);
-	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
+	compile_byte(-(u8)(GLOBAL_OFFSET_TABLE_POINTER_SIZE + GLOBAL_VARIABLES_POINTER_SIZE));
+
+	compile_unpadded(LEA_RIP_TO_RBX);
+	compile_32(-(codes_size + NEXT_INSTRUCTION_OFFSET));
+
+	compile_unpadded(ADD_TO_RBX);
+	push_got_access(codes_size);
+	compile_unpadded(PLACEHOLDER_32);
 
 	size_t integer_argument_index = 0;
 	size_t float_argument_index = 0;
@@ -4982,9 +5009,10 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 	}
 
 	// Compile sigprocmask(SIG_BLOCK, &grug_block_mask, NULL);
-	compile_unpadded(XOR_CLEAR_EDI);
-	// TODO: Set rsi
 	compile_unpadded(XOR_CLEAR_EDX);
+	compile_unpadded(DEREF_RBX_TO_RSI);
+	compile_32(-(u8)GLOBAL_OFFSET_TABLE_POINTER_SIZE);
+	compile_unpadded(XOR_CLEAR_EDI);
 	compile_byte(CALL);
 	push_system_fn_call("sigprocmask", codes_size);
 	compile_unpadded(PLACEHOLDER_32);
@@ -4992,10 +5020,11 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 	compile_statements(body_statements, body_statement_count);
 
 	// Compile sigprocmask(SIG_UNBLOCK, &grug_block_mask, NULL);
+	compile_unpadded(XOR_CLEAR_EDX);
+	compile_unpadded(DEREF_RBX_TO_RSI);
+	compile_32(-(u8)GLOBAL_OFFSET_TABLE_POINTER_SIZE);
 	compile_unpadded(MOV_TO_EDI);
 	compile_32(1);
-	// TODO: Set rsi
-	compile_unpadded(XOR_CLEAR_EDX);
 	compile_byte(CALL);
 	push_system_fn_call("sigprocmask", codes_size);
 	compile_unpadded(PLACEHOLDER_32);
@@ -5007,6 +5036,9 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 		push_system_fn_call("grug_disable_on_fn_runtime_error_handling", codes_size);
 		compile_unpadded(PLACEHOLDER_32);
 	}
+
+	compile_unpadded(DEREF_RBP_TO_RBX);
+	compile_byte(-(u8)GLOBAL_OFFSET_TABLE_POINTER_SIZE);
 
 	// Function epilogue
 	compile_unpadded(MOV_RBP_TO_RSP);
@@ -5205,11 +5237,6 @@ static void compile(void) {
 		text_offset += codes_size - start_codes_size;
 	}
 
-	// TODO: Replace this with actually outputting the expected codes!
-	for (size_t i = 0; i < 0x21; i++) {
-		compile_byte(0xDE);
-	}
-
 	hash_used_extern_fns();
 	hash_helper_fn_offsets();
 }
@@ -5351,8 +5378,7 @@ static void reset_generate_shared_object(void) {
 static void overwrite(u64 n, size_t bytes_offset, size_t overwrite_count) {
 	for (size_t i = 0; i < overwrite_count; i++) {
 		bytes[bytes_offset++] = n & 0xff; // Little-endian
-
-		n >>= 8; // Shift right by one byte
+		n >>= 8;
 	}
 }
 
@@ -5428,9 +5454,7 @@ static void patch_plt(void) {
 		}
 
 		while (true) {
-			size_t next_instruction_offset = sizeof(u32);
-
-			overwrite_32(got_plt_fn_address - overwritten_address - next_instruction_offset, overwritten_address);
+			overwrite_32(got_plt_fn_address - overwritten_address - NEXT_INSTRUCTION_OFFSET, overwritten_address);
 
 			got_plt_fn_address += sizeof(u64);
 
@@ -5509,7 +5533,7 @@ static u32 get_symbol_offset(size_t symbol_index) {
 		return 0;
 	}
 
-	return text_offset + text_offsets[symbol_index - data_symbols_size - extern_fns_size];
+	return text_offset + text_offsets[symbol_index - data_symbols_size - extern_data_symbols_size - extern_fns_size];
 }
 
 static u16 get_symbol_shndx(size_t symbol_index) {
@@ -5593,12 +5617,14 @@ static void patch_dynamic(void) {
 }
 
 static void patch_text(void) {
-	size_t next_instruction_offset = 4;
+	for (size_t i = 0; i < got_accesses_size; i++) {
+		overwrite_32(got_plt_offset - text_offset, text_offset + got_accesses[i]);
+	}
 
 	for (size_t i = 0; i < extern_fn_calls_size; i++) {
 		struct fn_call fn_call = extern_fn_calls[i];
 		size_t offset = text_offset + fn_call.codes_offset;
-		size_t address_after_call_instruction = offset + next_instruction_offset;
+		size_t address_after_call_instruction = offset + NEXT_INSTRUCTION_OFFSET;
 		size_t game_fn_plt_offset = plt_offset + get_game_fn_offset(fn_call.fn_name);
 		overwrite_32(game_fn_plt_offset - address_after_call_instruction, offset);
 	}
@@ -5606,7 +5632,7 @@ static void patch_text(void) {
 	for (size_t i = 0; i < helper_fn_calls_size; i++) {
 		struct fn_call fn_call = helper_fn_calls[i];
 		size_t offset = text_offset + fn_call.codes_offset;
-		size_t address_after_call_instruction = offset + next_instruction_offset;
+		size_t address_after_call_instruction = offset + NEXT_INSTRUCTION_OFFSET;
 		size_t helper_fn_text_offset = text_offset + get_helper_fn_offset(fn_call.fn_name);
 		overwrite_32(helper_fn_text_offset - address_after_call_instruction, offset);
 	}
@@ -5621,7 +5647,7 @@ static void patch_text(void) {
 
 		size_t string_address = data_offset + data_string_offsets[string_index];
 
-		size_t next_instruction_address = text_offset + code_offset + NEST_INSTRUCTION_OFFSET;
+		size_t next_instruction_address = text_offset + code_offset + NEXT_INSTRUCTION_OFFSET;
 
 		// RIP-relative address of data string
 		size_t string_offset = string_address - next_instruction_address;
@@ -5974,7 +6000,7 @@ static void push_dynamic(void) {
 	dynamic_size = on_fns_size > 0 ? 18 * entry_size : 15 * entry_size;
 
 	size_t segment_2_to_3_offset = 0x1000;
-	size_t future_got_size = 8;
+	size_t future_got_size = sizeof(u64);
 	dynamic_offset = bytes_size + segment_2_to_3_offset - dynamic_size - future_got_size;
 #ifndef OLD_LD
 	dynamic_offset -= GOT_PLT_INTRO_SIZE;
