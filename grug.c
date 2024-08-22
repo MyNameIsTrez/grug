@@ -4830,6 +4830,9 @@ static void compile_statements(struct statement *statements_offset, size_t state
 					compile_unpadded(PLACEHOLDER_32);
 				}
 
+				compile_unpadded(DEREF_RBP_TO_RBX);
+				compile_byte(-(u8)GLOBAL_OFFSET_TABLE_POINTER_SIZE);
+
 				// Function epilogue
 				compile_unpadded(MOV_RBP_TO_RSP);
 				compile_byte(POP_RBP);
