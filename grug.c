@@ -4848,9 +4848,13 @@ static void compile_statements(struct statement *statements_offset, size_t state
 				}
 
 				if (in_on_fn) {
+					compile_byte(PUSH_RAX);
+
 					compile_byte(CALL);
 					push_system_fn_call("grug_disable_on_fn_runtime_error_handling", codes_size);
 					compile_unpadded(PLACEHOLDER_32);
+
+					compile_byte(POP_RAX);
 				}
 
 				compile_unpadded(DEREF_RBP_TO_RBX);
