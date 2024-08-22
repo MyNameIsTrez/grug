@@ -4334,6 +4334,15 @@ static size_t get_padding(void) {
 }
 
 static void compile_call_expr(struct call_expr call_expr) {
+	// Compile sigprocmask(SIG_BLOCK, &grug_block_mask, NULL);
+	compile_unpadded(XOR_CLEAR_EDX);
+	compile_unpadded(DEREF_RBX_TO_RSI);
+	compile_32(-(u8)GLOBAL_OFFSET_TABLE_POINTER_SIZE);
+	compile_unpadded(XOR_CLEAR_EDI);
+	compile_byte(CALL);
+	push_system_fn_call("sigprocmask", codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+
 	bool gets_global_variables_pointer = false;
 	if (get_helper_fn(call_expr.fn_name)) {
 		// Push the secret global variables pointer argument
@@ -4397,6 +4406,20 @@ static void compile_call_expr(struct call_expr call_expr) {
 	if (returns_float) {
 		compile_unpadded(MOV_XMM0_TO_EAX);
 	}
+
+	compile_unpadded(PUSH_RAX);
+
+	// Compile sigprocmask(SIG_UNBLOCK, &grug_block_mask, NULL);
+	compile_unpadded(XOR_CLEAR_EDX);
+	compile_unpadded(DEREF_RBX_TO_RSI);
+	compile_32(-(u8)GLOBAL_OFFSET_TABLE_POINTER_SIZE);
+	compile_unpadded(MOV_TO_EDI);
+	compile_32(1);
+	compile_byte(CALL);
+	push_system_fn_call("sigprocmask", codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+
+	compile_unpadded(POP_RAX);
 }
 
 static void compile_logical_expr(struct binary_expr logical_expr) {
@@ -5011,26 +5034,7 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 		in_on_fn = true;
 	}
 
-	// Compile sigprocmask(SIG_BLOCK, &grug_block_mask, NULL);
-	compile_unpadded(XOR_CLEAR_EDX);
-	compile_unpadded(DEREF_RBX_TO_RSI);
-	compile_32(-(u8)GLOBAL_OFFSET_TABLE_POINTER_SIZE);
-	compile_unpadded(XOR_CLEAR_EDI);
-	compile_byte(CALL);
-	push_system_fn_call("sigprocmask", codes_size);
-	compile_unpadded(PLACEHOLDER_32);
-
 	compile_statements(body_statements, body_statement_count);
-
-	// Compile sigprocmask(SIG_UNBLOCK, &grug_block_mask, NULL);
-	compile_unpadded(XOR_CLEAR_EDX);
-	compile_unpadded(DEREF_RBX_TO_RSI);
-	compile_32(-(u8)GLOBAL_OFFSET_TABLE_POINTER_SIZE);
-	compile_unpadded(MOV_TO_EDI);
-	compile_32(1);
-	compile_byte(CALL);
-	push_system_fn_call("sigprocmask", codes_size);
-	compile_unpadded(PLACEHOLDER_32);
 
 	if (is_on_fn) {
 		in_on_fn = false;
