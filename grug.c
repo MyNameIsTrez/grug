@@ -5207,6 +5207,11 @@ static void compile(void) {
 		text_offset += codes_size - start_codes_size;
 	}
 
+	// TODO: Replace this with actually outputting the expected codes!
+	for (size_t i = 0; i < 0x21; i++) {
+		compile_byte(0xDE);
+	}
+
 	hash_used_extern_fns();
 	hash_helper_fn_offsets();
 }
@@ -5486,10 +5491,9 @@ static void patch_rela_dyn(void) {
 		on_fn_data_offset += sizeof(size_t);
 	}
 
-	// TODO: Write this
-	// overwrite_64(got_offset, bytes_offset);
-	// bytes_offset += 2 * sizeof(u64);
-	// overwrite_64(0x69, bytes_offset);
+	overwrite_64(got_offset, bytes_offset);
+	bytes_offset += 2 * sizeof(u64);
+	overwrite_64(0, bytes_offset);
 }
 
 static u32 get_symbol_offset(size_t symbol_index) {
@@ -5645,7 +5649,7 @@ static void patch_program_headers(void) {
 	overwrite_64(eh_frame_offset, 0xc0); // virtual_address
 	overwrite_64(eh_frame_offset, 0xc8); // physical_address
 
-	// .dynamic, .got, .got.plt, .data
+	// .dynamic, .got, .got.plt, .data segment
 	overwrite_64(dynamic_offset, 0xf0); // offset
 	overwrite_64(dynamic_offset, 0xf8); // virtual_address
 	overwrite_64(dynamic_offset, 0x100); // physical_address
@@ -5659,11 +5663,11 @@ static void patch_program_headers(void) {
 	overwrite_64(dynamic_size, 0x140); // file_size
 	overwrite_64(dynamic_size, 0x148); // mem_size
 
-	// .dynamic segment
+	// .dynamic, .got segment
 	overwrite_64(dynamic_offset, 0x160); // offset
 	overwrite_64(dynamic_offset, 0x168); // virtual_address
 	overwrite_64(dynamic_offset, 0x170); // physical_address
-	size_t segment_5_size = dynamic_size;
+	size_t segment_5_size = dynamic_size + got_size;
 #ifndef OLD_LD
 	segment_5_size += GOT_PLT_INTRO_SIZE;
 #endif
@@ -5972,7 +5976,8 @@ static void push_dynamic(void) {
 	dynamic_size = on_fns_size > 0 ? 18 * entry_size : 15 * entry_size;
 
 	size_t segment_2_to_3_offset = 0x1000;
-	dynamic_offset = bytes_size + segment_2_to_3_offset - dynamic_size;
+	size_t future_got_size = 8;
+	dynamic_offset = bytes_size + segment_2_to_3_offset - dynamic_size - future_got_size;
 #ifndef OLD_LD
 	dynamic_offset -= GOT_PLT_INTRO_SIZE;
 #endif
@@ -5986,7 +5991,7 @@ static void push_dynamic(void) {
 	push_dynamic_entry(DT_PLTGOT, PLACEHOLDER_64);
 	push_dynamic_entry(DT_PLTRELSZ, PLT_ENTRY_SIZE * extern_fns_size);
 	push_dynamic_entry(DT_PLTREL, DT_RELA);
-	push_dynamic_entry(DT_JMPREL, rela_dyn_offset + ((on_fns_size > 0) ? RELA_ENTRY_SIZE * on_fns_size : 0));
+	push_dynamic_entry(DT_JMPREL, rela_plt_offset);
 
 	if (on_fns_size > 0) {
 		push_dynamic_entry(DT_RELA, rela_dyn_offset);
@@ -6306,27 +6311,33 @@ static void push_program_header(u32 type, u32 flags, u64 offset, u64 virtual_add
 static void push_program_headers(void) {
 	grug_log_section("Program headers");
 
-	// .hash, .dynsym, .dynstr, .rela.dyn, .rela.plt segment
+	// Segment 0
+	// .hash, .dynsym, .dynstr, .rela.dyn, .rela.plt
 	// 0x40 to 0x78
 	push_program_header(PT_LOAD, PF_R, 0, 0, 0, PLACEHOLDER_64, PLACEHOLDER_64, 0x1000);
 
-	// .plt, .text segment
+	// Segment 1
+	// .plt, .text
 	// 0x78 to 0xb0
 	push_program_header(PT_LOAD, PF_R | PF_X, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, 0x1000);
 
-	// .eh_frame segment
+	// Segment 2
+	// .eh_frame
 	// 0xb0 to 0xe8
 	push_program_header(PT_LOAD, PF_R, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, 0, 0, 0x1000);
 
+	// Segment 3
 	// .dynamic, .got, .got.plt, .data
 	// 0xe8 to 0x120
 	push_program_header(PT_LOAD, PF_R | PF_W, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, 0x1000);
 
-	// .dynamic segment
+	// Segment 4
+	// .dynamic
 	// 0x120 to 0x158
 	push_program_header(PT_DYNAMIC, PF_R | PF_W, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, 8);
 
-	// .dynamic segment
+	// Segment 5
+	// .dynamic, .got
 	// 0x158 to 0x190
 	push_program_header(PT_GNU_RELRO, PF_R, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, 1);
 }
@@ -6415,12 +6426,12 @@ static void push_elf_header(void) {
 
 	// Number of section header entries
 	// 0x3c to 0x3e
-	push_byte(14 + (on_fns_size > 0));
+	push_byte(15 + (on_fns_size > 0));
 	push_byte(0);
 
 	// Index of entry with section names
 	// 0x3e to 0x40
-	push_byte(13 + (on_fns_size > 0));
+	push_byte(14 + (on_fns_size > 0));
 	push_byte(0);
 }
 
