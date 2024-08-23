@@ -5723,7 +5723,9 @@ static void patch_bytes(void) {
 	patch_program_headers();
 
 	patch_dynsym();
-	patch_rela_dyn();
+	if (on_fns_size > 0) {
+		patch_rela_dyn();
+	}
 	patch_rela_plt();
 	patch_plt();
 	patch_text();
@@ -5825,9 +5827,11 @@ static void push_shstrtab(void) {
 	push_string_bytes(".dynamic");
 	offset += sizeof(".dynamic");
 
-	got_shstrtab_offset = offset;
-	push_string_bytes(".got");
-	offset += sizeof(".got");
+	if (on_fns_size > 0) {
+		got_shstrtab_offset = offset;
+		push_string_bytes(".got");
+		offset += sizeof(".got");
+	}
 
 	got_plt_shstrtab_offset = offset;
 	push_string_bytes(".got.plt");
@@ -6017,8 +6021,11 @@ static void push_dynamic(void) {
 	dynamic_size = on_fns_size > 0 ? 18 * entry_size : 15 * entry_size;
 
 	size_t segment_2_to_3_offset = 0x1000;
-	size_t future_got_size = sizeof(u64);
-	dynamic_offset = bytes_size + segment_2_to_3_offset - dynamic_size - future_got_size;
+	dynamic_offset = bytes_size + segment_2_to_3_offset - dynamic_size;
+	if (on_fns_size > 0) {
+		size_t future_got_size = sizeof(u64);
+		dynamic_offset -= future_got_size;
+	}
 #ifndef OLD_LD
 	dynamic_offset -= GOT_PLT_INTRO_SIZE;
 #endif
@@ -6303,8 +6310,10 @@ static void push_section_headers(void) {
 	// .dynamic: Dynamic linking information section
 	push_section_header(dynamic_shstrtab_offset, SHT_DYNAMIC, SHF_WRITE | SHF_ALLOC, dynamic_offset, dynamic_offset, dynamic_size, shindex_dynstr, 0, 8, 16);
 
-	// .got: Global offset table section
-	push_section_header(got_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, got_offset, got_offset, got_size, SHN_UNDEF, 0, 8, 8);
+	if (on_fns_size > 0) {
+		// .got: Global offset table section
+		push_section_header(got_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, got_offset, got_offset, got_size, SHN_UNDEF, 0, 8, 8);
+	}
 
 	// .got.plt: Global offset table procedure linkage table section
 	push_section_header(got_plt_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, got_plt_offset, got_plt_offset, got_plt_size, SHN_UNDEF, 0, 8, 8);
@@ -6468,12 +6477,12 @@ static void push_elf_header(void) {
 
 	// Number of section header entries
 	// 0x3c to 0x3e
-	push_byte(15 + (on_fns_size > 0));
+	push_byte(14 + (2 * (on_fns_size > 0)));
 	push_byte(0);
 
 	// Index of entry with section names
 	// 0x3e to 0x40
-	push_byte(14 + (on_fns_size > 0));
+	push_byte(13 + (2 * (on_fns_size > 0)));
 	push_byte(0);
 }
 
@@ -6490,7 +6499,9 @@ static void push_bytes(char *grug_path) {
 
 	push_dynstr();
 
-	push_rela_dyn();
+	if (on_fns_size > 0) {
+		push_rela_dyn();
+	}
 
 	push_rela_plt();
 
@@ -6503,7 +6514,9 @@ static void push_bytes(char *grug_path) {
 
 	push_dynamic();
 
-	push_got();
+	if (on_fns_size > 0) {
+		push_got();
+	}
 
 	push_got_plt();
 
@@ -6643,7 +6656,9 @@ static void init_section_header_indices(void) {
 	shindex_text = shindex++;
 	shindex_eh_frame = shindex++;
 	shindex_dynamic = shindex++;
-	shindex_got = shindex++;
+	if (on_fns_size > 0) {
+		shindex_got = shindex++;
+	}
 	shindex_got_plt = shindex++;
 	shindex_data = shindex++;
 	shindex_symtab = shindex++;
@@ -6675,9 +6690,11 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 	}
 
 	first_extern_data_symbol_index = data_symbols_size;
-	grug_block_mask_symbol_index = symbols_size;
-	push_symbol("grug_block_mask");
-	extern_data_symbols_size++;
+	if (on_fns_size > 0) {
+		grug_block_mask_symbol_index = symbols_size;
+		push_symbol("grug_block_mask");
+		extern_data_symbols_size++;
+	}
 
 	first_used_extern_fn_symbol_index = first_extern_data_symbol_index + extern_data_symbols_size;
 	for (size_t i = 0; i < extern_fns_size; i++) {
