@@ -4352,7 +4352,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 	if (get_helper_fn(call_expr.fn_name)) {
 		// Push the secret global variables pointer argument
 		compile_unpadded(DEREF_RBP_TO_RAX);
-		compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
+		compile_byte(-(u8)(GLOBAL_OFFSET_TABLE_POINTER_SIZE + GLOBAL_VARIABLES_POINTER_SIZE));
 		stack_push_rax();
 
 		// The secret global variables pointer argument will need to get popped
