@@ -4969,13 +4969,6 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 	compile_unpadded(MOV_RDI_TO_DEREF_RBP);
 	compile_byte(-(u8)(GLOBAL_OFFSET_TABLE_POINTER_SIZE + GLOBAL_VARIABLES_POINTER_SIZE));
 
-	compile_unpadded(LEA_RIP_TO_RBX);
-	compile_32(-(codes_size + NEXT_INSTRUCTION_OFFSET));
-
-	compile_unpadded(ADD_TO_RBX);
-	push_got_access(codes_size);
-	compile_unpadded(PLACEHOLDER_32);
-
 	size_t integer_argument_index = 0;
 	size_t float_argument_index = 0;
 
@@ -5033,6 +5026,13 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 			integer_argument_index++;
 		}
 	}
+
+	// Let RBX contain the address of the global offset table
+	compile_unpadded(LEA_RIP_TO_RBX);
+	compile_32(-(codes_size + NEXT_INSTRUCTION_OFFSET));
+	compile_unpadded(ADD_TO_RBX);
+	push_got_access(codes_size);
+	compile_unpadded(PLACEHOLDER_32);
 
 	if (is_on_fn) {
 		compile_byte(CALL);
