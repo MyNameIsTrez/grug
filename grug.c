@@ -4334,14 +4334,19 @@ static size_t get_padding(void) {
 }
 
 static void compile_call_expr(struct call_expr call_expr) {
-	// Compile sigprocmask(SIG_BLOCK, &grug_block_mask, NULL);
-	compile_unpadded(XOR_CLEAR_EDX);
-	compile_unpadded(DEREF_RBX_TO_RSI);
-	compile_32(-(u8)GLOBAL_OFFSET_TABLE_POINTER_SIZE);
-	compile_unpadded(XOR_CLEAR_EDI);
-	compile_byte(CALL);
-	push_system_fn_call("sigprocmask", codes_size);
-	compile_unpadded(PLACEHOLDER_32);
+	char *fn_name = call_expr.fn_name;
+	struct grug_game_function *game_fn = get_grug_game_fn(fn_name);
+
+	if (game_fn) {
+		// Compile sigprocmask(SIG_BLOCK, &grug_block_mask, NULL);
+		compile_unpadded(XOR_CLEAR_EDX);
+		compile_unpadded(DEREF_RBX_TO_RSI);
+		compile_32(-(u8)GLOBAL_OFFSET_TABLE_POINTER_SIZE);
+		compile_unpadded(XOR_CLEAR_EDI);
+		compile_byte(CALL);
+		push_system_fn_call("sigprocmask", codes_size);
+		compile_unpadded(PLACEHOLDER_32);
+	}
 
 	bool gets_global_variables_pointer = false;
 	if (get_helper_fn(call_expr.fn_name)) {
@@ -4376,10 +4381,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 
 	compile_byte(CALL);
 
-	char *fn_name = call_expr.fn_name;
-
 	bool returns_float = false;
-	struct grug_game_function *game_fn = get_grug_game_fn(fn_name);
 	if (game_fn) {
 		push_game_fn_call(fn_name, codes_size);
 		returns_float = game_fn->return_type == type_f32;
@@ -4407,19 +4409,21 @@ static void compile_call_expr(struct call_expr call_expr) {
 		compile_unpadded(MOV_XMM0_TO_EAX);
 	}
 
-	compile_unpadded(PUSH_RAX);
+	if (game_fn) {
+		compile_unpadded(PUSH_RAX);
 
-	// Compile sigprocmask(SIG_UNBLOCK, &grug_block_mask, NULL);
-	compile_unpadded(XOR_CLEAR_EDX);
-	compile_unpadded(DEREF_RBX_TO_RSI);
-	compile_32(-(u8)GLOBAL_OFFSET_TABLE_POINTER_SIZE);
-	compile_unpadded(MOV_TO_EDI);
-	compile_32(1);
-	compile_byte(CALL);
-	push_system_fn_call("sigprocmask", codes_size);
-	compile_unpadded(PLACEHOLDER_32);
+		// Compile sigprocmask(SIG_UNBLOCK, &grug_block_mask, NULL);
+		compile_unpadded(XOR_CLEAR_EDX);
+		compile_unpadded(DEREF_RBX_TO_RSI);
+		compile_32(-(u8)GLOBAL_OFFSET_TABLE_POINTER_SIZE);
+		compile_unpadded(MOV_TO_EDI);
+		compile_32(1);
+		compile_byte(CALL);
+		push_system_fn_call("sigprocmask", codes_size);
+		compile_unpadded(PLACEHOLDER_32);
 
-	compile_unpadded(POP_RAX);
+		compile_unpadded(POP_RAX);
+	}
 }
 
 static void compile_logical_expr(struct binary_expr logical_expr) {
