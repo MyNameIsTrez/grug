@@ -4418,9 +4418,13 @@ static void compile_call_expr(struct call_expr call_expr) {
 		compile_32(-(u8)GLOBAL_OFFSET_TABLE_POINTER_SIZE);
 		compile_unpadded(MOV_TO_EDI);
 		compile_32(1);
+		compile_unpadded(SUB_RSP_8_BITS);
+		compile_byte(0x8);
 		compile_byte(CALL);
 		push_system_fn_call("sigprocmask", codes_size);
 		compile_unpadded(PLACEHOLDER_32);
+		compile_unpadded(ADD_RSP_8_BITS);
+		compile_byte(0x8);
 
 		compile_unpadded(POP_RAX);
 	}
