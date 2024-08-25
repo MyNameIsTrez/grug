@@ -5045,29 +5045,29 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 	push_got_access(codes_size);
 	compile_unpadded(PLACEHOLDER_32);
 
-	// lea rax, strings[rel n]:
-	add_data_string(fn_name);
-	compile_unpadded(LEA_STRINGS_TO_RAX);
-	push_data_string_code(fn_name, codes_size);
-	compile_unpadded(PLACEHOLDER_32);
-	// mov r11, rbx[grug_on_fn_name wrt ..got]:
-	compile_unpadded(DEREF_RBX_TO_R11);
-	compile_32(-(u8)GRUG_ON_FN_NAME_OFFSET);
-	// mov [r11], rax:
-	compile_unpadded(MOV_RAX_TO_DEREF_R11_OFFSETLESS);
-
-	// lea rax, strings[rel n]:
-	add_data_string(grug_path);
-	compile_unpadded(LEA_STRINGS_TO_RAX);
-	push_data_string_code(grug_path, codes_size);
-	compile_unpadded(PLACEHOLDER_32);
-	// mov r11, rbx[grug_on_fn_path wrt ..got]:
-	compile_unpadded(DEREF_RBX_TO_R11);
-	compile_32(-(u8)GRUG_ON_FN_PATH_OFFSET);
-	// mov [r11], rax:
-	compile_unpadded(MOV_RAX_TO_DEREF_R11_OFFSETLESS);
-
 	if (is_on_fn) {
+		// lea rax, strings[rel n]:
+		add_data_string(fn_name);
+		compile_unpadded(LEA_STRINGS_TO_RAX);
+		push_data_string_code(fn_name, codes_size);
+		compile_unpadded(PLACEHOLDER_32);
+		// mov r11, rbx[grug_on_fn_name wrt ..got]:
+		compile_unpadded(DEREF_RBX_TO_R11);
+		compile_32(-(u8)GRUG_ON_FN_NAME_OFFSET);
+		// mov [r11], rax:
+		compile_unpadded(MOV_RAX_TO_DEREF_R11_OFFSETLESS);
+
+		// lea rax, strings[rel n]:
+		add_data_string(grug_path);
+		compile_unpadded(LEA_STRINGS_TO_RAX);
+		push_data_string_code(grug_path, codes_size);
+		compile_unpadded(PLACEHOLDER_32);
+		// mov r11, rbx[grug_on_fn_path wrt ..got]:
+		compile_unpadded(DEREF_RBX_TO_R11);
+		compile_32(-(u8)GRUG_ON_FN_PATH_OFFSET);
+		// mov [r11], rax:
+		compile_unpadded(MOV_RAX_TO_DEREF_R11_OFFSETLESS);
+
 		compile_byte(CALL);
 		push_system_fn_call("grug_enable_on_fn_runtime_error_handling", codes_size);
 		compile_unpadded(PLACEHOLDER_32);
