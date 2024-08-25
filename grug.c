@@ -3976,6 +3976,8 @@ static size_t got_accesses_size;
 
 static bool in_on_fn;
 
+static bool calling_game_fn;
+
 static void reset_compiling(void) {
 	codes_size = 0;
 	data_strings_size = 0;
@@ -3990,6 +3992,7 @@ static void reset_compiling(void) {
 	loop_break_statements_stack_size = 0;
 	got_accesses_size = 0;
 	in_on_fn = false;
+	calling_game_fn = false;
 }
 
 static size_t get_helper_fn_offset(char *name) {
@@ -4343,6 +4346,8 @@ static void compile_call_expr(struct call_expr call_expr) {
 	struct grug_game_function *game_fn = get_grug_game_fn(fn_name);
 
 	if (game_fn) {
+		calling_game_fn = true;
+
 		// Compile sigprocmask(SIG_BLOCK, &grug_block_mask, NULL);
 		compile_unpadded(XOR_CLEAR_EDX);
 		compile_unpadded(DEREF_RBX_TO_RSI);
@@ -5888,14 +5893,9 @@ static void push_strtab(char *grug_path) {
 	push_byte(0);
 	push_string_bytes(grug_path);
 
-	// Local symbols
-	// TODO: Add loop
-
 	push_string_bytes("_DYNAMIC");
 	push_string_bytes("_GLOBAL_OFFSET_TABLE_");
 
-	// Global symbols
-	// TODO: Don't loop through local symbols
 	for (size_t i = 0; i < symbols_size; i++) {
 		push_string_bytes(shuffled_symbols[i]);
 	}
@@ -6037,7 +6037,9 @@ static void push_got(void) {
 	// This is for extern globals
 	push_zeros(8); // grug_on_fn_name
 	push_zeros(8); // grug_on_fn_path
-	push_zeros(8); // grug_block_mask
+	if (calling_game_fn) {
+		push_zeros(8); // grug_block_mask
+	}
 
 	got_size = bytes_size - got_offset;
 }
@@ -6059,8 +6061,12 @@ static void push_dynamic(void) {
 	size_t segment_2_to_3_offset = 0x1000;
 	dynamic_offset = bytes_size + segment_2_to_3_offset - dynamic_size;
 	if (on_fns_size > 0) {
-		size_t future_got_size = 3 * sizeof(u64); // TODO: Stop having this hardcoded here
-		dynamic_offset -= future_got_size;
+		// This subtracts the future got_size
+		// TODO: Stop having these hardcoded here
+		dynamic_offset -= 2 * sizeof(u64);
+		if (calling_game_fn) {
+			dynamic_offset -= sizeof(u64);
+		}
 	}
 #ifndef OLD_LD
 	dynamic_offset -= GOT_PLT_INTRO_SIZE;
@@ -6730,7 +6736,8 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 
 		push_symbol("grug_on_fn_path");
 		extern_data_symbols_size++;
-
+	}
+	if (calling_game_fn) {
 		push_symbol("grug_block_mask");
 		extern_data_symbols_size++;
 	}
