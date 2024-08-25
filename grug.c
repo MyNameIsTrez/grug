@@ -245,39 +245,6 @@ void grug_disable_on_fn_runtime_error_handling(void) {
 		abort();
 	}
 
-	// TODO: REMOVE THESE
-	// fprintf(stderr, "new.it_value.tv_sec: %ld\n", new.it_value.tv_sec);
-	// fprintf(stderr, "new.it_value.tv_nsec: %ld\n", new.it_value.tv_nsec);
-	// fprintf(stderr, "new.it_interval.tv_sec: %ld\n", new.it_interval.tv_sec);
-	// fprintf(stderr, "new.it_interval.tv_nsec: %ld\n", new.it_interval.tv_nsec);
-
-	// TODO: REMOVE THESE
-	// fprintf(stderr, "old.it_value.tv_sec: %ld\n", old.it_value.tv_sec);
-	// fprintf(stderr, "old.it_value.tv_nsec: %ld\n", old.it_value.tv_nsec);
-	// fprintf(stderr, "old.it_interval.tv_sec: %ld\n", old.it_interval.tv_sec);
-	// fprintf(stderr, "old.it_interval.tv_nsec: %ld\n", old.it_interval.tv_nsec);
-
-	// TODO: I think this block of code can be removed?
-	// static struct sigaction ignore_sa = {
-	// 	.sa_handler = SIG_IGN,
-	// };
-	// static bool initialized = false;
-	// if (!initialized) {
-	// 	if (sigemptyset(&ignore_sa.sa_mask) == -1) { // TODO: Is calling this necessary? Doesn't zero-initialization of the struct do this already?
-	// 		abort();
-	// 	}
-	// 	initialized = true;
-	// }
-    // if (sigaction(SIGSEGV, &ignore_sa, NULL) == -1) {
-    //     abort();
-    // }
-    // if (sigaction(SIGALRM, &ignore_sa, NULL) == -1) {
-    //     abort();
-    // }
-    // if (sigaction(SIGFPE, &ignore_sa, NULL) == -1) {
-    //     abort();
-    // }
-
 	if (sigaction(SIGSEGV, &previous_segv_sa, NULL) == -1) {
 		abort();
 	}
