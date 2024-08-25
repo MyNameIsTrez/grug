@@ -4709,7 +4709,7 @@ static void compile_expr(struct expr expr) {
 			}
 
 			compile_unpadded(DEREF_RBP_TO_RAX);
-			compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
+			compile_byte(-(u8)(GLOBAL_OFFSET_TABLE_POINTER_SIZE + GLOBAL_VARIABLES_POINTER_SIZE));
 
 			// TODO: Support any 32 bit offset, instead of only 8 bits
 			var = get_global_variable(expr.literal.string);
@@ -4793,7 +4793,7 @@ static void compile_variable_statement(struct variable_statement variable_statem
 	}
 
 	compile_unpadded(DEREF_RBP_TO_R11);
-	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
+	compile_byte(-(u8)(GLOBAL_OFFSET_TABLE_POINTER_SIZE + GLOBAL_VARIABLES_POINTER_SIZE));
 
 	// TODO: Support any 32 bit offset, instead of only 8 bits
 	var = get_global_variable(variable_statement.name);
