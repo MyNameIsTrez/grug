@@ -6592,9 +6592,8 @@ static void init_data_offsets(void) {
 	offset += sizeof(u64);
 
 	// "on_fns" function address symbols
-	data_offsets[i] = offset; // This can deliberately be overwritten by the loop
+	data_offsets[i++] = offset;
 	for (size_t on_fn_index = 0; on_fn_index < grug_define_entity->on_function_count; on_fn_index++) {
-		data_offsets[i++] = offset;
 		offset += sizeof(size_t);
 	}
 
