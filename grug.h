@@ -67,6 +67,8 @@ extern struct grug_modified grug_reloads[MAX_RELOADS];
 extern size_t grug_reloads_size;
 
 extern struct grug_error grug_error;
+extern char *grug_on_fn_name;
+extern char *grug_on_fn_path;
 
 extern volatile sig_atomic_t grug_runtime_error;
 extern jmp_buf grug_runtime_error_jmp_buffer;
