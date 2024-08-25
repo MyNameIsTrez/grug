@@ -3140,6 +3140,9 @@ static void print_ast(void) {
 
 #define GLOBAL_OFFSET_TABLE_POINTER_SIZE sizeof(void *)
 #define GLOBAL_VARIABLES_POINTER_SIZE sizeof(void *)
+#define GRUG_ON_FN_NAME_OFFSET sizeof(char *)
+#define GRUG_ON_FN_PATH_OFFSET (GRUG_ON_FN_NAME_OFFSET + sizeof(char *))
+#define GRUG_BLOCK_MASK_OFFSET (GRUG_ON_FN_PATH_OFFSET + sizeof(void *))
 
 struct variable {
 	char *name;
@@ -3802,6 +3805,7 @@ static void fill_result_types(void) {
 #define DEREF_RBP_TO_R11 0x5d8b4c // mov r11, rbp[n]
 
 #define DEREF_RBX_TO_RSI 0xb38b48 // mov rsi, rbx[n]
+#define DEREF_RBX_TO_R11 0x9b8b4c // mov r11, rbx[n]
 
 #define MOV_EAX_TO_DEREF_RBP 0x4589 // mov rbp[n], eax
 #define MOV_RAX_TO_DEREF_RBP 0x458948 // mov rbp[n], rax
@@ -3811,6 +3815,7 @@ static void fill_result_types(void) {
 
 #define MOV_EAX_TO_DEREF_R11 0x438941 // mov r11[n], eax
 #define MOV_RAX_TO_DEREF_R11 0x438949 // mov r11[n], rax
+#define MOV_RAX_TO_DEREF_R11_OFFSETLESS 0x38949 // mov [r11], rax
 
 #define MOV_RBP_TO_RSP 0xec8948 // mov rsp, rbp
 #define POP_RBP 0x5d // pop rbp
@@ -3833,10 +3838,10 @@ static void fill_result_types(void) {
 
 #define TEST_EAX_IS_ZERO 0xc085 // test eax, eax
 
-#define JE_8_BIT_OFFSET 0x74 // je $+0xn
-#define JNE_8_BIT_OFFSET 0x75 // jne $+0xn
-#define JE_32_BIT_OFFSET 0x840f // je strict $+0xn
-#define JMP_32_BIT_OFFSET 0xe9 // jmp $+0xn
+#define JE_8_BIT_OFFSET 0x74 // je $+n
+#define JNE_8_BIT_OFFSET 0x75 // jne $+n
+#define JE_32_BIT_OFFSET 0x840f // je strict $+n
+#define JMP_32_BIT_OFFSET 0xe9 // jmp $+n
 
 #define SETE_AL 0xc0940f // sete al
 #define SETNE_AL 0xc0950f // setne al
@@ -3901,8 +3906,8 @@ static void fill_result_types(void) {
 #define ADD_TO_RBX 0xc38148 // add rbx, n
 
 #define NOP_32_BITS 0x401f0f // no nasm equivalent
-#define PUSH_REL 0x35ff // TODO: what nasm is this?
-#define JMP_REL 0x25ff // TODO: what nasm is this?
+#define PUSH_REL 0x35ff // Not quite push qword [$+n]
+#define JMP_REL 0x25ff // Not quite jmp [$+n]
 
 // End of code enums
 
@@ -4341,7 +4346,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 		// Compile sigprocmask(SIG_BLOCK, &grug_block_mask, NULL);
 		compile_unpadded(XOR_CLEAR_EDX);
 		compile_unpadded(DEREF_RBX_TO_RSI);
-		compile_32(-(u8)GLOBAL_OFFSET_TABLE_POINTER_SIZE);
+		compile_32(-(u8)GRUG_BLOCK_MASK_OFFSET);
 		compile_unpadded(XOR_CLEAR_EDI);
 		compile_byte(CALL);
 		push_system_fn_call("sigprocmask", codes_size);
@@ -4415,7 +4420,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 		// Compile sigprocmask(SIG_UNBLOCK, &grug_block_mask, NULL);
 		compile_unpadded(XOR_CLEAR_EDX);
 		compile_unpadded(DEREF_RBX_TO_RSI);
-		compile_32(-(u8)GLOBAL_OFFSET_TABLE_POINTER_SIZE);
+		compile_32(-(u8)GRUG_BLOCK_MASK_OFFSET);
 		compile_unpadded(MOV_TO_EDI);
 		compile_32(1);
 		compile_unpadded(SUB_RSP_8_BITS);
@@ -4939,7 +4944,7 @@ static size_t round_to_power_of_2(size_t n, size_t multiple) {
 	return (n + multiple - 1) & -multiple;
 }
 
-static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, bool is_on_fn) {
+static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, bool is_on_fn, char *grug_path) {
 	init_argument_variables(fn_arguments, argument_count);
 
 	add_variables_in_statements(body_statements, body_statement_count);
@@ -5032,11 +5037,35 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 	}
 
 	// Let RBX contain the address of the global offset table
+	// lea rbx, [rel $$]:
 	compile_unpadded(LEA_RIP_TO_RBX);
 	compile_32(-(codes_size + NEXT_INSTRUCTION_OFFSET));
+	// add rbx, _GLOBAL_OFFSET_TABLE_ wrt ..gotpc:
 	compile_unpadded(ADD_TO_RBX);
 	push_got_access(codes_size);
 	compile_unpadded(PLACEHOLDER_32);
+
+	// lea rax, strings[rel n]:
+	add_data_string(fn_name);
+	compile_unpadded(LEA_STRINGS_TO_RAX);
+	push_data_string_code(fn_name, codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+	// mov r11, rbx[grug_on_fn_name wrt ..got]:
+	compile_unpadded(DEREF_RBX_TO_R11);
+	compile_32(-(u8)GRUG_ON_FN_NAME_OFFSET);
+	// mov [r11], rax:
+	compile_unpadded(MOV_RAX_TO_DEREF_R11_OFFSETLESS);
+
+	// lea rax, strings[rel n]:
+	add_data_string(grug_path);
+	compile_unpadded(LEA_STRINGS_TO_RAX);
+	push_data_string_code(grug_path, codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+	// mov r11, rbx[grug_on_fn_path wrt ..got]:
+	compile_unpadded(DEREF_RBX_TO_R11);
+	compile_32(-(u8)GRUG_ON_FN_PATH_OFFSET);
+	// mov [r11], rax:
+	compile_unpadded(MOV_RAX_TO_DEREF_R11_OFFSETLESS);
 
 	if (is_on_fn) {
 		compile_byte(CALL);
@@ -5066,12 +5095,12 @@ static void compile_on_or_helper_fn(struct argument *fn_arguments, size_t argume
 	compile_byte(RET);
 }
 
-static void compile_on_fn(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
-	compile_on_or_helper_fn(fn_arguments, argument_count, body_statements, body_statement_count, true);
+static void compile_on_fn(struct on_fn fn, char *grug_path) {
+	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, true, grug_path);
 }
 
-static void compile_helper_fn(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
-	compile_on_or_helper_fn(fn_arguments, argument_count, body_statements, body_statement_count, false);
+static void compile_helper_fn(struct helper_fn fn) {
+	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, false, NULL);
 }
 
 static void compile_init_globals_fn(void) {
@@ -5213,7 +5242,7 @@ static void init_define_fn_name(char *name) {
 	temp_strings[temp_strings_size++] = '\0';
 }
 
-static void compile(void) {
+static void compile(char *grug_path) {
 	reset_compiling();
 
 	init_define_fn_name(grug_define_entity->name);
@@ -5237,7 +5266,7 @@ static void compile(void) {
 
 		struct on_fn fn = on_fns[on_fn_index];
 
-		compile_on_fn(fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count);
+		compile_on_fn(fn, grug_path);
 
 		text_offsets[text_offset_index++] = text_offset;
 		text_offset += codes_size - start_codes_size;
@@ -5250,7 +5279,7 @@ static void compile(void) {
 
 		push_helper_fn_offset(fn.fn_name, codes_size);
 
-		compile_helper_fn(fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count);
+		compile_helper_fn(fn);
 
 		text_offsets[text_offset_index++] = text_offset;
 		text_offset += codes_size - start_codes_size;
@@ -5322,8 +5351,6 @@ static size_t symbol_index_to_shuffled_symbol_index[MAX_SYMBOLS];
 
 static size_t first_extern_data_symbol_index;
 static size_t first_used_extern_fn_symbol_index;
-
-static size_t grug_block_mask_symbol_index;
 
 static size_t data_offsets[MAX_SYMBOLS];
 static size_t data_string_offsets[MAX_SYMBOLS];
@@ -5534,9 +5561,12 @@ static void patch_rela_dyn(void) {
 		on_fn_data_offset += sizeof(size_t);
 	}
 
-	overwrite_64(got_offset, bytes_offset);
-	bytes_offset += 2 * sizeof(u64);
-	overwrite_64(0, bytes_offset);
+	for (size_t i = 0; i < extern_data_symbols_size; i++) {
+		overwrite_64(got_offset + i * sizeof(u64), bytes_offset);
+		bytes_offset += 2 * sizeof(u64);
+		overwrite_64(0, bytes_offset);
+		bytes_offset += sizeof(u64);
+	}
 }
 
 static u32 get_symbol_offset(size_t symbol_index) {
@@ -6004,8 +6034,10 @@ static void push_got(void) {
 
 	got_offset = bytes_size;
 
-	// This is for the grug_block_mask extern global
-	push_zeros(8);
+	// This is for extern globals
+	push_zeros(8); // grug_on_fn_name
+	push_zeros(8); // grug_on_fn_path
+	push_zeros(8); // grug_block_mask
 
 	got_size = bytes_size - got_offset;
 }
@@ -6027,7 +6059,7 @@ static void push_dynamic(void) {
 	size_t segment_2_to_3_offset = 0x1000;
 	dynamic_offset = bytes_size + segment_2_to_3_offset - dynamic_size;
 	if (on_fns_size > 0) {
-		size_t future_got_size = sizeof(u64);
+		size_t future_got_size = 3 * sizeof(u64); // TODO: Stop having this hardcoded here
 		dynamic_offset -= future_got_size;
 	}
 #ifndef OLD_LD
@@ -6047,8 +6079,7 @@ static void push_dynamic(void) {
 
 	if (on_fns_size > 0) {
 		push_dynamic_entry(DT_RELA, rela_dyn_offset);
-		size_t has_grug_block_mask = 1;
-		push_dynamic_entry(DT_RELASZ, RELA_ENTRY_SIZE * (on_fns_size + has_grug_block_mask));
+		push_dynamic_entry(DT_RELASZ, (on_fns_size + extern_data_symbols_size) * RELA_ENTRY_SIZE);
 		push_dynamic_entry(DT_RELAENT, RELA_ENTRY_SIZE);
 		push_dynamic_entry(DT_RELACOUNT, on_fns_size);
 	}
@@ -6171,9 +6202,12 @@ static void push_rela_dyn(void) {
 		}
 	}
 
-	// This is for the grug_block_mask extern global
-	// `1 +` skips the first symbol, which is always undefined
-	push_rela(PLACEHOLDER_64, ELF64_R_INFO(1 + symbol_index_to_shuffled_symbol_index[grug_block_mask_symbol_index], R_X86_64_GLOB_DAT), PLACEHOLDER_64);
+	// Idk why, but nasm seems to always push the symbols in the reverse order
+	// Maybe this should use symbol_index_to_shuffled_symbol_index?
+	for (size_t i = extern_data_symbols_size; i > 0; i--) {
+		// `1 +` skips the first symbol, which is always undefined
+		push_rela(PLACEHOLDER_64, ELF64_R_INFO(1 + symbol_index_to_shuffled_symbol_index[first_extern_data_symbol_index + i - 1], R_X86_64_GLOB_DAT), PLACEHOLDER_64);
+	}
 
 	rela_dyn_size = bytes_size - rela_dyn_offset;
 }
@@ -6559,13 +6593,11 @@ static void init_data_offsets(void) {
 	}
 
 	// "strings" symbol
-	if (data_strings_size > 0) {
-		data_offsets[i++] = offset;
-		for (size_t string_index = 0; string_index < data_strings_size; string_index++) {
-			data_string_offsets[string_index] = offset;
-			char *string = data_strings[string_index];
-			offset += strlen(string) + 1;
-		}
+	data_offsets[i++] = offset;
+	for (size_t string_index = 0; string_index < data_strings_size; string_index++) {
+		data_string_offsets[string_index] = offset;
+		char *string = data_strings[string_index];
+		offset += strlen(string) + 1;
 	}
 
 	data_size = offset;
@@ -6688,14 +6720,17 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 		data_symbols_size++;
 	}
 
-	if (data_strings_size > 0) {
-		push_symbol("strings");
-		data_symbols_size++;
-	}
+	push_symbol("strings");
+	data_symbols_size++;
 
 	first_extern_data_symbol_index = data_symbols_size;
 	if (on_fns_size > 0) {
-		grug_block_mask_symbol_index = symbols_size;
+		push_symbol("grug_on_fn_name");
+		extern_data_symbols_size++;
+
+		push_symbol("grug_on_fn_path");
+		extern_data_symbols_size++;
+
 		push_symbol("grug_block_mask");
 		extern_data_symbols_size++;
 	}
@@ -6744,6 +6779,9 @@ struct grug_mod_dir grug_mods;
 struct grug_modified grug_reloads[MAX_RELOADS];
 size_t grug_reloads_size;
 
+char *grug_on_fn_name;
+char *grug_on_fn_path;
+
 static void regenerate_dll(char *grug_path, char *dll_path) {
 	grug_log("# Regenerating %s\n", dll_path);
 
@@ -6781,7 +6819,7 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 	(void)print_ast;
 #endif
 
-	compile();
+	compile(grug_path);
 
 	grug_log("\n# Section offsets\n");
 	generate_shared_object(grug_path, dll_path);
