@@ -932,18 +932,21 @@ enum type {
 	type_i32,
 	type_f32,
 	type_string,
+	type_resource,
 };
 static char *type_names[] = {
 	[type_bool] = "bool",
 	[type_i32] = "i32",
 	[type_f32] = "f32",
 	[type_string] = "string",
+	[type_resource] = "resource",
 };
 static size_t type_sizes[] = {
 	[type_bool] = sizeof(bool),
 	[type_i32] = sizeof(int32_t),
 	[type_f32] = sizeof(float),
 	[type_string] = sizeof(char *),
+	[type_resource] = sizeof(char *),
 };
 
 struct grug_on_function {
@@ -954,8 +957,8 @@ struct grug_on_function {
 
 struct grug_entity {
 	char *name;
-	struct argument *arguments;
-	size_t argument_count;
+	struct argument *fields;
+	size_t field_count;
 	struct grug_on_function *on_functions;
 	size_t on_function_count;
 };
@@ -1055,9 +1058,12 @@ static enum type parse_type(char *type) {
 	if (streq(type, "string")) {
 		return type_string;
 	}
+	if (streq(type, "resource")) {
+		return type_resource;
+	}
 
 	// TODO: Make sure to add any new types to this error message
-	grug_error("The type '%s' must be changed to one of bool/i32/f32/string", type);
+	grug_error("The type '%s' must be changed to one of bool/i32/f32/string/resource", type);
 }
 
 static void init_game_fns(struct json_object fns) {
@@ -1088,6 +1094,7 @@ static void init_game_fns(struct json_object fns) {
 			if (streq(field->key, "return_type")) {
 				grug_assert(field->value->type == JSON_NODE_STRING, "\"game_functions\" its function return types must be strings");
 				grug_fn.return_type = parse_type(field->value->data.string);
+				grug_assert(grug_fn.return_type != type_resource, "\"game_functions\" its function return types must not be 'resource'");
 				seen_return_type = true;
 				field++;
 			} else {
@@ -1114,12 +1121,12 @@ static void init_game_fns(struct json_object fns) {
 				grug_assert(value->data.object.field_count == 2, "\"game_functions\" its function arguments must only contain a name and type field");
 				struct json_field *argument_field = value->data.object.fields;
 
-				grug_assert(streq(argument_field->key, "name"), "\"game_functions\" its function arguments must always have \"name\" be their first field");
+				grug_assert(streq(argument_field->key, "name"), "\"game_functions\" its function arguments must always have \"name\" as their first field");
 				grug_assert(argument_field->value->type == JSON_NODE_STRING, "\"game_functions\" its function arguments must always have string values");
 				grug_arg.name = argument_field->value->data.string;
 				argument_field++;
 
-				grug_assert(streq(argument_field->key, "type"), "\"game_functions\" its function arguments must always have \"type\" be their second field");
+				grug_assert(streq(argument_field->key, "type"), "\"game_functions\" its function arguments must always have \"type\" as their second field");
 				grug_assert(argument_field->value->type == JSON_NODE_STRING, "\"game_functions\" its function arguments must always have string values");
 				grug_arg.type = parse_type(argument_field->value->data.string);
 				argument_field++;
@@ -1172,14 +1179,15 @@ static void init_on_fns(struct json_object fns) {
 				grug_assert(value->data.object.field_count == 2, "\"on_functions\" its function arguments must only contain a name and type field");
 				struct json_field *argument_field = value->data.object.fields;
 
-				grug_assert(streq(argument_field->key, "name"), "\"on_functions\" its function arguments must always have \"name\" be their first field");
+				grug_assert(streq(argument_field->key, "name"), "\"on_functions\" its function arguments must always have \"name\" as their first field");
 				grug_assert(argument_field->value->type == JSON_NODE_STRING, "\"on_functions\" its function arguments must always have string values");
 				grug_arg.name = argument_field->value->data.string;
 				argument_field++;
 
-				grug_assert(streq(argument_field->key, "type"), "\"on_functions\" its function arguments must always have \"type\" be their second field");
+				grug_assert(streq(argument_field->key, "type"), "\"on_functions\" its function arguments must always have \"type\" as their second field");
 				grug_assert(argument_field->value->type == JSON_NODE_STRING, "\"on_functions\" its function arguments must always have string values");
 				grug_arg.type = parse_type(argument_field->value->data.string);
+				grug_assert(grug_arg.type != type_resource, "\"on_functions\" its function argument types must not be 'resource'");
 				argument_field++;
 
 				push_grug_argument(grug_arg);
@@ -1218,26 +1226,26 @@ static void init_entities(struct json_object entities) {
 			if (streq(field->key, "fields")) {
 				grug_assert(field->value->type == JSON_NODE_ARRAY, "\"entities\" its \"fields\" must be arrays");
 				struct json_node *value = field->value->data.array.values;
-				entity.arguments = grug_arguments + grug_arguments_size;
-				entity.argument_count = field->value->data.array.value_count;
+				entity.fields = grug_arguments + grug_arguments_size;
+				entity.field_count = field->value->data.array.value_count;
 
-				for (size_t argument_index = 0; argument_index < entity.argument_count; argument_index++) {
-					struct argument grug_arg;
+				for (size_t field_index = 0; field_index < entity.field_count; field_index++) {
+					struct argument grug_field;
 
-					grug_assert(value->type == JSON_NODE_OBJECT, "\"entities\" its arguments must only contain objects");
-					grug_assert(value->data.object.field_count == 2, "\"entities\" its arguments must only contain a name and type field");
+					grug_assert(value->type == JSON_NODE_OBJECT, "\"entities\" its fields must only contain objects");
+					grug_assert(value->data.object.field_count == 2, "\"entities\" its fields must only contain a name and type field");
 					struct json_field *arg_field = value->data.object.fields;
 
-					grug_assert(streq(arg_field->key, "name"), "\"entities\" its arguments must always have \"name\" be their first field");
-					grug_assert(arg_field->value->type == JSON_NODE_STRING, "\"entities\" its arguments must always have string values");
-					grug_arg.name = arg_field->value->data.string;
+					grug_assert(streq(arg_field->key, "name"), "\"entities\" its fields must always have \"name\" as their first field");
+					grug_assert(arg_field->value->type == JSON_NODE_STRING, "\"entities\" its fields must always have string values");
+					grug_field.name = arg_field->value->data.string;
 					arg_field++;
 
-					grug_assert(streq(arg_field->key, "type"), "\"entities\" its arguments must always have \"type\" be their second field");
-					grug_assert(arg_field->value->type == JSON_NODE_STRING, "\"entities\" its arguments must always have string values");
-					grug_arg.type = parse_type(arg_field->value->data.string);
+					grug_assert(streq(arg_field->key, "type"), "\"entities\" its fields must always have \"type\" as their second field");
+					grug_assert(arg_field->value->type == JSON_NODE_STRING, "\"entities\" its fields must always have string values");
+					grug_field.type = parse_type(arg_field->value->data.string);
 
-					push_grug_argument(grug_arg);
+					push_grug_argument(grug_field);
 					value++;
 				}
 
@@ -2464,6 +2472,7 @@ static struct variable_statement parse_variable_statement(size_t *i) {
 
 		variable_statement.has_type = true;
 		variable_statement.type = parse_type(type_token.str);
+		grug_assert(variable_statement.type != type_resource, "The local variable '%s' can't have 'resource' as its type", variable_statement.name);
 	}
 
 	token = peek_token(*i);
@@ -2492,6 +2501,7 @@ static void parse_global_variable(size_t *i) {
 	assert_token_type(*i, WORD_TOKEN);
 	struct token type_token = consume_token(i);
 	global_variable.type = parse_type(type_token.str);
+	grug_assert(global_variable.type != type_resource, "The global variable '%s' can't have 'resource' as its type", global_variable.name);
 
 	assert_token_type(*i, ASSIGNMENT_TOKEN);
 	consume_token(i);
@@ -2615,6 +2625,7 @@ static struct argument *parse_arguments(size_t *i, size_t *argument_count) {
 	token = consume_token(i);
 
 	argument.type = parse_type(token.str);
+	grug_assert(argument.type != type_resource, "The argument '%s' can't have 'resource' as its type", argument.name);
 	struct argument *first_argument = push_argument(argument);
 	(*argument_count)++;
 
@@ -2635,6 +2646,7 @@ static struct argument *parse_arguments(size_t *i, size_t *argument_count) {
 		assert_token_type(*i, WORD_TOKEN);
 		token = consume_token(i);
 		argument.type = parse_type(token.str);
+		grug_assert(argument.type != type_resource, "The argument '%s' can't have 'resource' as its type", argument.name);
 		push_argument(argument);
 		(*argument_count)++;
 	}
@@ -2661,6 +2673,7 @@ static void parse_helper_fn(size_t *i) {
 	if (token.type == WORD_TOKEN) {
 		(*i)++;
 		fn.return_type = parse_type(token.str);
+		grug_assert(fn.return_type != type_resource, "The helper function '%s' can't have 'resource' as its return type", fn.fn_name);
 	}
 
 	fn.body_statements = parse_statements(i, &fn.body_statement_count);
@@ -3202,7 +3215,9 @@ static void fill_binary_expr(struct expr *expr) {
 	fill_expr(binary_expr.right_expr);
 
 	// TODO: Add tests for also not being able to use unary operators on strings
-	grug_assert(binary_expr.left_expr->result_type != type_string || binary_expr.operator == EQUALS_TOKEN || binary_expr.operator == NOT_EQUALS_TOKEN, "You can't use the %s operator on a string", get_token_type_str[binary_expr.operator]);
+	if (binary_expr.left_expr->result_type == type_string) {
+		grug_assert(binary_expr.operator == EQUALS_TOKEN || binary_expr.operator == NOT_EQUALS_TOKEN, "You can't use the %s operator on a string", get_token_type_str[binary_expr.operator]);
+	}
 
 	grug_assert(binary_expr.left_expr->result_type == binary_expr.right_expr->result_type, "The left and right operand of a binary expression ('%s') must have the same type, but got %s and %s", get_token_type_str[binary_expr.operator], type_names[binary_expr.left_expr->result_type], type_names[binary_expr.right_expr->result_type]);
 
@@ -3691,7 +3706,7 @@ static void fill_result_types(void) {
 
 	grug_assert(grug_define_entity, "The entity '%s' was not declared by mod_api.json", define_fn.return_type);
 
-	grug_assert(grug_define_entity->argument_count == define_fn.returned_compound_literal.field_count, "The entity '%s' expects %zu fields, but got %zu", grug_define_entity->name, grug_define_entity->argument_count, define_fn.returned_compound_literal.field_count);
+	grug_assert(grug_define_entity->field_count == define_fn.returned_compound_literal.field_count, "The entity '%s' expects %zu fields, but got %zu", grug_define_entity->name, grug_define_entity->field_count, define_fn.returned_compound_literal.field_count);
 
 	hash_define_on_fns();
 
@@ -4693,6 +4708,7 @@ static void compile_expr(struct expr expr) {
 				// TODO: Support any 32 bit offset, instead of only 8 bits
 				switch (var->type) {
 					case type_void:
+					case type_resource:
 						grug_unreachable();
 					case type_bool:
 					case type_i32:
@@ -4715,6 +4731,7 @@ static void compile_expr(struct expr expr) {
 			var = get_global_variable(expr.literal.string);
 			switch (var->type) {
 				case type_void:
+				case type_resource:
 					grug_unreachable();
 				case type_bool:
 				case type_i32:
@@ -4777,6 +4794,7 @@ static void compile_variable_statement(struct variable_statement variable_statem
 		// TODO: Support any 32 bit offset, instead of only 8 bits
 		switch (var->type) {
 			case type_void:
+			case type_resource:
 				grug_unreachable();
 			case type_bool:
 			case type_i32:
@@ -4799,6 +4817,7 @@ static void compile_variable_statement(struct variable_statement variable_statem
 	var = get_global_variable(variable_statement.name);
 	switch (var->type) {
 		case type_void:
+		case type_resource:
 			grug_unreachable();
 		case type_bool:
 		case type_i32:
@@ -4962,6 +4981,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		// We skip EDI/RDI, since that is reserved by the secret global variables pointer
 		switch (arg.type) {
 			case type_void:
+			case type_resource:
 				grug_unreachable();
 			case type_bool:
 			case type_i32:
@@ -5174,7 +5194,7 @@ static void compile_define_fn(void) {
 	for (size_t field_index = 0; field_index < field_count; field_index++) {
 		struct field field = define_fn.returned_compound_literal.fields[field_index];
 
-		grug_assert(streq(field.key, grug_define_entity->arguments[field_index].name), "Field %zu named '%s' that you're returning from your define function must be renamed to '%s', according to the entity '%s' in mod_api.json", field_index + 1, field.key, grug_define_entity->arguments[field_index].name, grug_define_entity->name);
+		grug_assert(streq(field.key, grug_define_entity->fields[field_index].name), "Field %zu named '%s' that you're returning from your define function must be renamed to '%s', according to the entity '%s' in mod_api.json", field_index + 1, field.key, grug_define_entity->fields[field_index].name, grug_define_entity->name);
 
 		// TODO: Verify that the argument has the same type as the one in grug_define_entity
 	}
