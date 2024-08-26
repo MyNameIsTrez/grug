@@ -591,7 +591,7 @@ static bool is_duplicate_key(struct json_field *child_fields, size_t field_count
 }
 
 static void check_duplicate_keys(struct json_field *child_fields, size_t field_count) {
-	memset(json_buckets, UINT32_MAX, field_count * sizeof(u32));
+	memset(json_buckets, 0xff, field_count * sizeof(u32));
 
 	for (size_t i = 0; i < field_count; i++) {
 		char *key = child_fields[i].key;
@@ -1019,7 +1019,7 @@ static struct grug_game_function *get_grug_game_fn(char *name) {
 }
 
 static void hash_game_fns(void) {
-	memset(buckets_game_fns, UINT32_MAX, grug_game_functions_size * sizeof(u32));
+	memset(buckets_game_fns, 0xff, grug_game_functions_size * sizeof(u32));
 
 	for (size_t i = 0; i < grug_game_functions_size; i++) {
 		char *name = grug_game_functions[i].name;
@@ -2059,7 +2059,7 @@ static struct helper_fn *get_helper_fn(char *name) {
 }
 
 static void hash_helper_fns(void) {
-	memset(buckets_helper_fns, UINT32_MAX, helper_fns_size * sizeof(u32));
+	memset(buckets_helper_fns, 0xff, helper_fns_size * sizeof(u32));
 
 	for (size_t i = 0; i < helper_fns_size; i++) {
 		char *name = helper_fns[i].fn_name;
@@ -3140,7 +3140,7 @@ static u32 chains_define_on_fns[MAX_ON_FNS_IN_FILE];
 static void reset_filling(void) {
 	global_variables_size = 0;
 	globals_bytes = 0;
-	memset(buckets_global_variables, UINT32_MAX, MAX_GLOBAL_VARIABLES_IN_FILE * sizeof(u32));
+	memset(buckets_global_variables, 0xff, MAX_GLOBAL_VARIABLES_IN_FILE * sizeof(u32));
 }
 
 static void fill_expr(struct expr *expr);
@@ -3477,7 +3477,7 @@ static void fill_statements(struct statement *statements_offset, size_t statemen
 
 static void init_argument_variables(struct argument *fn_arguments, size_t argument_count) {
 	variables_size = 0;
-	memset(buckets_variables, UINT32_MAX, MAX_VARIABLES_PER_FUNCTION * sizeof(u32));
+	memset(buckets_variables, 0xff, MAX_VARIABLES_PER_FUNCTION * sizeof(u32));
 
 	stack_frame_bytes = GLOBAL_OFFSET_TABLE_POINTER_SIZE + GLOBAL_VARIABLES_POINTER_SIZE;
 
@@ -3539,7 +3539,7 @@ static struct grug_on_function *get_define_on_fn(char *name) {
 }
 
 static void hash_define_on_fns(void) {
-	memset(buckets_define_on_fns, UINT32_MAX, grug_define_entity->on_function_count * sizeof(u32));
+	memset(buckets_define_on_fns, 0xff, grug_define_entity->on_function_count * sizeof(u32));
 
 	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
 		char *name = grug_define_entity->on_functions[i].name;
@@ -3979,7 +3979,7 @@ static size_t get_helper_fn_offset(char *name) {
 }
 
 static void hash_helper_fn_offsets(void) {
-	memset(buckets_helper_fn_offsets, UINT32_MAX, helper_fn_offsets_size * sizeof(u32));
+	memset(buckets_helper_fn_offsets, 0xff, helper_fn_offsets_size * sizeof(u32));
 
 	for (size_t i = 0; i < helper_fn_offsets_size; i++) {
 		char *name = helper_fn_offsets[i].fn_name;
@@ -4020,7 +4020,7 @@ static bool has_used_extern_fn(char *name) {
 }
 
 static void hash_used_extern_fns(void) {
-	memset(buckets_used_extern_fns, UINT32_MAX, BFD_HASH_BUCKET_SIZE * sizeof(u32));
+	memset(buckets_used_extern_fns, 0xff, BFD_HASH_BUCKET_SIZE * sizeof(u32));
 
 	for (size_t i = 0; i < extern_fn_calls_size; i++) {
 		char *name = extern_fn_calls[i].fn_name;
@@ -5187,7 +5187,7 @@ static void compile_define_fn(void) {
 }
 
 static void init_data_strings(void) {
-	memset(buckets_data_strings, UINT32_MAX, MAX_DATA_STRINGS * sizeof(u32));
+	memset(buckets_data_strings, 0xff, MAX_DATA_STRINGS * sizeof(u32));
 
 	size_t define_field_count = define_fn.returned_compound_literal.field_count;
 
@@ -5437,7 +5437,7 @@ static struct on_fn *get_on_fn(char *name) {
 }
 
 static void hash_on_fns(void) {
-	memset(buckets_on_fns, UINT32_MAX, on_fns_size * sizeof(u32));
+	memset(buckets_on_fns, 0xff, on_fns_size * sizeof(u32));
 
 	for (size_t i = 0; i < on_fns_size; i++) {
 		char *name = on_fns[i].fn_name;
@@ -5613,7 +5613,7 @@ static size_t get_game_fn_offset(char *name) {
 }
 
 static void hash_game_fn_offsets(void) {
-	memset(buckets_game_fn_offsets, UINT32_MAX, game_fn_offsets_size * sizeof(u32));
+	memset(buckets_game_fn_offsets, 0xff, game_fn_offsets_size * sizeof(u32));
 
 	for (size_t i = 0; i < game_fn_offsets_size; i++) {
 		char *name = game_fn_offsets[i].fn_name;
