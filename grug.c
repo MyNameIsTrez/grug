@@ -6541,7 +6541,7 @@ static void push_bytes(char *grug_path) {
 	push_text();
 
 	eh_frame_offset = round_to_power_of_2(bytes_size, 0x1000);
-	bytes_size = eh_frame_offset;
+	push_zeros(eh_frame_offset - bytes_size);
 
 	push_dynamic();
 
