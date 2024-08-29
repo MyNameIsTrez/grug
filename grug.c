@@ -5720,8 +5720,12 @@ static void patch_program_headers(void) {
 	overwrite_64(dynamic_offset, 0xf0); // offset
 	overwrite_64(dynamic_offset, 0xf8); // virtual_address
 	overwrite_64(dynamic_offset, 0x100); // physical_address
-	overwrite_64(dynamic_size + got_size + got_plt_size + data_size, 0x108); // file_size
-	overwrite_64(dynamic_size + got_size + got_plt_size + data_size, 0x110); // mem_size
+	size_t size = dynamic_size + got_plt_size + data_size;
+	if (on_fns_size > 0) {
+		size += got_size;
+	}
+	overwrite_64(size, 0x108); // file_size
+	overwrite_64(size, 0x110); // mem_size
 
 	// .dynamic segment
 	overwrite_64(dynamic_offset, 0x128); // offset
@@ -5734,7 +5738,10 @@ static void patch_program_headers(void) {
 	overwrite_64(dynamic_offset, 0x160); // offset
 	overwrite_64(dynamic_offset, 0x168); // virtual_address
 	overwrite_64(dynamic_offset, 0x170); // physical_address
-	size_t segment_5_size = dynamic_size + got_size;
+	size_t segment_5_size = dynamic_size;
+	if (on_fns_size > 0) {
+		segment_5_size += got_size;
+	}
 #ifndef OLD_LD
 	segment_5_size += GOT_PLT_INTRO_SIZE;
 #endif
