@@ -78,4 +78,4 @@ void grug_free_mods(void);
 char *grug_get_runtime_error_reason(void);
 
 // For the grug-tests repository
-bool grug_test_regenerate_dll(char *grug_file_path, char *dll_path);
+bool grug_test_regenerate_dll(char *grug_file_path, char *dll_path, char *mod);
