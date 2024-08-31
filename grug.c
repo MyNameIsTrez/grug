@@ -74,10 +74,16 @@
 #define MAX_CALL_ARGUMENTS_PER_STACK_FRAME 69
 #define MAX_STATEMENTS_PER_STACK_FRAME 1337
 #define MAX_SERIALIZED_TO_C_CHARS 420420
-#define MODS_DIR_PATH "mods"
 #define DLL_DIR_PATH "mod_dlls"
 #define MOD_API_JSON_PATH "mod_api.json"
 #define GRUG_ON_FN_TIME_LIMIT_MS 1000
+
+// The only reason this define is surrounded by an ifndef,
+// is so that tests.c can override it with "-Dtests" at compile time
+// If you're a game developer however, you should instead just manually change the below "mods" string
+#ifndef MODS_DIR_PATH
+#define MODS_DIR_PATH "mods"
+#endif
 
 // "The problem is that you can't meaningfully define a constant like this
 // in a header file. The maximum path size is actually to be something
