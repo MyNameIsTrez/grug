@@ -165,7 +165,6 @@ static void reset_utils(void) {
 	temp_strings_size = 0;
 }
 
-// This string array gets reset by every regenerate_dll() call
 static char *push_temp_string(char *slice_start, size_t length) {
 	grug_assert(temp_strings_size + length < MAX_TEMP_STRINGS_CHARACTERS, "There are more than %d characters in the temp_strings array, exceeding MAX_TEMP_STRINGS_CHARACTERS", MAX_TEMP_STRINGS_CHARACTERS);
 
@@ -3729,6 +3728,7 @@ static void fill_result_types(void) {
 #define MAX_USED_EXTERN_FN_SYMBOLS_CHARACTERS 420420
 #define MAX_SYMBOLS 420420
 #define MAX_CODES 420420
+#define MAX_RESOURCE_STRINGS_CHARACTERS 420420
 #define MAX_DATA_STRINGS 420420
 #define MAX_DATA_STRING_CODES 420420
 #define MAX_GAME_FN_CALLS 420420
@@ -3911,6 +3911,9 @@ static size_t codes_size;
 
 static char *define_fn_name;
 
+static char resource_strings[MAX_RESOURCE_STRINGS_CHARACTERS];
+static size_t resource_strings_size;
+
 static char *data_strings[MAX_DATA_STRINGS];
 static size_t data_strings_size;
 
@@ -3966,9 +3969,15 @@ static bool in_on_fn;
 
 static bool calling_game_fn;
 
+static bool resource_is_string;
+
+static char *mod;
+
 static void reset_compiling(void) {
 	codes_size = 0;
+	resource_strings_size = 0;
 	data_strings_size = 0;
+	memset(buckets_data_strings, 0xff, sizeof(buckets_data_strings));
 	data_string_codes_size = 0;
 	extern_fn_calls_size = 0;
 	helper_fn_calls_size = 0;
@@ -4653,6 +4662,24 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 	}
 }
 
+static char *push_resource_string(char *string) {
+	char resource[STUPID_MAX_PATH];
+	snprintf(resource, sizeof(resource), MODS_DIR_PATH"/%s/%s", mod, string);
+
+	size_t length = strlen(resource);
+
+	grug_assert(resource_strings_size + length < MAX_RESOURCE_STRINGS_CHARACTERS, "There are more than %d characters in the resource_strings array, exceeding MAX_RESOURCE_STRINGS_CHARACTERS", MAX_RESOURCE_STRINGS_CHARACTERS);
+
+	char *resource_str = resource_strings + resource_strings_size;
+
+	for (size_t i = 0; i < length; i++) {
+		resource_strings[resource_strings_size++] = resource[i];
+	}
+	resource_strings[resource_strings_size++] = '\0';
+
+	return resource_str;
+}
+
 static void push_data_string(char *string) {
 	grug_assert(data_strings_size < MAX_DATA_STRINGS, "There are more than %d data strings, exceeding MAX_DATA_STRINGS", MAX_DATA_STRINGS);
 
@@ -4698,16 +4725,23 @@ static void compile_expr(struct expr expr) {
 		case FALSE_EXPR:
 			compile_unpadded(XOR_CLEAR_EAX);
 			break;
-		case STRING_EXPR:
-			add_data_string(expr.literal.string);
+		case STRING_EXPR: {
+			char *string = expr.literal.string;
+
+			if (resource_is_string) {
+				string = push_resource_string(string);
+			}
+
+			add_data_string(string);
 
 			compile_unpadded(LEA_STRINGS_TO_RAX);
 
 			// RIP-relative address of data string
-			push_data_string_code(expr.literal.string, codes_size);
+			push_data_string_code(string, codes_size);
 			compile_unpadded(PLACEHOLDER_32);
 
 			break;
+		}
 		case IDENTIFIER_EXPR: {
 			struct variable *var = get_local_variable(expr.literal.string);
 			if (var) {
@@ -5164,7 +5198,15 @@ static void compile_define_fn_returned_fields(void) {
 	for (size_t i = field_count; i > 0;) {
 		struct expr field = define_fn.returned_compound_literal.fields[--i].expr_value;
 
+		enum type json_type = grug_define_entity->fields[i].type;
+
+		if (json_type == type_resource) {
+			resource_is_string = true;
+		}
 		compile_expr(field);
+		if (json_type == type_resource) {
+			resource_is_string = false;
+		}
 
 		if (field.result_type == type_f32) {
 			static u32 movs[] = {
@@ -5212,20 +5254,6 @@ static void compile_define_fn(void) {
 	compile_byte(RET);
 }
 
-static void init_data_strings(void) {
-	memset(buckets_data_strings, 0xff, MAX_DATA_STRINGS * sizeof(u32));
-
-	size_t define_field_count = define_fn.returned_compound_literal.field_count;
-
-	for (size_t field_index = 0; field_index < define_field_count; field_index++) {
-		struct field field = define_fn.returned_compound_literal.fields[field_index];
-
-		if (field.expr_value.type == STRING_EXPR) {
-			add_data_string(field.expr_value.literal.string);
-		}
-	}
-}
-
 static void init_define_fn_name(char *name) {
 	grug_assert(temp_strings_size + sizeof("define_") - 1 + strlen(name) < MAX_TEMP_STRINGS_CHARACTERS, "There are more than %d characters in the strings array, exceeding MAX_TEMP_STRINGS_CHARACTERS", MAX_TEMP_STRINGS_CHARACTERS);
 
@@ -5244,8 +5272,6 @@ static void compile(char *grug_path) {
 	reset_compiling();
 
 	init_define_fn_name(grug_define_entity->name);
-
-	init_data_strings();
 
 	size_t text_offset_index = 0;
 	size_t text_offset = 0;
@@ -6787,8 +6813,6 @@ size_t grug_reloads_size;
 
 char *grug_on_fn_name;
 char *grug_on_fn_path;
-
-static char *mod;
 
 static void regenerate_dll(char *grug_path, char *dll_path) {
 	grug_log("# Regenerating %s\n", dll_path);
