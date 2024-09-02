@@ -3990,6 +3990,7 @@ static void reset_compiling(void) {
 	got_accesses_size = 0;
 	in_on_fn = false;
 	calling_game_fn = false;
+	resource_is_string = false;
 }
 
 static size_t get_helper_fn_offset(char *name) {
