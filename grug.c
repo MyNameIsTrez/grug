@@ -4664,6 +4664,12 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 }
 
 static char *push_resource_string(char *string) {
+	grug_assert(string[0] != '\0', "Resources can't be empty strings");
+
+	grug_assert(string[0] != '/', "Remove the leading slash from the resource \"%s\"", string);
+
+	grug_assert(string[strlen(string) - 1] != '/', "Remove the trailing slash from the resource \"%s\"", string);
+
 	char resource[STUPID_MAX_PATH];
 	snprintf(resource, sizeof(resource), MODS_DIR_PATH"/%s/%s", mod, string);
 
