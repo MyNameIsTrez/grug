@@ -4663,12 +4663,40 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 	}
 }
 
-static char *push_resource_string(char *string) {
+static void validate_resource_string_base(char *string) {
 	grug_assert(string[0] != '\0', "Resources can't be empty strings");
 
 	grug_assert(string[0] != '/', "Remove the leading slash from the resource \"%s\"", string);
 
-	grug_assert(string[strlen(string) - 1] != '/', "Remove the trailing slash from the resource \"%s\"", string);
+	size_t string_len = strlen(string);
+
+	grug_assert(string[string_len - 1] != '/', "Remove the trailing slash from the resource \"%s\"", string);
+
+	grug_assert(!strchr(string, '\\'), "Replace the '\\' with '/' in the resource \"%s\"", string);
+
+	grug_assert(!strstr(string, "//"), "Replace the '//' with '/' in the resource \"%s\"", string);
+
+	char *dot = strchr(string, '.');
+	if (dot) {
+		if (dot == string) {
+			grug_assert(string_len != 1 && string[1] != '/', "Remove the '.' from the resource \"%s\"", string);
+		} else if (dot[-1] == '/') {
+			grug_assert(dot[1] != '/' && dot[1] != '\0', "Remove the '.' from the resource \"%s\"", string);
+		}
+	}
+
+	char *dotdot = strstr(string, "..");
+	if (dotdot) {
+		if (dotdot == string) {
+			grug_assert(string_len != 2 && string[2] != '/', "Remove the '..' from the resource \"%s\"", string);
+		} else if (dotdot[-1] == '/') {
+			grug_assert(dotdot[2] != '/' && dotdot[2] != '\0', "Remove the '..' from the resource \"%s\"", string);
+		}
+	}
+}
+
+static char *push_resource_string(char *string) {
+	validate_resource_string_base(string);
 
 	char resource[STUPID_MAX_PATH];
 	snprintf(resource, sizeof(resource), MODS_DIR_PATH"/%s/%s", mod, string);
