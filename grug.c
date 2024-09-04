@@ -401,6 +401,11 @@ size_t grug_resource_reloads_size;
 
 static bool added_new_resource;
 
+static void reset_resources(void) {
+	resources_size = 0;
+	memset(buckets_resources, 0xff, MAX_RESOURCES * sizeof(u32));
+}
+
 // TODO: I think I may need a new kind of hash table to make this work?
 // static void remove_resource(char *resource) {
 // }
@@ -442,6 +447,7 @@ static void add_resource(char *resource) {
 
 	added_new_resource = true;
 
+	// Get resource its mtime
 	struct stat resource_stat;
 	if (stat(resource, &resource_stat) == -1) {
 		if (errno != ENOENT) {
@@ -452,12 +458,7 @@ static void add_resource(char *resource) {
 		grug_error("The resource \"%s\" does not exist", resource);
 	}
 
-	u32 bucket_index = elf_hash(resource) % MAX_RESOURCES;
-
-	chains_resources[resources_size] = buckets_resources[bucket_index];
-
-	buckets_resources[bucket_index] = resources_size;
-
+	// Store copy of resource
 	size_t length = strlen(resource);
 
 	grug_assert(resources_characters_size + length < MAX_RESOURCES_CHARACTERS, "There are more than %d characters in the resources_characters array, exceeding MAX_RESOURCES_CHARACTERS", MAX_RESOURCES_CHARACTERS);
@@ -469,6 +470,14 @@ static void add_resource(char *resource) {
 	}
 	resources_characters[resources_characters_size++] = '\0';
 
+	// Add to hash table
+	u32 bucket_index = elf_hash(resource) % MAX_RESOURCES;
+
+	chains_resources[resources_size] = buckets_resources[bucket_index];
+
+	buckets_resources[bucket_index] = resources_size;
+
+	// Push
 	push_resource(resource_str, resource_stat.st_mtime);
 }
 
@@ -486,10 +495,6 @@ static void write_to_past_resources_file(void) {
 }
 
 static void collect_resources(void) {
-	resources_size = 0;
-
-	memset(buckets_resources, 0xff, MAX_RESOURCES * sizeof(u32));
-
 	FILE *f = fopen(DLL_DIR_PATH"/past_resources.txt", "rb");
 	if (!f) {
 		// Return if past_resources.txt hasn't been generated yet
@@ -7042,11 +7047,21 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name) {
 		return true;
 	}
 
+	static bool initialized = false;
+	if (!initialized) {
+		reset_resources();
+		initialized = true;
+	}
+
 	mod = mod_name;
+
 	strncpy(grug_error.path, grug_path, sizeof(grug_error.path) - 1);
 	grug_error.path[sizeof(grug_error.path) - 1] = '\0';
+
 	regenerate_dll(grug_path, dll_path);
+
 	reset_previous_grug_error();
+
 	return false;
 }
 
@@ -7408,6 +7423,7 @@ bool grug_regenerate_modified_mods(void) {
 
 	static bool initialized = false;
 	if (!initialized) {
+		reset_resources();
 		collect_resources();
 		initialized = true;
 	}
