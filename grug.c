@@ -438,6 +438,16 @@ static void add_resource(char *resource) {
 		return;
 	}
 
+	struct stat resource_stat;
+	if (stat(resource, &resource_stat) == -1) {
+		if (errno != ENOENT) {
+			perror("stat");
+			exit(EXIT_FAILURE);
+		}
+
+		grug_error("The resource \"%s\" does not exist", resource);
+	}
+
 	u32 bucket_index = elf_hash(resource) % MAX_RESOURCES;
 
 	chains_resources[resources_size] = buckets_resources[bucket_index];
@@ -455,9 +465,6 @@ static void add_resource(char *resource) {
 	}
 	resources_characters[resources_characters_size++] = '\0';
 
-	struct stat resource_stat;
-	grug_assert(stat(resource, &resource_stat) == 0, "stat: %s", strerror(errno));
-
 	push_resource(resource_str, resource_stat.st_mtime);
 }
 
@@ -466,7 +473,48 @@ static void collect_resources(void) {
 
 	memset(buckets_resources, 0xff, MAX_RESOURCES * sizeof(u32));
 
-	// TODO: Open DLL_DIR_PATH"/past_resources.txt", and use getline() to add_resource() every line
+	FILE *f = fopen(DLL_DIR_PATH"/past_resources.txt", "rb");
+	if (!f) {
+		// Return if past_resources.txt hasn't been generated yet
+		if (errno == ENOENT) {
+			printf("returned\n");
+			return;
+		}
+
+		perror("fopen");
+		exit(EXIT_FAILURE);
+	}
+
+	char *line = NULL;
+	size_t len = 0;
+	ssize_t read;
+
+	while ((read = getline(&line, &len, f)) != -1) {
+		if (line[read - 1] == '\n') {
+			line[read - 1] = '\0';
+
+			// Handle Windows CRLF line endings
+			if (read > 1 && line[read - 2] == '\r') {
+				line[read - 2] = '\0';
+			}
+		}
+
+		add_resource(line);
+	}
+	free(line);
+
+	if (fclose(f) == EOF) {
+		perror("fclose");
+		exit(EXIT_FAILURE);
+	}
+
+	assert(read == -1);
+
+	// Errno is EAGAIN if the end-of-file was reached
+	if (errno != EAGAIN) {
+		perror("getline");
+		exit(EXIT_FAILURE);
+	}
 }
 
 static void reload_resources(void) {
