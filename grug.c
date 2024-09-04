@@ -14,7 +14,7 @@
 // 2. INCLUDES AND DEFINES
 // 3. UTILS
 // 4. RUNTIME ERROR HANDLING
-// 5. OPENING RESOURCES
+// 5. TRACKING RESOURCES
 // 6. JSON
 // 7. PARSING MOD API JSON
 // 8. READING
@@ -381,70 +381,92 @@ char *grug_get_runtime_error_reason(void) {
 	return runtime_error_reason;
 }
 
-//// OPENING RESOURCES
+//// TRACKING RESOURCES
 
 #define MAX_RESOURCES 420420
+#define MAX_RESOURCES_CHARACTERS 420420
 
 static char *resources[MAX_RESOURCES];
 static i64 resource_mtimes[MAX_RESOURCES];
-static size_t resources_size;
+static size_t resources_size; // TODO: Reset this somewhere to 0?
+
+static u32 buckets_resources[MAX_RESOURCES];
+static u32 chains_resources[MAX_RESOURCES];
+
+static char resources_characters[MAX_RESOURCES_CHARACTERS];
+static size_t resources_characters_size; // TODO: Reset this somewhere to 0? How can this growing indefinitely be prevented?
 
 struct grug_modified_resource grug_resource_reloads[MAX_RESOURCE_RELOADS];
 size_t grug_resource_reloads_size;
+
+// TODO: I think I may need a new kind of hash table to make this work?
+// static void remove_resource(char *resource) {
+// }
 
 static void push_resource_reload(struct grug_modified_resource modified) {
 	grug_assert(grug_resource_reloads_size < MAX_RESOURCE_RELOADS, "There are more than %d modified resources, exceeding MAX_RESOURCE_RELOADS", MAX_RESOURCE_RELOADS);
 	grug_resource_reloads[grug_resource_reloads_size++] = modified;
 }
 
-static void push_resource(char *resource) {
+static void push_resource(char *resource, i64 mtime) {
 	grug_assert(resources_size < MAX_RESOURCES, "There are more than %d resources, exceeding MAX_RESOURCES", MAX_RESOURCES);
-	resources[resources_size++] = resource;
+
+	resources[resources_size] = resource;
+	resource_mtimes[resources_size++] = mtime;
 }
 
-// TODO: Implement
-// static void collect_resources_recursively(char *dir_path) {
-// 	DIR *dirp = opendir(dir_path);
-// 	grug_assert(dirp, "opendir: %s", strerror(errno));
+static bool seen_resource(char *resource) {
+	u32 i = buckets_resources[elf_hash(resource) % MAX_RESOURCES];
 
-// 	errno = 0;
-// 	struct dirent *dp;
-// 	while ((dp = readdir(dirp))) {
-// 		if (streq(dp->d_name, ".") || streq(dp->d_name, "..")) {
-// 			continue;
-// 		}
+	while (true) {
+		if (i == UINT32_MAX) {
+			return false;
+		}
 
-// 		char entry_path[STUPID_MAX_PATH];
-// 		snprintf(entry_path, sizeof(entry_path), "%s/%s", dir_path, dp->d_name);
+		if (streq(resource, resources[i])) {
+			break;
+		}
 
-// 		struct stat entry_stat;
-// 		grug_assert(stat(entry_path, &entry_stat) != -1, "stat: %s", strerror(errno));
+		i = chains_resources[i];
+	}
 
-// 		if (S_ISDIR(entry_stat.st_mode)) {
-// 			collect_resources_recursively(entry_path);
-// 		} else if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(dp->d_name), ".grug")) {
-// 			printf("grug file: %s\n", entry_path);
-// 		}
-// 	}
-// 	grug_assert(errno == 0, "readdir: %s", strerror(errno));
+	return true;
+}
 
-// 	closedir(dirp);
-// }
+static void add_resource(char *resource) {
+	if (seen_resource(resource)) {
+		return;
+	}
 
-static void collect_resources(void) {
-	resources_size = 0;
+	u32 bucket_index = elf_hash(resource) % MAX_RESOURCES;
 
-	char *resource = "mods/vanilla/rpg-7/rpg-7.png";
+	chains_resources[resources_size] = buckets_resources[bucket_index];
 
-	push_resource(resource);
+	buckets_resources[bucket_index] = resources_size;
+
+	size_t length = strlen(resource);
+
+	grug_assert(resources_characters_size + length < MAX_RESOURCES_CHARACTERS, "There are more than %d characters in the resources_characters array, exceeding MAX_RESOURCES_CHARACTERS", MAX_RESOURCES_CHARACTERS);
+
+	char *resource_str = resources_characters + resources_characters_size;
+
+	for (size_t i = 0; i < length; i++) {
+		resources_characters[resources_characters_size++] = resource[i];
+	}
+	resources_characters[resources_characters_size++] = '\0';
 
 	struct stat resource_stat;
 	grug_assert(stat(resource, &resource_stat) == 0, "stat: %s", strerror(errno));
 
-	resource_mtimes[0] = resource_stat.st_mtime;
+	push_resource(resource_str, resource_stat.st_mtime);
+}
 
-	// TODO: Implement
-	// collect_resources_recursively(MODS_DIR_PATH);
+static void collect_resources(void) {
+	resources_size = 0;
+
+	memset(buckets_resources, 0xff, MAX_RESOURCES * sizeof(u32));
+
+	// TODO: Open DLL_DIR_PATH"/past_resources.txt", and use getline() to add_resource() every line
 }
 
 static void reload_resources(void) {
@@ -4758,6 +4780,8 @@ static char *push_resource_string(char *string) {
 	}
 	resource_strings[resource_strings_size++] = '\0';
 
+	add_resource(resource_str);
+
 	return resource_str;
 }
 
@@ -7324,8 +7348,6 @@ bool grug_regenerate_modified_mods(void) {
 		initialized = true;
 	}
 
-	reload_resources();
-
 	grug_reloads_size = 0;
 
 	if (!grug_mods.name) {
@@ -7334,6 +7356,8 @@ bool grug_regenerate_modified_mods(void) {
 	}
 
 	reload_modified_mods();
+
+	reload_resources();
 
 	reset_previous_grug_error();
 

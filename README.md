@@ -16,7 +16,7 @@ You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
 2. INCLUDES AND DEFINES
 3. UTILS
 4. RUNTIME ERROR HANDLING
-5. OPENING RESOURCES
+5. TRACKING RESOURCES
 6. JSON
 7. PARSING MOD API JSON
 8. READING
