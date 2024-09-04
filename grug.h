@@ -8,6 +8,7 @@
 #include <stddef.h>
 
 #define MAX_RELOADS 6969
+#define MAX_RESOURCE_RELOADS 6969
 
 #define grug_mod_had_runtime_error() sigsetjmp(grug_runtime_error_jmp_buffer, 1)
 
@@ -47,6 +48,10 @@ struct grug_modified {
 	void *on_fns;
 };
 
+struct grug_modified_resource {
+	char path[4096];
+};
+
 struct grug_error {
 	char path[4096];
 	char msg[420];
@@ -65,6 +70,9 @@ extern struct grug_mod_dir grug_mods;
 
 extern struct grug_modified grug_reloads[MAX_RELOADS];
 extern size_t grug_reloads_size;
+
+extern struct grug_modified_resource grug_resource_reloads[MAX_RESOURCE_RELOADS];
+extern size_t grug_resource_reloads_size;
 
 extern struct grug_error grug_error;
 extern char *grug_on_fn_name;

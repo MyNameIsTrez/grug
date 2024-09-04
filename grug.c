@@ -383,12 +383,27 @@ char *grug_get_runtime_error_reason(void) {
 
 //// OPENING RESOURCES
 
-// TODO: Remove?
-// TODO: Also call this from skip_tokens_of_entity()
-// static void open_resource(char *path) {
-// }
+#define MAX_RESOURCES 420420
 
-// static void open_resources_recursively(char *dir_path) {
+static char *resources[MAX_RESOURCES];
+static i64 resource_mtimes[MAX_RESOURCES];
+static size_t resources_size;
+
+struct grug_modified_resource grug_resource_reloads[MAX_RESOURCE_RELOADS];
+size_t grug_resource_reloads_size;
+
+static void push_resource_reload(struct grug_modified_resource modified) {
+	grug_assert(grug_resource_reloads_size < MAX_RESOURCE_RELOADS, "There are more than %d modified resources, exceeding MAX_RESOURCE_RELOADS", MAX_RESOURCE_RELOADS);
+	grug_resource_reloads[grug_resource_reloads_size++] = modified;
+}
+
+static void push_resource(char *resource) {
+	grug_assert(resources_size < MAX_RESOURCES, "There are more than %d resources, exceeding MAX_RESOURCES", MAX_RESOURCES);
+	resources[resources_size++] = resource;
+}
+
+// TODO: Implement
+// static void collect_resources_recursively(char *dir_path) {
 // 	DIR *dirp = opendir(dir_path);
 // 	grug_assert(dirp, "opendir: %s", strerror(errno));
 
@@ -406,7 +421,7 @@ char *grug_get_runtime_error_reason(void) {
 // 		grug_assert(stat(entry_path, &entry_stat) != -1, "stat: %s", strerror(errno));
 
 // 		if (S_ISDIR(entry_stat.st_mode)) {
-// 			open_resources_recursively(entry_path);
+// 			collect_resources_recursively(entry_path);
 // 		} else if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(dp->d_name), ".grug")) {
 // 			printf("grug file: %s\n", entry_path);
 // 		}
@@ -416,11 +431,42 @@ char *grug_get_runtime_error_reason(void) {
 // 	closedir(dirp);
 // }
 
-// static void open_resources(void) {
-// 	printf("resources:\n");
+static void collect_resources(void) {
+	resources_size = 0;
 
-// 	open_resources_recursively(MODS_DIR_PATH);
-// }
+	char *resource = "mods/vanilla/rpg-7/rpg-7.png";
+
+	push_resource(resource);
+
+	struct stat resource_stat;
+	grug_assert(stat(resource, &resource_stat) == 0, "stat: %s", strerror(errno));
+
+	resource_mtimes[0] = resource_stat.st_mtime;
+
+	// TODO: Implement
+	// collect_resources_recursively(MODS_DIR_PATH);
+}
+
+static void reload_resources(void) {
+	grug_resource_reloads_size = 0;
+
+	for (size_t i = 0; i < resources_size; i++) {
+		char *resource = resources[i];
+
+		struct stat resource_stat;
+		grug_assert(stat(resource, &resource_stat) == 0, "stat: %s", strerror(errno));
+
+		if (resource_stat.st_mtime > resource_mtimes[i]) {
+			resource_mtimes[i] = resource_stat.st_mtime;
+
+			struct grug_modified_resource modified = {0};
+
+			strncpy(modified.path, resource, sizeof(modified.path));
+
+			push_resource_reload(modified);
+		}
+	}
+}
 
 //// JSON
 
@@ -7272,11 +7318,13 @@ bool grug_regenerate_modified_mods(void) {
 		return true;
 	}
 
-	// static bool initialized = false;
-	// if (!initialized) {
-	// 	// open_resources();
-	// 	initialized = true;
-	// }
+	static bool initialized = false;
+	if (!initialized) {
+		collect_resources();
+		initialized = true;
+	}
+
+	reload_resources();
 
 	grug_reloads_size = 0;
 
