@@ -399,6 +399,8 @@ static size_t resources_characters_size; // TODO: Reset this somewhere to 0? How
 struct grug_modified_resource grug_resource_reloads[MAX_RESOURCE_RELOADS];
 size_t grug_resource_reloads_size;
 
+static bool added_new_resource;
+
 // TODO: I think I may need a new kind of hash table to make this work?
 // static void remove_resource(char *resource) {
 // }
@@ -438,6 +440,8 @@ static void add_resource(char *resource) {
 		return;
 	}
 
+	added_new_resource = true;
+
 	struct stat resource_stat;
 	if (stat(resource, &resource_stat) == -1) {
 		if (errno != ENOENT) {
@@ -468,6 +472,19 @@ static void add_resource(char *resource) {
 	push_resource(resource_str, resource_stat.st_mtime);
 }
 
+static void write_to_past_resources_file(void) {
+	FILE *f = fopen(DLL_DIR_PATH"/past_resources.txt", "w");
+	grug_assert(f, "fopen: %s", strerror(errno));
+
+	for (size_t i = 0; i < resources_size; i++) {
+		char *resource = resources[i];
+		fwrite(resource, sizeof(u8), strlen(resource), f);
+		fwrite("\n", sizeof(u8), 1, f);
+	}
+
+	fclose(f);
+}
+
 static void collect_resources(void) {
 	resources_size = 0;
 
@@ -477,7 +494,6 @@ static void collect_resources(void) {
 	if (!f) {
 		// Return if past_resources.txt hasn't been generated yet
 		if (errno == ENOENT) {
-			printf("returned\n");
 			return;
 		}
 
@@ -7403,7 +7419,13 @@ bool grug_regenerate_modified_mods(void) {
 		grug_assert(grug_mods.name, "strdup: %s", strerror(errno));
 	}
 
+	added_new_resource = false;
+
 	reload_modified_mods();
+
+	if (added_new_resource) {
+		write_to_past_resources_file();
+	}
 
 	reload_resources();
 
