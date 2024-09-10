@@ -407,38 +407,36 @@ static void reload_resources_from_dll(char *dll_path) {
 		print_dlerror("dlopen");
 	}
 
-	size_t *dll_resources_size_ptr = get_dll_symbol(dll, "dll_resources_size");
-	grug_assert(dll_resources_size_ptr, "Retrieving dll_resources_size with get_dll_symbol() failed for %s", dll_path);
-	size_t dll_resources_size = *dll_resources_size_ptr;
+	size_t *dll_resources_size_ptr = get_dll_symbol(dll, "resources_size");
+	grug_assert(dll_resources_size_ptr, "Retrieving resources_size with get_dll_symbol() failed for %s", dll_path);
+	size_t resources_size = *dll_resources_size_ptr;
 
-	if (dll_resources_size == 0) {
+	if (resources_size == 0) {
 		if (dlclose(dll)) {
 			print_dlerror("dlclose");
 		}
 		return;
 	}
 
-	printf("dll_resources_size: %zu\n", dll_resources_size);
+	char **resources = get_dll_symbol(dll, "resources");
+	grug_assert(resources, "Retrieving resources with get_dll_symbol() failed for %s", dll_path);
 
-	char **dll_resources = get_dll_symbol(dll, "dll_resources");
-	grug_assert(dll_resources, "Retrieving dll_resources with get_dll_symbol() failed for %s", dll_path);
-
-	i64 *dll_resource_mtimes = get_dll_symbol(dll, "dll_resource_mtimes");
-	grug_assert(dll_resource_mtimes, "Retrieving dll_resource_mtimes with get_dll_symbol() failed for %s", dll_path);
+	i64 *resource_mtimes = get_dll_symbol(dll, "resource_mtimes");
+	grug_assert(resource_mtimes, "Retrieving resource_mtimes with get_dll_symbol() failed for %s", dll_path);
 
 	if (dlclose(dll)) {
 		print_dlerror("dlclose");
 	}
 
-	for (size_t i = 0; i < dll_resources_size; i++) {
-		char *resource = dll_resources[i];
+	for (size_t i = 0; i < resources_size; i++) {
+		char *resource = resources[i];
 
 		struct stat resource_stat;
 		grug_assert(stat(resource, &resource_stat) == 0, "stat: %s", strerror(errno));
 
-		if (resource_stat.st_mtime > dll_resource_mtimes[i]) {
+		if (resource_stat.st_mtime > resource_mtimes[i]) {
 			// TODO: I suspect this won't work, since the .so changes probably aren't written to disk with this? Try it anyway
-			// dll_resource_mtimes[i] = resource_stat.st_mtime;
+			// resource_mtimes[i] = resource_stat.st_mtime;
 
 			struct grug_modified_resource modified = {0};
 
@@ -6145,7 +6143,7 @@ static void push_data(void) {
 		push_string_bytes(string);
 	}
 
-	// "dll_resources_size" symbol
+	// "resources_size" symbol
 	push_nasm_alignment(8);
 	push_64(0); // TODO: UNHARDCODE!
 
@@ -6751,7 +6749,7 @@ static void init_data_offsets(void) {
 		offset += strlen(string) + 1;
 	}
 
-	// "dll_resources_size" symbol
+	// "resources_size" symbol
 	excess = offset % sizeof(u64); // Alignment
 	if (excess > 0) {
 		offset += sizeof(u64) - excess;
@@ -6882,7 +6880,7 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 	push_symbol("strings");
 	data_symbols_size++;
 
-	push_symbol("dll_resources_size");
+	push_symbol("resources_size");
 	data_symbols_size++;
 
 	first_extern_data_symbol_index = data_symbols_size;
