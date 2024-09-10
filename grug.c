@@ -399,8 +399,6 @@ static size_t resources_characters_size; // TODO: Reset this somewhere to 0? How
 struct grug_modified_resource grug_resource_reloads[MAX_RESOURCE_RELOADS];
 size_t grug_resource_reloads_size;
 
-static bool added_new_resource;
-
 static void reset_resources(void) {
 	resources_size = 0;
 	memset(buckets_resources, 0xff, MAX_RESOURCES * sizeof(u32));
@@ -445,8 +443,6 @@ static void add_resource(char *resource) {
 		return;
 	}
 
-	added_new_resource = true;
-
 	// Get resource its mtime
 	struct stat resource_stat;
 	if (stat(resource, &resource_stat) == -1) {
@@ -458,7 +454,7 @@ static void add_resource(char *resource) {
 		grug_error("The resource \"%s\" does not exist", resource);
 	}
 
-	// Store copy of resource
+	// Store a copy of resource
 	size_t length = strlen(resource);
 
 	grug_assert(resources_characters_size + length < MAX_RESOURCES_CHARACTERS, "There are more than %d characters in the resources_characters array, exceeding MAX_RESOURCES_CHARACTERS", MAX_RESOURCES_CHARACTERS);
@@ -470,72 +466,61 @@ static void add_resource(char *resource) {
 	}
 	resources_characters[resources_characters_size++] = '\0';
 
-	// Add to hash table
+	// Add resource to the hash table
 	u32 bucket_index = elf_hash(resource) % MAX_RESOURCES;
 
 	chains_resources[resources_size] = buckets_resources[bucket_index];
 
 	buckets_resources[bucket_index] = resources_size;
 
-	// Push
+	// Push resource
 	push_resource(resource_str, resource_stat.st_mtime);
 }
 
-static void write_to_past_resources_file(void) {
-	FILE *f = fopen(DLL_DIR_PATH"/past_resources.txt", "w");
-	grug_assert(f, "fopen: %s", strerror(errno));
+static void collect_resources_from_dll(char *dll_path) {
+	printf("Collecting resources from %s\n", dll_path);
 
-	for (size_t i = 0; i < resources_size; i++) {
-		char *resource = resources[i];
-		fwrite(resource, sizeof(u8), strlen(resource), f);
-		fwrite("\n", sizeof(u8), 1, f);
-	}
-
-	fclose(f);
+	// TODO: Finish this function
+	// add_resource(...);
 }
 
-static void collect_resources(void) {
-	FILE *f = fopen(DLL_DIR_PATH"/past_resources.txt", "rb");
-	if (!f) {
-		// Return if past_resources.txt hasn't been generated yet
-		if (errno == ENOENT) {
-			return;
+static void collect_resources_recursively(char *mods_dir_path, char *dll_dir_path) {
+	DIR *dirp = opendir(mods_dir_path);
+	grug_assert(dirp, "opendir: %s", strerror(errno));
+
+	errno = 0;
+	struct dirent *dp;
+	while ((dp = readdir(dirp))) {
+		if (streq(dp->d_name, ".") || streq(dp->d_name, "..")) {
+			continue;
 		}
 
-		perror("fopen");
-		exit(EXIT_FAILURE);
-	}
+		char entry_path[STUPID_MAX_PATH];
+		snprintf(entry_path, sizeof(entry_path), "%s/%s", mods_dir_path, dp->d_name);
 
-	char *line = NULL;
-	size_t len = 0;
-	ssize_t read;
+		char dll_entry_path[STUPID_MAX_PATH];
+		snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_dir_path, dp->d_name);
 
-	while ((read = getline(&line, &len, f)) != -1) {
-		if (line[read - 1] == '\n') {
-			line[read - 1] = '\0';
+		struct stat entry_stat;
+		grug_assert(stat(entry_path, &entry_stat) != -1, "stat: %s", strerror(errno));
 
-			// Handle Windows CRLF line endings
-			if (read > 1 && line[read - 2] == '\r') {
-				line[read - 2] = '\0';
-			}
+		if (S_ISDIR(entry_stat.st_mode)) {
+			collect_resources_recursively(entry_path, dll_entry_path);
+		} else if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(dp->d_name), ".grug")) {
+			// Fill dll_path
+			char dll_path[STUPID_MAX_PATH];
+			memcpy(dll_path, dll_entry_path, STUPID_MAX_PATH);
+			char *ext = get_file_extension(dll_path);
+			assert(*ext);
+			ext[1] = '\0';
+			strncat(ext + 1, "so", STUPID_MAX_PATH - 1 - strlen(dll_path));
+
+			collect_resources_from_dll(dll_path);
 		}
-
-		add_resource(line);
 	}
-	free(line);
+	grug_assert(errno == 0, "readdir: %s", strerror(errno));
 
-	if (fclose(f) == EOF) {
-		perror("fclose");
-		exit(EXIT_FAILURE);
-	}
-
-	assert(read == -1);
-
-	// Errno is EAGAIN if the end-of-file was reached
-	if (errno != EAGAIN) {
-		perror("getline");
-		exit(EXIT_FAILURE);
-	}
+	closedir(dirp);
 }
 
 static void reload_resources(void) {
@@ -7047,18 +7032,19 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name) {
 		return true;
 	}
 
-	static bool initialized = false;
-	if (!initialized) {
-		reset_resources();
-		initialized = true;
-	}
-
 	mod = mod_name;
 
 	strncpy(grug_error.path, grug_path, sizeof(grug_error.path) - 1);
 	grug_error.path[sizeof(grug_error.path) - 1] = '\0';
 
 	regenerate_dll(grug_path, dll_path);
+
+	static bool initialized = false;
+	if (!initialized) {
+		reset_resources();
+		collect_resources_from_dll(dll_path);
+		initialized = true;
+	}
 
 	reset_previous_grug_error();
 
@@ -7421,13 +7407,6 @@ bool grug_regenerate_modified_mods(void) {
 		return true;
 	}
 
-	static bool initialized = false;
-	if (!initialized) {
-		reset_resources();
-		collect_resources();
-		initialized = true;
-	}
-
 	grug_reloads_size = 0;
 
 	if (!grug_mods.name) {
@@ -7435,12 +7414,13 @@ bool grug_regenerate_modified_mods(void) {
 		grug_assert(grug_mods.name, "strdup: %s", strerror(errno));
 	}
 
-	added_new_resource = false;
-
 	reload_modified_mods();
 
-	if (added_new_resource) {
-		write_to_past_resources_file();
+	static bool initialized = false;
+	if (!initialized) {
+		reset_resources();
+		collect_resources_recursively(MODS_DIR_PATH, DLL_DIR_PATH);
+		initialized = true;
 	}
 
 	reload_resources();
