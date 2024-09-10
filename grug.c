@@ -226,6 +226,16 @@ static char *get_file_extension(char *filename) {
 	return "";
 }
 
+static void print_dlerror(char *function_name) {
+	char *err = dlerror();
+	grug_assert(err, "dlerror() was asked to find an error string, but it couldn't find one");
+	grug_error("%s: %s", function_name, err);
+}
+
+static void *get_dll_symbol(void *dll, char *symbol_name) {
+	return dlsym(dll, symbol_name);
+}
+
 //// RUNTIME ERROR HANDLING
 
 volatile sig_atomic_t grug_runtime_error;
@@ -383,108 +393,63 @@ char *grug_get_runtime_error_reason(void) {
 
 //// TRACKING RESOURCES
 
-#define MAX_RESOURCES 420420
-#define MAX_RESOURCES_CHARACTERS 420420
-
-static char *resources[MAX_RESOURCES];
-static i64 resource_mtimes[MAX_RESOURCES];
-static size_t resources_size; // TODO: Reset this somewhere to 0?
-
-static u32 buckets_resources[MAX_RESOURCES];
-static u32 chains_resources[MAX_RESOURCES];
-
-static char resources_characters[MAX_RESOURCES_CHARACTERS];
-static size_t resources_characters_size; // TODO: Reset this somewhere to 0? How can this growing indefinitely be prevented?
-
 struct grug_modified_resource grug_resource_reloads[MAX_RESOURCE_RELOADS];
 size_t grug_resource_reloads_size;
-
-static void reset_resources(void) {
-	resources_size = 0;
-	memset(buckets_resources, 0xff, MAX_RESOURCES * sizeof(u32));
-}
-
-// TODO: I think I may need a new kind of hash table to make this work?
-// static void remove_resource(char *resource) {
-// }
 
 static void push_resource_reload(struct grug_modified_resource modified) {
 	grug_assert(grug_resource_reloads_size < MAX_RESOURCE_RELOADS, "There are more than %d modified resources, exceeding MAX_RESOURCE_RELOADS", MAX_RESOURCE_RELOADS);
 	grug_resource_reloads[grug_resource_reloads_size++] = modified;
 }
 
-static void push_resource(char *resource, i64 mtime) {
-	grug_assert(resources_size < MAX_RESOURCES, "There are more than %d resources, exceeding MAX_RESOURCES", MAX_RESOURCES);
-
-	resources[resources_size] = resource;
-	resource_mtimes[resources_size++] = mtime;
-}
-
-static bool seen_resource(char *resource) {
-	u32 i = buckets_resources[elf_hash(resource) % MAX_RESOURCES];
-
-	while (true) {
-		if (i == UINT32_MAX) {
-			return false;
-		}
-
-		if (streq(resource, resources[i])) {
-			break;
-		}
-
-		i = chains_resources[i];
+static void reload_resources_from_dll(char *dll_path) {
+	void *dll = dlopen(dll_path, RTLD_NOW);
+	if (!dll) {
+		print_dlerror("dlopen");
 	}
 
-	return true;
-}
+	size_t *dll_resources_size_ptr = get_dll_symbol(dll, "dll_resources_size");
+	grug_assert(dll_resources_size_ptr, "Retrieving dll_resources_size with get_dll_symbol() failed for %s", dll_path);
+	size_t dll_resources_size = *dll_resources_size_ptr;
 
-static void add_resource(char *resource) {
-	if (seen_resource(resource)) {
+	if (dll_resources_size == 0) {
+		if (dlclose(dll)) {
+			print_dlerror("dlclose");
+		}
 		return;
 	}
 
-	// Get resource its mtime
-	struct stat resource_stat;
-	if (stat(resource, &resource_stat) == -1) {
-		if (errno != ENOENT) {
-			perror("stat");
-			exit(EXIT_FAILURE);
+	printf("dll_resources_size: %zu\n", dll_resources_size);
+
+	char **dll_resources = get_dll_symbol(dll, "dll_resources");
+	grug_assert(dll_resources, "Retrieving dll_resources with get_dll_symbol() failed for %s", dll_path);
+
+	i64 *dll_resource_mtimes = get_dll_symbol(dll, "dll_resource_mtimes");
+	grug_assert(dll_resource_mtimes, "Retrieving dll_resource_mtimes with get_dll_symbol() failed for %s", dll_path);
+
+	if (dlclose(dll)) {
+		print_dlerror("dlclose");
+	}
+
+	for (size_t i = 0; i < dll_resources_size; i++) {
+		char *resource = dll_resources[i];
+
+		struct stat resource_stat;
+		grug_assert(stat(resource, &resource_stat) == 0, "stat: %s", strerror(errno));
+
+		if (resource_stat.st_mtime > dll_resource_mtimes[i]) {
+			// TODO: I suspect this won't work, since the .so changes probably aren't written to disk with this? Try it anyway
+			// dll_resource_mtimes[i] = resource_stat.st_mtime;
+
+			struct grug_modified_resource modified = {0};
+
+			strncpy(modified.path, resource, sizeof(modified.path));
+
+			push_resource_reload(modified);
 		}
-
-		grug_error("The resource \"%s\" does not exist", resource);
 	}
-
-	// Store a copy of resource
-	size_t length = strlen(resource);
-
-	grug_assert(resources_characters_size + length < MAX_RESOURCES_CHARACTERS, "There are more than %d characters in the resources_characters array, exceeding MAX_RESOURCES_CHARACTERS", MAX_RESOURCES_CHARACTERS);
-
-	char *resource_str = resources_characters + resources_characters_size;
-
-	for (size_t i = 0; i < length; i++) {
-		resources_characters[resources_characters_size++] = resource[i];
-	}
-	resources_characters[resources_characters_size++] = '\0';
-
-	// Add resource to the hash table
-	u32 bucket_index = elf_hash(resource) % MAX_RESOURCES;
-
-	chains_resources[resources_size] = buckets_resources[bucket_index];
-
-	buckets_resources[bucket_index] = resources_size;
-
-	// Push resource
-	push_resource(resource_str, resource_stat.st_mtime);
 }
 
-static void collect_resources_from_dll(char *dll_path) {
-	printf("Collecting resources from %s\n", dll_path);
-
-	// TODO: Finish this function
-	// add_resource(...);
-}
-
-static void collect_resources_recursively(char *mods_dir_path, char *dll_dir_path) {
+static void reload_resources(char *mods_dir_path, char *dll_dir_path) {
 	DIR *dirp = opendir(mods_dir_path);
 	grug_assert(dirp, "opendir: %s", strerror(errno));
 
@@ -505,7 +470,7 @@ static void collect_resources_recursively(char *mods_dir_path, char *dll_dir_pat
 		grug_assert(stat(entry_path, &entry_stat) != -1, "stat: %s", strerror(errno));
 
 		if (S_ISDIR(entry_stat.st_mode)) {
-			collect_resources_recursively(entry_path, dll_entry_path);
+			reload_resources(entry_path, dll_entry_path);
 		} else if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(dp->d_name), ".grug")) {
 			// Fill dll_path
 			char dll_path[STUPID_MAX_PATH];
@@ -515,33 +480,12 @@ static void collect_resources_recursively(char *mods_dir_path, char *dll_dir_pat
 			ext[1] = '\0';
 			strncat(ext + 1, "so", STUPID_MAX_PATH - 1 - strlen(dll_path));
 
-			collect_resources_from_dll(dll_path);
+			reload_resources_from_dll(dll_path);
 		}
 	}
 	grug_assert(errno == 0, "readdir: %s", strerror(errno));
 
 	closedir(dirp);
-}
-
-static void reload_resources(void) {
-	grug_resource_reloads_size = 0;
-
-	for (size_t i = 0; i < resources_size; i++) {
-		char *resource = resources[i];
-
-		struct stat resource_stat;
-		grug_assert(stat(resource, &resource_stat) == 0, "stat: %s", strerror(errno));
-
-		if (resource_stat.st_mtime > resource_mtimes[i]) {
-			resource_mtimes[i] = resource_stat.st_mtime;
-
-			struct grug_modified_resource modified = {0};
-
-			strncpy(modified.path, resource, sizeof(modified.path));
-
-			push_resource_reload(modified);
-		}
-	}
 }
 
 //// JSON
@@ -4015,7 +3959,9 @@ static void fill_result_types(void) {
 
 #define ADD_TO_RBX 0xc38148 // add rbx, n
 
-#define NOP_32_BITS 0x401f0f // no nasm equivalent
+#define NOP_8_BITS 0x90 // nop
+#define NOP_32_BITS 0x401f0f // There isn't a nasm equivalent
+
 #define PUSH_REL 0x35ff // Not quite push qword [$+n]
 #define JMP_REL 0x25ff // Not quite jmp [$+n]
 
@@ -4833,8 +4779,6 @@ static char *push_resource_string(char *string) {
 		resource_strings[resource_strings_size++] = resource[i];
 	}
 	resource_strings[resource_strings_size++] = '\0';
-
-	add_resource(resource_str);
 
 	return resource_str;
 }
@@ -5754,15 +5698,16 @@ static void patch_rela_dyn(void) {
 
 static u32 get_symbol_offset(size_t symbol_index) {
 	bool is_data = symbol_index < data_symbols_size;
-	bool is_extern_data = symbol_index < first_extern_data_symbol_index + extern_data_symbols_size;
-	bool is_extern = symbol_index < first_used_extern_fn_symbol_index + extern_fns_size;
-
 	if (is_data) {
 		return data_offset + data_offsets[symbol_index];
 	}
+
+	bool is_extern_data = symbol_index < first_extern_data_symbol_index + extern_data_symbols_size;
 	if (is_extern_data) {
 		return 0;
 	}
+
+	bool is_extern = symbol_index < first_used_extern_fn_symbol_index + extern_fns_size;
 	if (is_extern) {
 		return 0;
 	}
@@ -5772,15 +5717,16 @@ static u32 get_symbol_offset(size_t symbol_index) {
 
 static u16 get_symbol_shndx(size_t symbol_index) {
 	bool is_data = symbol_index < data_symbols_size;
-	bool is_extern_data = symbol_index < first_extern_data_symbol_index + extern_data_symbols_size;
-	bool is_extern = symbol_index < first_used_extern_fn_symbol_index + extern_fns_size;
-
 	if (is_data) {
 		return shindex_data;
 	}
+
+	bool is_extern_data = symbol_index < first_extern_data_symbol_index + extern_data_symbols_size;
 	if (is_extern_data) {
 		return SHN_UNDEF;
 	}
+
+	bool is_extern = symbol_index < first_used_extern_fn_symbol_index + extern_fns_size;
 	if (is_extern) {
 		return SHN_UNDEF;
 	}
@@ -5972,7 +5918,9 @@ static void push_nasm_alignment(size_t alignment) {
 	size_t excess = bytes_size % alignment;
 	if (excess > 0) {
 		for (size_t i = 0; i < alignment - excess; i++) {
-			push_byte(0x90);
+			// nasm aligns using the NOP instruction:
+			// https://stackoverflow.com/a/18414187/13279557
+			push_byte(NOP_8_BITS);
 		}
 	}
 }
@@ -6122,14 +6070,19 @@ static void push_symtab(char *grug_path) {
 
 	symtab_offset = bytes_size;
 
+	size_t pushed_symbol_entries = 0;
+
 	// Null entry
 	push_symbol_entry(0, ELF32_ST_INFO(STB_LOCAL, STT_NOTYPE), SHN_UNDEF, 0);
+	pushed_symbol_entries++;
 
 	// "<some_path>.s" entry
 	push_symbol_entry(1, ELF32_ST_INFO(STB_LOCAL, STT_FILE), SHN_ABS, 0);
+	pushed_symbol_entries++;
 
 	// TODO: ? entry
 	push_symbol_entry(0, ELF32_ST_INFO(STB_LOCAL, STT_FILE), SHN_ABS, 0);
+	pushed_symbol_entries++;
 
 	// TODO: Let this use path of the .grug file, instead of the .s that's used purely for testing purposes
 	// The `1 +` is to skip the 0 byte that .strtab always starts with
@@ -6137,13 +6090,15 @@ static void push_symtab(char *grug_path) {
 
 	// "_DYNAMIC" entry
 	push_symbol_entry(name_offset, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT), shindex_dynamic, dynamic_offset);
+	pushed_symbol_entries++;
 	name_offset += sizeof("_DYNAMIC");
 
 	// "_GLOBAL_OFFSET_TABLE_" entry
 	push_symbol_entry(name_offset, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT), shindex_got_plt, got_plt_offset);
+	pushed_symbol_entries++;
 	name_offset += sizeof("_GLOBAL_OFFSET_TABLE_");
 
-	symtab_index_first_global = 5;
+	symtab_index_first_global = pushed_symbol_entries;
 
 	// The symbols are pushed in shuffled_symbols order
 	for (size_t i = 0; i < symbols_size; i++) {
@@ -6189,6 +6144,10 @@ static void push_data(void) {
 		char *string = data_strings[i];
 		push_string_bytes(string);
 	}
+
+	// "dll_resources_size" symbol
+	push_nasm_alignment(8);
+	push_64(0); // TODO: UNHARDCODE!
 
 	push_alignment(8);
 }
@@ -6777,9 +6736,11 @@ static void init_data_offsets(void) {
 	offset += sizeof(u64);
 
 	// "on_fns" function address symbols
-	data_offsets[i++] = offset;
-	for (size_t on_fn_index = 0; on_fn_index < grug_define_entity->on_function_count; on_fn_index++) {
-		offset += sizeof(size_t);
+	if (grug_define_entity->on_function_count > 0) {
+		data_offsets[i++] = offset;
+		for (size_t on_fn_index = 0; on_fn_index < grug_define_entity->on_function_count; on_fn_index++) {
+			offset += sizeof(size_t);
+		}
 	}
 
 	// "strings" symbol
@@ -6789,6 +6750,14 @@ static void init_data_offsets(void) {
 		char *string = data_strings[string_index];
 		offset += strlen(string) + 1;
 	}
+
+	// "dll_resources_size" symbol
+	excess = offset % sizeof(u64); // Alignment
+	if (excess > 0) {
+		offset += sizeof(u64) - excess;
+	}
+	data_offsets[i++] = offset;
+	offset += sizeof(u64);
 
 	data_size = offset;
 }
@@ -6911,6 +6880,9 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 	}
 
 	push_symbol("strings");
+	data_symbols_size++;
+
+	push_symbol("dll_resources_size");
 	data_symbols_size++;
 
 	first_extern_data_symbol_index = data_symbols_size;
@@ -7039,12 +7011,8 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name) {
 
 	regenerate_dll(grug_path, dll_path);
 
-	static bool initialized = false;
-	if (!initialized) {
-		reset_resources();
-		collect_resources_from_dll(dll_path);
-		initialized = true;
-	}
+	grug_resource_reloads_size = 0;
+	reload_resources_from_dll(dll_path);
 
 	reset_previous_grug_error();
 
@@ -7067,12 +7035,6 @@ static void try_create_parent_dirs(char *file_path) {
 		file_path++;
 		i++;
 	}
-}
-
-static void print_dlerror(char *function_name) {
-	char *err = dlerror();
-	grug_assert(err, "dlerror() was asked to find an error string, but it couldn't find one");
-	grug_error("%s: %s", function_name, err);
 }
 
 static void free_file(struct grug_file file) {
@@ -7100,10 +7062,6 @@ static void free_dir(struct grug_mod_dir dir) {
 void grug_free_mods(void) {
 	free_dir(grug_mods);
 	memset(&grug_mods, 0, sizeof(grug_mods));
-}
-
-static void *grug_get(void *dll, char *symbol_name) {
-	return dlsym(dll, symbol_name);
 }
 
 static void push_reload(struct grug_modified modified) {
@@ -7269,25 +7227,25 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 
 				#pragma GCC diagnostic push
 				#pragma GCC diagnostic ignored "-Wpedantic"
-				file.define_fn = grug_get(file.dll, "define");
+				file.define_fn = get_dll_symbol(file.dll, "define");
 				#pragma GCC diagnostic pop
-				grug_assert(file.define_fn, "Retrieving the define() function with grug_get() failed for %s", dll_path);
+				grug_assert(file.define_fn, "Retrieving the define() function with get_dll_symbol() failed for %s", dll_path);
 
-				size_t *globals_size_ptr = grug_get(file.dll, "globals_size");
-				grug_assert(globals_size_ptr, "Retrieving the globals_size variable with grug_get() failed for %s", dll_path);
+				size_t *globals_size_ptr = get_dll_symbol(file.dll, "globals_size");
+				grug_assert(globals_size_ptr, "Retrieving the globals_size variable with get_dll_symbol() failed for %s", dll_path);
 				file.globals_size = *globals_size_ptr;
 
 				#pragma GCC diagnostic push
 				#pragma GCC diagnostic ignored "-Wpedantic"
-				file.init_globals_fn = grug_get(file.dll, "init_globals");
+				file.init_globals_fn = get_dll_symbol(file.dll, "init_globals");
 				#pragma GCC diagnostic pop
-				grug_assert(file.init_globals_fn, "Retrieving the init_globals() function with grug_get() failed for %s", dll_path);
+				grug_assert(file.init_globals_fn, "Retrieving the init_globals() function with get_dll_symbol() failed for %s", dll_path);
 
-				file.define_type = grug_get(file.dll, "define_type");
-				grug_assert(file.define_type, "Retrieving the define_type string with grug_get() failed for %s", dll_path);
+				file.define_type = get_dll_symbol(file.dll, "define_type");
+				grug_assert(file.define_type, "Retrieving the define_type string with get_dll_symbol() failed for %s", dll_path);
 
 				// on_fns is optional, so don't check for NULL
-				file.on_fns = grug_get(file.dll, "on_fns");
+				file.on_fns = get_dll_symbol(file.dll, "on_fns");
 
 				if (old_file) {
 					old_file->dll = file.dll;
@@ -7416,14 +7374,8 @@ bool grug_regenerate_modified_mods(void) {
 
 	reload_modified_mods();
 
-	static bool initialized = false;
-	if (!initialized) {
-		reset_resources();
-		collect_resources_recursively(MODS_DIR_PATH, DLL_DIR_PATH);
-		initialized = true;
-	}
-
-	reload_resources();
+	grug_resource_reloads_size = 0;
+	reload_resources(MODS_DIR_PATH, DLL_DIR_PATH);
 
 	reset_previous_grug_error();
 
