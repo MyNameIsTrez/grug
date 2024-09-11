@@ -421,18 +421,8 @@ static void reload_resources_from_dll(char *dll_path) {
 	char **resources = get_dll_symbol(dll, "resources");
 	grug_assert(resources, "Retrieving resources with get_dll_symbol() failed for %s", dll_path);
 
-	// TODO: REMOVE
-	if (dlclose(dll)) {
-		print_dlerror("dlclose");
-	}
-	return;
-
 	i64 *resource_mtimes = get_dll_symbol(dll, "resource_mtimes");
 	grug_assert(resource_mtimes, "Retrieving resource_mtimes with get_dll_symbol() failed for %s", dll_path);
-
-	if (dlclose(dll)) {
-		print_dlerror("dlclose");
-	}
 
 	for (size_t i = 0; i < resources_size; i++) {
 		char *resource = resources[i];
@@ -450,6 +440,10 @@ static void reload_resources_from_dll(char *dll_path) {
 
 			push_resource_reload(modified);
 		}
+	}
+
+	if (dlclose(dll)) {
+		print_dlerror("dlclose");
 	}
 }
 
@@ -5722,7 +5716,7 @@ static void patch_rela_dyn(void) {
 	for (size_t i = 0; i < resources_size; i++) {
 		overwrite_64(resources_offset + i * sizeof(u64), bytes_offset);
 		bytes_offset += 2 * sizeof(u64);
-		overwrite_64(strings_offset + resources[i], bytes_offset);
+		overwrite_64(data_offset + data_string_offsets[resources[i]], bytes_offset);
 		bytes_offset += sizeof(u64);
 	}
 }
@@ -6192,7 +6186,19 @@ static void push_data(void) {
 	resources_offset = bytes_size;
 	for (size_t i = 0; i < resources_size; i++) {
 		u32 resource = resources[i];
-		push_64(strings_offset + resource);
+		push_64(data_offset + data_string_offsets[resource]);
+	}
+
+	// "resource_mtimes" symbol
+	for (size_t i = 0; i < resources_size; i++) {
+		u32 resource_index = resources[i];
+
+		char *resource = data_strings[resource_index];
+
+		struct stat resource_stat;
+		grug_assert(stat(resource, &resource_stat) == 0, "stat: %s", strerror(errno));
+
+		push_64(resource_stat.st_mtime);
 	}
 
 	push_alignment(8);
@@ -6816,6 +6822,11 @@ static void init_data_offsets(void) {
 		for (size_t resource_index = 0; resource_index < resources_size; resource_index++) {
 			offset += sizeof(size_t);
 		}
+
+		data_offsets[i++] = offset;
+		for (size_t resource_index = 0; resource_index < resources_size; resource_index++) {
+			offset += sizeof(size_t);
+		}
 	}
 
 	data_size = offset;
@@ -6948,8 +6959,8 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 		push_symbol("resources");
 		data_symbols_size++;
 
-		// push_symbol("resource_mtimes");
-		// data_symbols_size++;
+		push_symbol("resource_mtimes");
+		data_symbols_size++;
 	}
 
 	first_extern_data_symbol_index = data_symbols_size;
