@@ -421,6 +421,12 @@ static void reload_resources_from_dll(char *dll_path) {
 	char **resources = get_dll_symbol(dll, "resources");
 	grug_assert(resources, "Retrieving resources with get_dll_symbol() failed for %s", dll_path);
 
+	// TODO: REMOVE
+	if (dlclose(dll)) {
+		print_dlerror("dlclose");
+	}
+	return;
+
 	i64 *resource_mtimes = get_dll_symbol(dll, "resource_mtimes");
 	grug_assert(resource_mtimes, "Retrieving resource_mtimes with get_dll_symbol() failed for %s", dll_path);
 
@@ -3800,6 +3806,7 @@ static void fill_result_types(void) {
 #define MAX_USED_GAME_FNS 420
 #define MAX_HELPER_FN_OFFSETS 420420
 #define MAX_STACK_SIZE 420420
+#define MAX_RESOURCES 420420
 #define MAX_LOOP_DEPTH 420
 #define MAX_BREAK_STATEMENTS_PER_LOOP 420
 #define MAX_GOT_ACCESSES (MAX_ON_FNS_IN_FILE + MAX_HELPER_FNS_IN_FILE)
@@ -4035,9 +4042,12 @@ static bool in_on_fn;
 
 static bool calling_game_fn;
 
-static bool resource_is_string;
+static bool string_is_resource;
 
 static char *mod;
+
+static u32 resources[MAX_RESOURCES];
+static size_t resources_size;
 
 static void reset_compiling(void) {
 	codes_size = 0;
@@ -4056,7 +4066,8 @@ static void reset_compiling(void) {
 	got_accesses_size = 0;
 	in_on_fn = false;
 	calling_game_fn = false;
-	resource_is_string = false;
+	string_is_resource = false;
+	resources_size = 0;
 }
 
 static size_t get_helper_fn_offset(char *name) {
@@ -4817,6 +4828,12 @@ static void add_data_string(char *string) {
 	}
 }
 
+static void push_resource(u32 string_index) {
+	grug_assert(resources_size < MAX_RESOURCES, "There are more than %d resources, exceeding MAX_RESOURCES", MAX_RESOURCES);
+
+	resources[resources_size++] = string_index;
+}
+
 static void compile_expr(struct expr expr) {
 	switch (expr.type) {
 		case TRUE_EXPR:
@@ -4829,11 +4846,17 @@ static void compile_expr(struct expr expr) {
 		case STRING_EXPR: {
 			char *string = expr.literal.string;
 
-			if (resource_is_string) {
+			if (string_is_resource) {
 				string = push_resource_string(string);
 			}
 
+			bool had_string = get_data_string_index(string) != UINT32_MAX;
+
 			add_data_string(string);
+
+			if (string_is_resource && !had_string) {
+				push_resource(get_data_string_index(string));
+			}
 
 			compile_unpadded(LEA_STRINGS_TO_RAX);
 
@@ -5302,11 +5325,11 @@ static void compile_define_fn_returned_fields(void) {
 		enum type json_type = grug_define_entity->fields[i].type;
 
 		if (json_type == type_resource) {
-			resource_is_string = true;
+			string_is_resource = true;
 		}
 		compile_expr(field);
 		if (json_type == type_resource) {
-			resource_is_string = false;
+			string_is_resource = false;
 		}
 
 		if (field.result_type == type_f32) {
@@ -5539,6 +5562,9 @@ static size_t game_fn_offsets_size;
 static u32 buckets_game_fn_offsets[MAX_GAME_FN_OFFSETS];
 static u32 chains_game_fn_offsets[MAX_GAME_FN_OFFSETS];
 
+static size_t strings_offset;
+static size_t resources_offset;
+
 static void reset_generate_shared_object(void) {
 	symbols_size = 0;
 	data_symbols_size = 0;
@@ -5675,12 +5701,12 @@ static void patch_rela_dyn(void) {
 		struct on_fn *on_fn = get_on_fn(grug_define_entity->on_functions[i].name);
 		if (on_fn) {
 			size_t on_fn_index = on_fn - on_fns;
-			size_t symbol_index = on_fns_symbol_offset + on_fn_index;
-			size_t text_index = symbol_index - data_symbols_size - extern_data_symbols_size - extern_fns_size;
 
 			overwrite_64(got_plt_offset + got_plt_size + on_fn_data_offset, bytes_offset);
 			bytes_offset += 2 * sizeof(u64);
-			overwrite_64(text_offset + text_offsets[text_index], bytes_offset);
+
+			size_t fns_before_on_fns = 2; // define() and init_globals()
+			overwrite_64(text_offset + text_offsets[on_fn_index + fns_before_on_fns], bytes_offset);
 			bytes_offset += sizeof(u64);
 		}
 		on_fn_data_offset += sizeof(size_t);
@@ -5690,6 +5716,13 @@ static void patch_rela_dyn(void) {
 		overwrite_64(got_offset + i * sizeof(u64), bytes_offset);
 		bytes_offset += 2 * sizeof(u64);
 		overwrite_64(0, bytes_offset);
+		bytes_offset += sizeof(u64);
+	}
+
+	for (size_t i = 0; i < resources_size; i++) {
+		overwrite_64(resources_offset + i * sizeof(u64), bytes_offset);
+		bytes_offset += 2 * sizeof(u64);
+		overwrite_64(strings_offset + resources[i], bytes_offset);
 		bytes_offset += sizeof(u64);
 	}
 }
@@ -5834,6 +5867,10 @@ static void patch_text(void) {
 	}
 }
 
+static bool has_got(void) {
+	return on_fns_size > 0;
+}
+
 static void patch_program_headers(void) {
 	// .hash, .dynsym, .dynstr, .rela.dyn, .rela.plt segment
 	overwrite_64(segment_0_size, 0x60); // file_size
@@ -5856,7 +5893,7 @@ static void patch_program_headers(void) {
 	overwrite_64(dynamic_offset, 0xf8); // virtual_address
 	overwrite_64(dynamic_offset, 0x100); // physical_address
 	size_t size = dynamic_size + got_plt_size + data_size;
-	if (on_fns_size > 0) {
+	if (has_got()) {
 		size += got_size;
 	}
 	overwrite_64(size, 0x108); // file_size
@@ -5874,7 +5911,7 @@ static void patch_program_headers(void) {
 	overwrite_64(dynamic_offset, 0x168); // virtual_address
 	overwrite_64(dynamic_offset, 0x170); // physical_address
 	size_t segment_5_size = dynamic_size;
-	if (on_fns_size > 0) {
+	if (has_got()) {
 		segment_5_size += got_size;
 	}
 #ifndef OLD_LD
@@ -5884,6 +5921,10 @@ static void patch_program_headers(void) {
 	overwrite_64(segment_5_size, 0x180); // mem_size
 }
 
+static bool has_rela_dyn(void) {
+	return on_fns_size > 0 || resources_size > 0;
+}
+
 static void patch_bytes(void) {
 	// ELF section header table offset
 	overwrite_64(section_headers_offset, 0x28);
@@ -5891,7 +5932,7 @@ static void patch_bytes(void) {
 	patch_program_headers();
 
 	patch_dynsym();
-	if (on_fns_size > 0) {
+	if (has_rela_dyn()) {
 		patch_rela_dyn();
 	}
 	patch_rela_plt();
@@ -5972,7 +6013,7 @@ static void push_shstrtab(void) {
 	push_string_bytes(".dynstr");
 	offset += sizeof(".dynstr");
 
-	if (on_fns_size > 0) {
+	if (has_rela_dyn()) {
 		rela_dyn_shstrtab_offset = offset;
 		push_string_bytes(".rela.dyn");
 		offset += sizeof(".rela.dyn");
@@ -5997,7 +6038,7 @@ static void push_shstrtab(void) {
 	push_string_bytes(".dynamic");
 	offset += sizeof(".dynamic");
 
-	if (on_fns_size > 0) {
+	if (has_got()) {
 		got_shstrtab_offset = offset;
 		push_string_bytes(".got");
 		offset += sizeof(".got");
@@ -6129,15 +6170,15 @@ static void push_data(void) {
 			grug_assert(previous_on_fn_index <= on_fn_index, "The function '%s' was in the wrong order, according to the entity '%s' in mod_api.json", on_fn->fn_name, grug_define_entity->name);
 			previous_on_fn_index = on_fn_index;
 
-			size_t symbol_index = on_fns_symbol_offset + on_fn_index;
-			size_t text_index = symbol_index - data_symbols_size - extern_data_symbols_size - extern_fns_size;
-			push_64(text_offset + text_offsets[text_index]);
+			size_t fns_before_on_fns = 2; // define() and init_globals()
+			push_64(text_offset + text_offsets[on_fn_index + fns_before_on_fns]);
 		} else {
 			push_64(0x0);
 		}
 	}
 
 	// "strings" symbol
+	strings_offset = bytes_size;
 	for (size_t i = 0; i < data_strings_size; i++) {
 		char *string = data_strings[i];
 		push_string_bytes(string);
@@ -6145,7 +6186,14 @@ static void push_data(void) {
 
 	// "resources_size" symbol
 	push_nasm_alignment(8);
-	push_64(0); // TODO: UNHARDCODE!
+	push_64(resources_size);
+
+	// "resources" symbol
+	resources_offset = bytes_size;
+	for (size_t i = 0; i < resources_size; i++) {
+		u32 resource = resources[i];
+		push_64(strings_offset + resource);
+	}
 
 	push_alignment(8);
 }
@@ -6195,15 +6243,13 @@ static void push_dynamic_entry(u64 tag, u64 value) {
 static void push_dynamic(void) {
 	grug_log_section(".dynamic");
 
-	// 18 is the number of push_dynamic_entry() calls when on_fns_size > 0,
-	// and 15 is the number when on_fns_size == 0
 	size_t entry_size = 0x10;
-	dynamic_size = on_fns_size > 0 ? 18 * entry_size : 15 * entry_size;
+	dynamic_size = has_rela_dyn() ? 18 * entry_size : 15 * entry_size;
 
 	size_t segment_2_to_3_offset = 0x1000;
 	dynamic_offset = bytes_size + segment_2_to_3_offset - dynamic_size;
-	if (on_fns_size > 0) {
-		// This subtracts the future got_size
+	if (has_got()) {
+		// This subtracts the future got_size set by push_got()
 		// TODO: Stop having these hardcoded here
 		dynamic_offset -= 2 * sizeof(u64);
 		if (calling_game_fn) {
@@ -6225,11 +6271,11 @@ static void push_dynamic(void) {
 	push_dynamic_entry(DT_PLTREL, DT_RELA);
 	push_dynamic_entry(DT_JMPREL, rela_plt_offset);
 
-	if (on_fns_size > 0) {
+	if (has_rela_dyn()) {
 		push_dynamic_entry(DT_RELA, rela_dyn_offset);
-		push_dynamic_entry(DT_RELASZ, (on_fns_size + extern_data_symbols_size) * RELA_ENTRY_SIZE);
+		push_dynamic_entry(DT_RELASZ, (on_fns_size + extern_data_symbols_size + resources_size) * RELA_ENTRY_SIZE);
 		push_dynamic_entry(DT_RELAENT, RELA_ENTRY_SIZE);
-		push_dynamic_entry(DT_RELACOUNT, on_fns_size);
+		push_dynamic_entry(DT_RELACOUNT, on_fns_size + resources_size);
 	}
 
 	// "Marks the end of the _DYNAMIC array."
@@ -6237,7 +6283,10 @@ static void push_dynamic(void) {
 	push_dynamic_entry(DT_NULL, 0);
 
 	// TODO: Figure out why these are needed
-	size_t padding = 4 * entry_size;
+	size_t padding = 3 * entry_size;
+	if (resources_size == 0) {
+		padding += entry_size;
+	}
 	if (on_fns_size == 0) {
 		padding += entry_size;
 	}
@@ -6355,6 +6404,10 @@ static void push_rela_dyn(void) {
 	for (size_t i = extern_data_symbols_size; i > 0; i--) {
 		// `1 +` skips the first symbol, which is always undefined
 		push_rela(PLACEHOLDER_64, ELF64_R_INFO(1 + symbol_index_to_shuffled_symbol_index[first_extern_data_symbol_index + i - 1], R_X86_64_GLOB_DAT), PLACEHOLDER_64);
+	}
+
+	for (size_t i = 0; i < resources_size; i++) {
+		push_rela(PLACEHOLDER_64, ELF64_R_INFO(0, R_X86_64_RELATIVE), PLACEHOLDER_64);
 	}
 
 	rela_dyn_size = bytes_size - rela_dyn_offset;
@@ -6476,7 +6529,7 @@ static void push_section_headers(void) {
 	// .dynstr: String table section
 	push_section_header(dynstr_shstrtab_offset, SHT_STRTAB, SHF_ALLOC, dynstr_offset, dynstr_offset, dynstr_size, SHN_UNDEF, 0, 1, 0);
 
-	if (on_fns_size > 0) {
+	if (has_rela_dyn()) {
 		// .rela.dyn: Relative variable table section
 		push_section_header(rela_dyn_shstrtab_offset, SHT_RELA, SHF_ALLOC, rela_dyn_offset, rela_dyn_offset, rela_dyn_size, shindex_dynsym, 0, 8, 24);
 	}
@@ -6496,7 +6549,7 @@ static void push_section_headers(void) {
 	// .dynamic: Dynamic linking information section
 	push_section_header(dynamic_shstrtab_offset, SHT_DYNAMIC, SHF_WRITE | SHF_ALLOC, dynamic_offset, dynamic_offset, dynamic_size, shindex_dynstr, 0, 8, 16);
 
-	if (on_fns_size > 0) {
+	if (has_got()) {
 		// .got: Global offset table section
 		push_section_header(got_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, got_offset, got_offset, got_size, SHN_UNDEF, 0, 8, 8);
 	}
@@ -6663,12 +6716,12 @@ static void push_elf_header(void) {
 
 	// Number of section header entries
 	// 0x3c to 0x3e
-	push_byte(14 + (2 * (on_fns_size > 0)));
+	push_byte(14 + has_got() + has_rela_dyn());
 	push_byte(0);
 
 	// Index of entry with section names
 	// 0x3e to 0x40
-	push_byte(13 + (2 * (on_fns_size > 0)));
+	push_byte(13 + has_got() + has_rela_dyn());
 	push_byte(0);
 }
 
@@ -6685,7 +6738,7 @@ static void push_bytes(char *grug_path) {
 
 	push_dynstr();
 
-	if (on_fns_size > 0) {
+	if (has_rela_dyn()) {
 		push_rela_dyn();
 	}
 
@@ -6700,7 +6753,7 @@ static void push_bytes(char *grug_path) {
 
 	push_dynamic();
 
-	if (on_fns_size > 0) {
+	if (has_got()) {
 		push_got();
 	}
 
@@ -6756,6 +6809,14 @@ static void init_data_offsets(void) {
 	}
 	data_offsets[i++] = offset;
 	offset += sizeof(u64);
+
+	// "resources" symbol
+	if (resources_size > 0) {
+		data_offsets[i++] = offset;
+		for (size_t resource_index = 0; resource_index < resources_size; resource_index++) {
+			offset += sizeof(size_t);
+		}
+	}
 
 	data_size = offset;
 }
@@ -6841,7 +6902,7 @@ static void init_section_header_indices(void) {
 	shindex_hash = shindex++;
 	shindex_dynsym = shindex++;
 	shindex_dynstr = shindex++;
-	if (on_fns_size > 0) {
+	if (has_rela_dyn()) {
 		shindex_rela_dyn = shindex++;
 	}
 	shindex_rela_plt = shindex++;
@@ -6849,7 +6910,7 @@ static void init_section_header_indices(void) {
 	shindex_text = shindex++;
 	shindex_eh_frame = shindex++;
 	shindex_dynamic = shindex++;
-	if (on_fns_size > 0) {
+	if (has_got()) {
 		shindex_got = shindex++;
 	}
 	shindex_got_plt = shindex++;
@@ -6882,6 +6943,14 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 
 	push_symbol("resources_size");
 	data_symbols_size++;
+
+	if (resources_size > 0) {
+		push_symbol("resources");
+		data_symbols_size++;
+
+		// push_symbol("resource_mtimes");
+		// data_symbols_size++;
+	}
 
 	first_extern_data_symbol_index = data_symbols_size;
 	if (on_fns_size > 0) {
