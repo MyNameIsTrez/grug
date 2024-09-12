@@ -6090,7 +6090,7 @@ static void push_64(u64 n) {
 // See https://docs.oracle.com/cd/E19683-01/816-1386/chapter6-79797/index.html
 // See https://docs.oracle.com/cd/E19683-01/816-1386/6m7qcoblj/index.html#chapter6-tbl-21
 static void push_symbol_entry(u32 name, u16 info, u16 shndx, u32 offset) {
-	push_32(name); // Indexed into .strtab, because .symtab its "link" points to it
+	push_32(name); // Indexed into .strtab for .symtab, because .symtab its "link" points to it; .dynstr for .dynstr
 	push_16(info);
 	push_16(shndx);
 	push_32(offset); // In executable and shared object files, st_value holds a virtual address
