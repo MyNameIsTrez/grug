@@ -5663,17 +5663,17 @@ static void patch_rela_dyn(void) {
 		on_fn_data_offset += sizeof(size_t);
 	}
 
-	for (size_t i = 0; i < extern_data_symbols_size; i++) {
-		overwrite_64(got_offset + i * sizeof(u64), bytes_offset);
-		bytes_offset += 2 * sizeof(u64);
-		overwrite_64(0, bytes_offset);
-		bytes_offset += sizeof(u64);
-	}
-
 	for (size_t i = 0; i < resources_size; i++) {
 		overwrite_64(resources_offset + i * sizeof(u64), bytes_offset);
 		bytes_offset += 2 * sizeof(u64);
 		overwrite_64(data_offset + data_string_offsets[resources[i]], bytes_offset);
+		bytes_offset += sizeof(u64);
+	}
+
+	for (size_t i = 0; i < extern_data_symbols_size; i++) {
+		overwrite_64(got_offset + i * sizeof(u64), bytes_offset);
+		bytes_offset += 2 * sizeof(u64);
+		overwrite_64(0, bytes_offset);
 		bytes_offset += sizeof(u64);
 	}
 }
@@ -6241,6 +6241,9 @@ static void push_dynamic(void) {
 	if (on_fns_size == 0) {
 		padding += entry_size;
 	}
+	if (resources_size > 0 && on_fns_size > 0) {
+		padding += entry_size;
+	}
 	push_zeros(padding);
 }
 
@@ -6350,15 +6353,15 @@ static void push_rela_dyn(void) {
 		}
 	}
 
+	for (size_t i = 0; i < resources_size; i++) {
+		push_rela(PLACEHOLDER_64, ELF64_R_INFO(0, R_X86_64_RELATIVE), PLACEHOLDER_64);
+	}
+
 	// Idk why, but nasm seems to always push the symbols in the reverse order
 	// Maybe this should use symbol_index_to_shuffled_symbol_index?
 	for (size_t i = extern_data_symbols_size; i > 0; i--) {
 		// `1 +` skips the first symbol, which is always undefined
 		push_rela(PLACEHOLDER_64, ELF64_R_INFO(1 + symbol_index_to_shuffled_symbol_index[first_extern_data_symbol_index + i - 1], R_X86_64_GLOB_DAT), PLACEHOLDER_64);
-	}
-
-	for (size_t i = 0; i < resources_size; i++) {
-		push_rela(PLACEHOLDER_64, ELF64_R_INFO(0, R_X86_64_RELATIVE), PLACEHOLDER_64);
 	}
 
 	rela_dyn_size = bytes_size - rela_dyn_offset;
