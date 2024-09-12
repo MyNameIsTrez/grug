@@ -6966,12 +6966,6 @@ char *grug_on_fn_path;
 static void regenerate_dll(char *grug_path, char *dll_path) {
 	grug_log("# Regenerating %s\n", dll_path);
 
-	static bool parsed_mod_api_json = false;
-	if (!parsed_mod_api_json) {
-		parse_mod_api_json();
-		parsed_mod_api_json = true;
-	}
-
 	reset_utils();
 
 	char *grug_text = read_file(grug_path);
@@ -7026,6 +7020,12 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name) {
 
 	strncpy(grug_error.path, grug_path, sizeof(grug_error.path) - 1);
 	grug_error.path[sizeof(grug_error.path) - 1] = '\0';
+
+	static bool parsed_mod_api_json = false;
+	if (!parsed_mod_api_json) {
+		parse_mod_api_json();
+		parsed_mod_api_json = true;
+	}
 
 	regenerate_dll(grug_path, dll_path);
 
@@ -7415,6 +7415,12 @@ bool grug_regenerate_modified_mods(void) {
 
 	if (setjmp(error_jmp_buffer)) {
 		return true;
+	}
+
+	static bool parsed_mod_api_json = false;
+	if (!parsed_mod_api_json) {
+		parse_mod_api_json();
+		parsed_mod_api_json = true;
 	}
 
 	grug_reloads_size = 0;
