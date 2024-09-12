@@ -7332,7 +7332,7 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 	//
 	// TODO: This can be made O(n) rather than O(n*m) by letting every directory contain a "seen" boolean,
 	// so that we can iterate over all directories and files once here
-	for (size_t i = dir->files_size; i > 0;) {
+	for (size_t i = dir->dirs_size; i > 0;) {
 		i--;
 		if (!seen_entry(dir->dirs[i].name, seen_dir_names, seen_dir_names_size)) {
 			free_dir(dir->dirs[i]);
