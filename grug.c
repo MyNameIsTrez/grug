@@ -425,7 +425,7 @@ static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
 		char *resource = resources[i];
 
 		struct stat resource_stat;
-		grug_assert(stat(resource, &resource_stat) == 0, "stat: %s", strerror(errno));
+		grug_assert(stat(resource, &resource_stat) == 0, "%s: %s", resource, strerror(errno));
 
 		if (resource_stat.st_mtime > resource_mtimes[i]) {
 			resource_mtimes[i] = resource_stat.st_mtime;
@@ -7160,7 +7160,7 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 		snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_dir_path, dp->d_name);
 
 		struct stat entry_stat;
-		grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s", strerror(errno));
+		grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
 
 		if (S_ISDIR(entry_stat.st_mode)) {
 			if (seen_dir_names_size >= seen_dir_names_capacity) {
@@ -7300,7 +7300,7 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 
 					for (size_t i = 0; i < size; i++) {
 						struct stat resource_stat;
-						grug_assert(stat(dll_resources[i], &resource_stat) == 0, "stat: %s", strerror(errno));
+						grug_assert(stat(dll_resources[i], &resource_stat) == 0, "%s: %s", dll_resources[i], strerror(errno));
 
 						file.resource_mtimes[i] = resource_stat.st_mtime;
 					}
@@ -7374,7 +7374,7 @@ static void reload_modified_mods(void) {
 		snprintf(entry_path, sizeof(entry_path), MODS_DIR_PATH"/%s", dp->d_name);
 
 		struct stat entry_stat;
-		grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s", strerror(errno));
+		grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
 
 		if (S_ISDIR(entry_stat.st_mode)) {
 			mod = dp->d_name;
