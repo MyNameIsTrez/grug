@@ -401,7 +401,7 @@ static void push_resource_reload(struct grug_modified_resource modified) {
 	grug_resource_reloads[grug_resource_reloads_size++] = modified;
 }
 
-static void reload_resources_from_dll(char *dll_path) {
+static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
 	void *dll = dlopen(dll_path, RTLD_NOW);
 	if (!dll) {
 		print_dlerror("dlopen");
@@ -421,9 +421,6 @@ static void reload_resources_from_dll(char *dll_path) {
 	char **resources = get_dll_symbol(dll, "resources");
 	grug_assert(resources, "Retrieving resources with get_dll_symbol() failed for %s", dll_path);
 
-	i64 *resource_mtimes = get_dll_symbol(dll, "resource_mtimes");
-	grug_assert(resource_mtimes, "Retrieving resource_mtimes with get_dll_symbol() failed for %s", dll_path);
-
 	for (size_t i = 0; i < resources_size; i++) {
 		char *resource = resources[i];
 
@@ -431,8 +428,7 @@ static void reload_resources_from_dll(char *dll_path) {
 		grug_assert(stat(resource, &resource_stat) == 0, "stat: %s", strerror(errno));
 
 		if (resource_stat.st_mtime > resource_mtimes[i]) {
-			// TODO: I suspect this won't work, since the .so changes probably aren't written to disk with this? Try it anyway
-			// resource_mtimes[i] = resource_stat.st_mtime;
+			resource_mtimes[i] = resource_stat.st_mtime;
 
 			struct grug_modified_resource modified = {0};
 
@@ -445,45 +441,6 @@ static void reload_resources_from_dll(char *dll_path) {
 	if (dlclose(dll)) {
 		print_dlerror("dlclose");
 	}
-}
-
-static void reload_resources(char *mods_dir_path, char *dll_dir_path) {
-	DIR *dirp = opendir(mods_dir_path);
-	grug_assert(dirp, "opendir: %s", strerror(errno));
-
-	errno = 0;
-	struct dirent *dp;
-	while ((dp = readdir(dirp))) {
-		if (streq(dp->d_name, ".") || streq(dp->d_name, "..")) {
-			continue;
-		}
-
-		char entry_path[STUPID_MAX_PATH];
-		snprintf(entry_path, sizeof(entry_path), "%s/%s", mods_dir_path, dp->d_name);
-
-		char dll_entry_path[STUPID_MAX_PATH];
-		snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_dir_path, dp->d_name);
-
-		struct stat entry_stat;
-		grug_assert(stat(entry_path, &entry_stat) != -1, "stat: %s", strerror(errno));
-
-		if (S_ISDIR(entry_stat.st_mode)) {
-			reload_resources(entry_path, dll_entry_path);
-		} else if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(dp->d_name), ".grug")) {
-			// Fill dll_path
-			char dll_path[STUPID_MAX_PATH];
-			memcpy(dll_path, dll_entry_path, STUPID_MAX_PATH);
-			char *ext = get_file_extension(dll_path);
-			assert(*ext);
-			ext[1] = '\0';
-			strncat(ext + 1, "so", STUPID_MAX_PATH - 1 - strlen(dll_path));
-
-			reload_resources_from_dll(dll_path);
-		}
-	}
-	grug_assert(errno == 0, "readdir: %s", strerror(errno));
-
-	closedir(dirp);
 }
 
 //// JSON
@@ -6189,18 +6146,6 @@ static void push_data(void) {
 		push_64(data_offset + data_string_offsets[resource]);
 	}
 
-	// "resource_mtimes" symbol
-	for (size_t i = 0; i < resources_size; i++) {
-		u32 resource_index = resources[i];
-
-		char *resource = data_strings[resource_index];
-
-		struct stat resource_stat;
-		grug_assert(stat(resource, &resource_stat) == 0, "stat: %s", strerror(errno));
-
-		push_64(resource_stat.st_mtime);
-	}
-
 	push_alignment(8);
 }
 
@@ -6822,11 +6767,6 @@ static void init_data_offsets(void) {
 		for (size_t resource_index = 0; resource_index < resources_size; resource_index++) {
 			offset += sizeof(size_t);
 		}
-
-		data_offsets[i++] = offset;
-		for (size_t resource_index = 0; resource_index < resources_size; resource_index++) {
-			offset += sizeof(size_t);
-		}
 	}
 
 	data_size = offset;
@@ -6958,9 +6898,6 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 	if (resources_size > 0) {
 		push_symbol("resources");
 		data_symbols_size++;
-
-		push_symbol("resource_mtimes");
-		data_symbols_size++;
 	}
 
 	first_extern_data_symbol_index = data_symbols_size;
@@ -7089,9 +7026,6 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name) {
 
 	regenerate_dll(grug_path, dll_path);
 
-	grug_resource_reloads_size = 0;
-	reload_resources_from_dll(dll_path);
-
 	reset_previous_grug_error();
 
 	return false;
@@ -7121,6 +7055,8 @@ static void free_file(struct grug_file file) {
 	if (file.dll && dlclose(file.dll)) {
 		print_dlerror("dlclose");
 	}
+
+	free(file.resource_mtimes);
 }
 
 static void free_dir(struct grug_mod_dir dir) {
@@ -7325,6 +7261,9 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 				// on_fns is optional, so don't check for NULL
 				file.on_fns = get_dll_symbol(file.dll, "on_fns");
 
+				size_t *resources_size_ptr = dlsym(file.dll, "resources_size");
+				size_t size = *resources_size_ptr;
+
 				if (old_file) {
 					old_file->dll = file.dll;
 					old_file->define_fn = file.define_fn;
@@ -7332,8 +7271,36 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 					old_file->init_globals_fn = file.init_globals_fn;
 					old_file->define_type = file.define_type;
 					old_file->on_fns = file.on_fns;
+
+					if (size > 0) {
+						old_file->resource_mtimes = realloc(old_file->resource_mtimes, size * sizeof(i64));
+						grug_assert(file.resource_mtimes, "realloc: %s", strerror(errno));
+					} else {
+						// We can't use realloc() to do this
+						// See https://stackoverflow.com/a/16760080/13279557
+						free(old_file->resource_mtimes);
+						old_file->resource_mtimes = NULL;
+					}
 				} else {
+					// We check size > 0, since whether malloc(0) returns NULL is implementation defined
+					// See https://stackoverflow.com/a/1073175/13279557
+					if (size > 0) {
+						file.resource_mtimes = malloc(size * sizeof(i64));
+						grug_assert(file.resource_mtimes, "malloc: %s", strerror(errno));
+					}
+
 					push_file(dir, file);
+				}
+
+				if (size > 0) {
+					char **dll_resources = get_dll_symbol(file.dll, "resources");
+
+					for (size_t i = 0; i < size; i++) {
+						struct stat resource_stat;
+						grug_assert(stat(dll_resources[i], &resource_stat) == 0, "stat: %s", strerror(errno));
+
+						file.resource_mtimes[i] = resource_stat.st_mtime;
+					}
 				}
 
 				if (needs_regeneration) {
@@ -7346,6 +7313,10 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 					strncpy(modified.path, entry_path, sizeof(modified.path));
 					push_reload(modified);
 				}
+
+				reload_resources_from_dll(dll_path, file.resource_mtimes);
+			} else {
+				reload_resources_from_dll(dll_path, old_file->resource_mtimes);
 			}
 		}
 	}
@@ -7450,10 +7421,8 @@ bool grug_regenerate_modified_mods(void) {
 		grug_assert(grug_mods.name, "strdup: %s", strerror(errno));
 	}
 
-	reload_modified_mods();
-
 	grug_resource_reloads_size = 0;
-	reload_resources(MODS_DIR_PATH, DLL_DIR_PATH);
+	reload_modified_mods();
 
 	reset_previous_grug_error();
 

@@ -6,6 +6,7 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdlib.h>
 
 #define MAX_RELOADS 6969
 #define MAX_RESOURCE_RELOADS 6969
@@ -23,6 +24,7 @@ struct grug_file {
 	grug_init_globals_fn_t init_globals_fn;
 	char *define_type;
 	void *on_fns;
+	int64_t *resource_mtimes;
 };
 
 struct grug_mod_dir {
