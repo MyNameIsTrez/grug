@@ -7122,26 +7122,26 @@ static struct grug_mod_dir *get_subdir(struct grug_mod_dir *dir, char *name) {
 }
 
 // Profiling may indicate that rewriting this to use an O(1) technique like a hash table is worth it
-// static bool has_been_seen(char *name, char **seen_names, size_t seen_names_size) {
-// 	for (size_t i = 0; i < seen_names_size; i++) {
-// 		if (streq(seen_names[i], name)) {
-// 			return true;
-// 		}
-// 	}
-// 	return false;
-// }
+static bool seen_entry(char *name, char **seen_names, size_t seen_names_size) {
+	for (size_t i = 0; i < seen_names_size; i++) {
+		if (streq(seen_names[i], name)) {
+			return true;
+		}
+	}
+	return false;
+}
 
 static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct grug_mod_dir *dir) {
 	DIR *dirp = opendir(mods_dir_path);
 	grug_assert(dirp, "opendir: %s", strerror(errno));
 
-	// char **seen_dir_names = NULL;
-	// size_t seen_dir_names_size = 0;
-	// size_t seen_dir_names_capacity = 0;
+	char **seen_dir_names = NULL;
+	size_t seen_dir_names_size = 0;
+	size_t seen_dir_names_capacity = 0;
 
-	// char **seen_file_names = NULL;
-	// size_t seen_file_names_size = 0;
-	// size_t seen_file_names_capacity = 0;
+	char **seen_file_names = NULL;
+	size_t seen_file_names_size = 0;
+	size_t seen_file_names_capacity = 0;
 
 	errno = 0;
 	struct dirent *dp;
@@ -7160,12 +7160,12 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 		grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s", strerror(errno));
 
 		if (S_ISDIR(entry_stat.st_mode)) {
-			// if (seen_dir_names_size >= seen_dir_names_capacity) {
-			// 	seen_dir_names_capacity = seen_dir_names_capacity == 0 ? 1 : seen_dir_names_capacity * 2;
-			// 	seen_dir_names = realloc(seen_dir_names, seen_dir_names_capacity * sizeof(*seen_dir_names));
-			// 	grug_assert(seen_dir_names, "realloc: %s", strerror(errno));
-			// }
-			// seen_dir_names[seen_dir_names_size++] = strdup(dp->d_name);
+			if (seen_dir_names_size >= seen_dir_names_capacity) {
+				seen_dir_names_capacity = seen_dir_names_capacity == 0 ? 1 : seen_dir_names_capacity * 2;
+				seen_dir_names = realloc(seen_dir_names, seen_dir_names_capacity * sizeof(*seen_dir_names));
+				grug_assert(seen_dir_names, "realloc: %s", strerror(errno));
+			}
+			seen_dir_names[seen_dir_names_size++] = strdup(dp->d_name);
 
 			struct grug_mod_dir *subdir = get_subdir(dir, dp->d_name);
 			if (!subdir) {
@@ -7176,12 +7176,12 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 			}
 			reload_modified_mod(entry_path, dll_entry_path, subdir);
 		} else if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(dp->d_name), ".grug")) {
-			// if (seen_file_names_size >= seen_file_names_capacity) {
-			// 	seen_file_names_capacity = seen_file_names_capacity == 0 ? 1 : seen_file_names_capacity * 2;
-			// 	seen_file_names = realloc(seen_file_names, seen_file_names_capacity * sizeof(*seen_file_names));
-			// 	grug_assert(seen_file_names, "realloc: %s", strerror(errno));
-			// }
-			// seen_file_names[seen_file_names_size++] = strdup(dp->d_name);
+			if (seen_file_names_size >= seen_file_names_capacity) {
+				seen_file_names_capacity = seen_file_names_capacity == 0 ? 1 : seen_file_names_capacity * 2;
+				seen_file_names = realloc(seen_file_names, seen_file_names_capacity * sizeof(*seen_file_names));
+				grug_assert(seen_file_names, "realloc: %s", strerror(errno));
+			}
+			seen_file_names[seen_file_names_size++] = strdup(dp->d_name);
 
 			// Fill dll_path
 			char dll_path[STUPID_MAX_PATH];
@@ -7329,29 +7329,29 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 	//
 	// TODO: This can be made O(n) rather than O(n*m) by letting every directory contain a "seen" boolean,
 	// so that we can iterate over all directories and files once here
-	// for (size_t i = 0; i < dir->dirs_size; i++) {
-	// 	if (!has_been_seen(dir->dirs[i].name, seen_dir_names, seen_dir_names_size)) {
-	// 		free_dir(dir->dirs[i]);
-	// 		// TODO: I am pretty sure this is broken, cause we're not looping back-to-front!
-	// 		dir->dirs[i] = dir->dirs[--dir->dirs_size]; // Swap-remove
-	// 	}
-	// }
-	// for (size_t i = 0; i < dir->files_size; i++) {
-	// 	if (!has_been_seen(dir->files[i].name, seen_file_names, seen_file_names_size)) {
-	// 		free_file(dir->files[i]);
-	// 		// TODO: I am pretty sure this is broken, cause we're not looping back-to-front!
-	// 		dir->files[i] = dir->files[--dir->files_size]; // Swap-remove
-	// 	}
-	// }
+	for (size_t i = dir->files_size; i > 0;) {
+		i--;
+		if (!seen_entry(dir->dirs[i].name, seen_dir_names, seen_dir_names_size)) {
+			free_dir(dir->dirs[i]);
+			dir->dirs[i] = dir->dirs[--dir->dirs_size]; // Swap-remove
+		}
+	}
+	for (size_t i = dir->files_size; i > 0;) {
+		i--;
+		if (!seen_entry(dir->files[i].name, seen_file_names, seen_file_names_size)) {
+			free_file(dir->files[i]);
+			dir->files[i] = dir->files[--dir->files_size]; // Swap-remove
+		}
+	}
 
-	// for (size_t i = 0; i < seen_dir_names_size; i++) {
-	// 	free(seen_dir_names[i]);
-	// }
-	// free(seen_dir_names);
-	// for (size_t i = 0; i < seen_file_names_size; i++) {
-	// 	free(seen_file_names[i]);
-	// }
-	// free(seen_file_names);
+	for (size_t i = 0; i < seen_dir_names_size; i++) {
+		free(seen_dir_names[i]);
+	}
+	free(seen_dir_names);
+	for (size_t i = 0; i < seen_file_names_size; i++) {
+		free(seen_file_names[i]);
+	}
+	free(seen_file_names);
 }
 
 static void reload_modified_mods(void) {
