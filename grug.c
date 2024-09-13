@@ -377,15 +377,15 @@ timer_settime(timer_t tim, int flags,
 	return (0);
 }
 
-static inline int
-timer_delete(timer_t tim)
-{
-	/* Calls _timer_cancel() */
-	if (tim != NULL)
-		dispatch_source_cancel(tim->tim_timer);
+// static inline int
+// timer_delete(timer_t tim)
+// {
+// 	/* Calls _timer_cancel() */
+// 	if (tim != NULL)
+// 		dispatch_source_cancel(tim->tim_timer);
 
-	return (0);
-}
+// 	return (0);
+// }
 
 #endif
 
