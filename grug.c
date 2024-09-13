@@ -251,10 +251,10 @@ static void *get_dll_symbol(void *dll, char *symbol_name) {
 
 #include <dispatch/dispatch.h>
 
-#if !defined(MAC_OS_X_VERSION_10_12) || \
-	(MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_12)
-typedef int clockid_t;
-#endif
+// #if !defined(MAC_OS_X_VERSION_10_12) || \
+// 	(MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_12)
+// typedef int clockid_t;
+// #endif
 
 struct itimerspec {
 	struct timespec it_interval;	/* timer period */
