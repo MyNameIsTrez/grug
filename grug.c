@@ -7136,7 +7136,8 @@ static bool seen_entry(char *name, char **seen_names, size_t seen_names_size) {
 
 static bool is_lowercase(char *str) {
 	for (; *str; str++) {
-		if (!islower(*str)) {
+        // `!islower()` doesn't work, since '-' isn't considered lowercase
+		if (isupper(*str)) {
 			return false;
 		}
 	}
