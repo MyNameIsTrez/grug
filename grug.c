@@ -7134,6 +7134,15 @@ static bool seen_entry(char *name, char **seen_names, size_t seen_names_size) {
 	return false;
 }
 
+static bool is_lowercase(char *str) {
+	for (; *str; str++) {
+		if (!islower(*str)) {
+			return false;
+		}
+	}
+	return true;
+}
+
 static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct grug_mod_dir *dir) {
 	DIR *dirp = opendir(mods_dir_path);
 	grug_assert(dirp, "opendir: %s", strerror(errno));
@@ -7155,6 +7164,8 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 
 		char entry_path[STUPID_MAX_PATH];
 		snprintf(entry_path, sizeof(entry_path), "%s/%s", mods_dir_path, dp->d_name);
+
+		grug_assert(is_lowercase(dp->d_name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", dp->d_name, entry_path);
 
 		char dll_entry_path[STUPID_MAX_PATH];
 		snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_dir_path, dp->d_name);
@@ -7372,6 +7383,8 @@ static void reload_modified_mods(void) {
 
 		char entry_path[STUPID_MAX_PATH];
 		snprintf(entry_path, sizeof(entry_path), MODS_DIR_PATH"/%s", dp->d_name);
+
+		grug_assert(is_lowercase(dp->d_name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", dp->d_name, entry_path);
 
 		struct stat entry_stat;
 		grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
