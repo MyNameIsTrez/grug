@@ -241,7 +241,7 @@ static void *get_dll_symbol(void *dll, char *symbol_name) {
 
 #ifdef __APPLE__
 
-// Source: https://gist.github.com/lundman/731d0d7d09eca072cd1224adb00d9b9e
+// Source: https://stackoverflow.com/a/68468895/13279557
 
 // #include <sys/stdtypes.h>
 #include <stdbool.h>
@@ -251,8 +251,7 @@ static void *get_dll_symbol(void *dll, char *symbol_name) {
 
 #include <dispatch/dispatch.h>
 
-// #if !defined(MAC_OS_X_VERSION_10_12) || \
-// 	(MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_12)
+// #if !defined(MAC_OS_X_VERSION_10_12) || (MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_12)
 // typedef int clockid_t;
 // #endif
 
