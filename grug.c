@@ -243,7 +243,7 @@ static void *get_dll_symbol(void *dll, char *symbol_name) {
 
 // Source: https://gist.github.com/lundman/731d0d7d09eca072cd1224adb00d9b9e
 
-#include <sys/stdtypes.h>
+// #include <sys/stdtypes.h>
 #include <stdbool.h>
 #include <mach/boolean.h>
 #include <sys/errno.h>
