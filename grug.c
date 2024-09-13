@@ -351,6 +351,9 @@ static inline int
 timer_settime(timer_t tim, int flags,
     const struct itimerspec *its, struct itimerspec *remainvalue)
 {
+	(void)flags;
+	(void)remainvalue;
+
 	if (tim != NULL) {
 
 		/* Both zero, is disarm */
