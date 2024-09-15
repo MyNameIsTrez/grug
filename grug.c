@@ -15,18 +15,17 @@
 // 3. UTILS
 // 4. MACOS TIMER IMPLEMENTATION
 // 5. RUNTIME ERROR HANDLING
-// 6. TRACKING RESOURCES
-// 7. JSON
-// 8. PARSING MOD API JSON
-// 9. READING
-// 10. TOKENIZATION
-// 11. VERIFY AND TRIM SPACES
-// 12. PARSING
-// 13. PRINTING AST
-// 14. FILLING RESULT TYPES
-// 15. COMPILING
-// 16. LINKING
-// 17. HOT RELOADING
+// 6. JSON
+// 7. PARSING MOD API JSON
+// 8. READING
+// 9. TOKENIZATION
+// 10. VERIFY AND TRIM SPACES
+// 11. PARSING
+// 12. PRINTING AST
+// 13. FILLING RESULT TYPES
+// 14. COMPILING
+// 15. LINKING
+// 16. HOT RELOADING
 //
 // ## Small example programs
 //
@@ -541,58 +540,6 @@ char *grug_get_runtime_error_reason(void) {
 	}
 
 	return runtime_error_reason;
-}
-
-//// TRACKING RESOURCES
-
-struct grug_modified_resource grug_resource_reloads[MAX_RESOURCE_RELOADS];
-size_t grug_resource_reloads_size;
-
-static void push_resource_reload(struct grug_modified_resource modified) {
-	grug_assert(grug_resource_reloads_size < MAX_RESOURCE_RELOADS, "There are more than %d modified resources, exceeding MAX_RESOURCE_RELOADS", MAX_RESOURCE_RELOADS);
-	grug_resource_reloads[grug_resource_reloads_size++] = modified;
-}
-
-static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
-	void *dll = dlopen(dll_path, RTLD_NOW);
-	if (!dll) {
-		print_dlerror("dlopen");
-	}
-
-	size_t *dll_resources_size_ptr = get_dll_symbol(dll, "resources_size");
-	grug_assert(dll_resources_size_ptr, "Retrieving resources_size with get_dll_symbol() failed for %s", dll_path);
-	size_t resources_size = *dll_resources_size_ptr;
-
-	if (resources_size == 0) {
-		if (dlclose(dll)) {
-			print_dlerror("dlclose");
-		}
-		return;
-	}
-
-	char **resources = get_dll_symbol(dll, "resources");
-	grug_assert(resources, "Retrieving resources with get_dll_symbol() failed for %s", dll_path);
-
-	for (size_t i = 0; i < resources_size; i++) {
-		char *resource = resources[i];
-
-		struct stat resource_stat;
-		grug_assert(stat(resource, &resource_stat) == 0, "%s: %s", resource, strerror(errno));
-
-		if (resource_stat.st_mtime > resource_mtimes[i]) {
-			resource_mtimes[i] = resource_stat.st_mtime;
-
-			struct grug_modified_resource modified = {0};
-
-			strncpy(modified.path, resource, sizeof(modified.path));
-
-			push_resource_reload(modified);
-		}
-	}
-
-	if (dlclose(dll)) {
-		print_dlerror("dlclose");
-	}
 }
 
 //// JSON
@@ -3918,7 +3865,7 @@ static void fill_result_types(void) {
 #define MAX_SYMBOLS 420420
 #define MAX_CODES 420420
 #define MAX_RESOURCE_STRINGS_CHARACTERS 420420
-#define MAX_ENTITY_STRINGS_CHARACTERS 420420
+#define MAX_ENTITY_DEPENDENCIES_STRINGS_CHARACTERS 420420
 #define MAX_DATA_STRINGS 420420
 #define MAX_DATA_STRING_CODES 420420
 #define MAX_GAME_FN_CALLS 420420
@@ -3927,13 +3874,12 @@ static void fill_result_types(void) {
 #define MAX_HELPER_FN_OFFSETS 420420
 #define MAX_STACK_SIZE 420420
 #define MAX_RESOURCES 420420
-#define MAX_ENTITIES 420420
+#define MAX_ENTITY_DEPENDENCIES 420420
+#define MAX_ENTITY_DEPENDENCY_NAME_LENGTH 420
 #define MAX_LOOP_DEPTH 420
 #define MAX_BREAK_STATEMENTS_PER_LOOP 420
 #define MAX_GOT_ACCESSES (MAX_ON_FNS_IN_FILE + MAX_HELPER_FNS_IN_FILE)
 #define NEXT_INSTRUCTION_OFFSET sizeof(u32)
-
-#define MAX_ENTITY_NAME_LENGTH 420
 
 // 0xDEADBEEF in little-endian
 #define PLACEHOLDER_16 0xADDE
@@ -4110,8 +4056,8 @@ static char *define_fn_name;
 static char resource_strings[MAX_RESOURCE_STRINGS_CHARACTERS];
 static size_t resource_strings_size;
 
-static char entity_strings[MAX_ENTITY_STRINGS_CHARACTERS];
-static size_t entity_strings_size;
+static char entity_dependency_strings[MAX_ENTITY_DEPENDENCIES_STRINGS_CHARACTERS];
+static size_t entity_dependency_strings_size;
 
 static char *data_strings[MAX_DATA_STRINGS];
 static size_t data_strings_size;
@@ -4176,13 +4122,13 @@ static char *mod;
 static u32 resources[MAX_RESOURCES];
 static size_t resources_size;
 
-static u32 entities[MAX_ENTITIES];
-static size_t entities_size;
+static u32 entity_dependencies[MAX_ENTITY_DEPENDENCIES];
+static size_t entity_dependencies_size;
 
 static void reset_compiling(void) {
 	codes_size = 0;
 	resource_strings_size = 0;
-	entity_strings_size = 0;
+	entity_dependency_strings_size = 0;
 	data_strings_size = 0;
 	memset(buckets_data_strings, 0xff, sizeof(buckets_data_strings));
 	data_string_codes_size = 0;
@@ -4200,7 +4146,7 @@ static void reset_compiling(void) {
 	string_is_resource = false;
 	string_is_entity = false;
 	resources_size = 0;
-	entities_size = 0;
+	entity_dependencies_size = 0;
 }
 
 static size_t get_helper_fn_offset(char *name) {
@@ -4891,10 +4837,10 @@ static u32 get_data_string_index(char *string) {
 	return i;
 }
 
-static void push_entity(u32 string_index) {
-	grug_assert(entities_size < MAX_ENTITIES, "There are more than %d entities, exceeding MAX_ENTITIES", MAX_ENTITIES);
+static void push_entity_dependency(u32 string_index) {
+	grug_assert(entity_dependencies_size < MAX_ENTITY_DEPENDENCIES, "There are more than %d entity dependencies, exceeding MAX_ENTITY_DEPENDENCIES", MAX_ENTITY_DEPENDENCIES);
 
-	entities[entities_size++] = string_index;
+	entity_dependencies[entity_dependencies_size++] = string_index;
 }
 
 static void push_resource(u32 string_index) {
@@ -4921,28 +4867,25 @@ static void add_data_string(char *string) {
 	}
 }
 
-static char *push_entity_string(char *string) {
-	static char entity[MAX_ENTITY_NAME_LENGTH];
+static char *push_entity_dependency_string(char *string) {
+	static char entity[MAX_ENTITY_DEPENDENCY_NAME_LENGTH];
 
 	if (strchr(string, ':')) {
-		snprintf(entity, sizeof(entity), "%s", string);
+		strcpy(entity, string);
 	} else {
-		// TODO: Prefix `<mod>:` if the string doesn't contain a `':'` yet:
-		assert(false);
-		// char *other_mod = hash table lookup of "string"
-		// snprintf(entity, sizeof(entity), "%s:%s", other_mod, string);
+		snprintf(entity, sizeof(entity), "%s:%s", mod, string);
 	}
 
 	size_t length = strlen(entity);
 
-	grug_assert(entity_strings_size + length < MAX_ENTITY_STRINGS_CHARACTERS, "There are more than %d characters in the entity_strings array, exceeding MAX_ENTITY_STRINGS_CHARACTERS", MAX_ENTITY_STRINGS_CHARACTERS);
+	grug_assert(entity_dependency_strings_size + length < MAX_ENTITY_DEPENDENCIES_STRINGS_CHARACTERS, "There are more than %d characters in the entity_dependency_strings array, exceeding MAX_ENTITY_DEPENDENCIES_STRINGS_CHARACTERS", MAX_ENTITY_DEPENDENCIES_STRINGS_CHARACTERS);
 
-	char *entity_str = entity_strings + entity_strings_size;
+	char *entity_str = entity_dependency_strings + entity_dependency_strings_size;
 
 	for (size_t i = 0; i < length; i++) {
-		entity_strings[entity_strings_size++] = entity[i];
+		entity_dependency_strings[entity_dependency_strings_size++] = entity[i];
 	}
-	entity_strings[entity_strings_size++] = '\0';
+	entity_dependency_strings[entity_dependency_strings_size++] = '\0';
 
 	return entity_str;
 }
@@ -4955,12 +4898,12 @@ static void validate_entity_string(char *string) {
 
 	char *colon = strchr(string, ':');
 	if (colon) {
-		static char temp_mod_name[MAX_ENTITY_NAME_LENGTH];
+		static char temp_mod_name[MAX_ENTITY_DEPENDENCY_NAME_LENGTH];
 
 		size_t len = colon - string;
 		grug_assert(len > 0, "Entity '%s' is missing a mod name", string);
 
-		grug_assert(len < MAX_ENTITY_NAME_LENGTH, "There are more than %d characters in an entity, exceeding MAX_ENTITY_NAME_LENGTH", MAX_ENTITY_NAME_LENGTH);
+		grug_assert(len < MAX_ENTITY_DEPENDENCY_NAME_LENGTH, "There are more than %d characters in the entity '%s', exceeding MAX_ENTITY_DEPENDENCY_NAME_LENGTH", MAX_ENTITY_DEPENDENCY_NAME_LENGTH, string);
 		memcpy(temp_mod_name, string, len);
 		temp_mod_name[len] = '\0';
 
@@ -5055,7 +4998,7 @@ static void compile_expr(struct expr expr) {
 				string = push_resource_string(string);
 			} else if (string_is_entity) {
 				validate_entity_string(string);
-				string = push_entity_string(string);
+				string = push_entity_dependency_string(string);
 			}
 
 			bool had_string = get_data_string_index(string) != UINT32_MAX;
@@ -5065,7 +5008,7 @@ static void compile_expr(struct expr expr) {
 			if (string_is_resource && !had_string) {
 				push_resource(get_data_string_index(string));
 			} else if (string_is_entity && !had_string) {
-				push_entity(get_data_string_index(string));
+				push_entity_dependency(get_data_string_index(string));
 			}
 
 			compile_unpadded(LEA_STRINGS_TO_RAX);
@@ -5539,6 +5482,9 @@ static void compile_define_fn_returned_fields(void) {
 
 		enum type json_type = grug_define_entity->fields[i].type;
 
+		// TODO: Checking the JSON type shouldn't be done here,
+		// since it should the be parser's job to assign type_resource and type_entity!
+		// This *will* require a new RESOURCE_EXPR and ENTITY_EXPR
 		if (json_type == type_resource) {
 			string_is_resource = true;
 		} else if (json_type == type_entity) {
@@ -5605,7 +5551,9 @@ static void init_define_fn_name(char *name) {
 	memcpy(define_fn_name, "define_", sizeof("define_") - 1);
 	temp_strings_size += sizeof("define_") - 1;
 
-	for (size_t i = 0; i < strlen(name); i++) {
+	size_t name_length = strlen(name);
+
+	for (size_t i = 0; i < name_length; i++) {
 		temp_strings[temp_strings_size++] = name[i];
 	}
 	temp_strings[temp_strings_size++] = '\0';
@@ -5783,6 +5731,7 @@ static u32 chains_game_fn_offsets[MAX_GAME_FN_OFFSETS];
 
 static size_t strings_offset;
 static size_t resources_offset;
+static size_t entities_offset;
 
 static void reset_generate_shared_object(void) {
 	symbols_size = 0;
@@ -5935,6 +5884,13 @@ static void patch_rela_dyn(void) {
 		overwrite_64(resources_offset + i * sizeof(u64), bytes_offset);
 		bytes_offset += 2 * sizeof(u64);
 		overwrite_64(data_offset + data_string_offsets[resources[i]], bytes_offset);
+		bytes_offset += sizeof(u64);
+	}
+
+	for (size_t i = 0; i < entity_dependencies_size; i++) {
+		overwrite_64(entities_offset + i * sizeof(u64), bytes_offset);
+		bytes_offset += 2 * sizeof(u64);
+		overwrite_64(data_offset + data_string_offsets[entity_dependencies[i]], bytes_offset);
 		bytes_offset += sizeof(u64);
 	}
 
@@ -6141,7 +6097,7 @@ static void patch_program_headers(void) {
 }
 
 static bool has_rela_dyn(void) {
-	return on_fns_size > 0 || resources_size > 0;
+	return on_fns_size > 0 || resources_size > 0 || entity_dependencies_size > 0;
 }
 
 static void patch_bytes(void) {
@@ -6410,8 +6366,18 @@ static void push_data(void) {
 	// "resources" symbol
 	resources_offset = bytes_size;
 	for (size_t i = 0; i < resources_size; i++) {
-		u32 resource = resources[i];
-		push_64(data_offset + data_string_offsets[resource]);
+		u32 resource_index = resources[i];
+		push_64(data_offset + data_string_offsets[resource_index]);
+	}
+
+	// "entities_size" symbol
+	push_64(entity_dependencies_size);
+
+	// "entities" symbol
+	entities_offset = bytes_size;
+	for (size_t i = 0; i < entity_dependencies_size; i++) {
+		u32 entity_index = entity_dependencies[i];
+		push_64(data_offset + data_string_offsets[entity_index]);
 	}
 
 	push_alignment(8);
@@ -6492,9 +6458,9 @@ static void push_dynamic(void) {
 
 	if (has_rela_dyn()) {
 		push_dynamic_entry(DT_RELA, rela_dyn_offset);
-		push_dynamic_entry(DT_RELASZ, (on_fns_size + extern_data_symbols_size + resources_size) * RELA_ENTRY_SIZE);
+		push_dynamic_entry(DT_RELASZ, (on_fns_size + extern_data_symbols_size + resources_size + entity_dependencies_size) * RELA_ENTRY_SIZE);
 		push_dynamic_entry(DT_RELAENT, RELA_ENTRY_SIZE);
-		push_dynamic_entry(DT_RELACOUNT, on_fns_size + resources_size);
+		push_dynamic_entry(DT_RELACOUNT, on_fns_size + resources_size + entity_dependencies_size);
 	}
 
 	// "Marks the end of the _DYNAMIC array."
@@ -6502,8 +6468,11 @@ static void push_dynamic(void) {
 	push_dynamic_entry(DT_NULL, 0);
 
 	// TODO: Figure out why these are needed
-	size_t padding = 3 * entry_size;
+	size_t padding = 2 * entry_size;
 	if (resources_size == 0) {
+		padding += entry_size;
+	}
+	if (entity_dependencies_size == 0) {
 		padding += entry_size;
 	}
 	if (on_fns_size == 0) {
@@ -6622,6 +6591,10 @@ static void push_rela_dyn(void) {
 	}
 
 	for (size_t i = 0; i < resources_size; i++) {
+		push_rela(PLACEHOLDER_64, ELF64_R_INFO(0, R_X86_64_RELATIVE), PLACEHOLDER_64);
+	}
+
+	for (size_t i = 0; i < entity_dependencies_size; i++) {
 		push_rela(PLACEHOLDER_64, ELF64_R_INFO(0, R_X86_64_RELATIVE), PLACEHOLDER_64);
 	}
 
@@ -7040,6 +7013,18 @@ static void init_data_offsets(void) {
 		}
 	}
 
+	// "entities_size" symbol
+	data_offsets[i++] = offset;
+	offset += sizeof(u64);
+
+	// "entities" symbol
+	if (entity_dependencies_size > 0) {
+		data_offsets[i++] = offset;
+		for (size_t entity_dependency_index = 0; entity_dependency_index < entity_dependencies_size; entity_dependency_index++) {
+			offset += sizeof(size_t);
+		}
+	}
+
 	data_size = offset;
 }
 
@@ -7171,6 +7156,14 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 		data_symbols_size++;
 	}
 
+	push_symbol("entities_size");
+	data_symbols_size++;
+
+	if (entity_dependencies_size > 0) {
+		push_symbol("entities");
+		data_symbols_size++;
+	}
+
 	first_extern_data_symbol_index = data_symbols_size;
 	if (on_fns_size > 0) {
 		push_symbol("grug_on_fn_name");
@@ -7223,13 +7216,81 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 
 //// HOT RELOADING
 
+#define MAX_ENTITIES 420420
+#define MAX_ENTITY_STRINGS_CHARACTERS 420420
+#define MAX_ENTITY_NAME_LENGTH 420
+
+char *grug_on_fn_name;
+char *grug_on_fn_path;
+
 struct grug_mod_dir grug_mods;
 
 struct grug_modified grug_reloads[MAX_RELOADS];
 size_t grug_reloads_size;
 
-char *grug_on_fn_name;
-char *grug_on_fn_path;
+static char *entities[MAX_ENTITIES];
+static char entity_strings[MAX_ENTITY_STRINGS_CHARACTERS];
+static size_t entity_strings_size;
+static u32 buckets_entities[MAX_ENTITIES];
+static u32 chains_entities[MAX_ENTITIES];
+static void *entity_dlls[MAX_ENTITIES];
+static size_t entities_size;
+
+struct grug_modified_resource grug_resource_reloads[MAX_RESOURCE_RELOADS];
+size_t grug_resource_reloads_size;
+
+static void reset_regenerate_modified_mods(void) {
+	grug_reloads_size = 0;
+	entity_strings_size = 0;
+	entities_size = 0;
+	grug_resource_reloads_size = 0;
+}
+
+static void push_resource_reload(struct grug_modified_resource modified) {
+	grug_assert(grug_resource_reloads_size < MAX_RESOURCE_RELOADS, "There are more than %d modified resources, exceeding MAX_RESOURCE_RELOADS", MAX_RESOURCE_RELOADS);
+	grug_resource_reloads[grug_resource_reloads_size++] = modified;
+}
+
+static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
+	void *dll = dlopen(dll_path, RTLD_NOW);
+	if (!dll) {
+		print_dlerror("dlopen");
+	}
+
+	size_t *dll_resources_size_ptr = get_dll_symbol(dll, "resources_size");
+	grug_assert(dll_resources_size_ptr, "Retrieving resources_size with get_dll_symbol() failed for %s", dll_path);
+
+	if (*dll_resources_size_ptr == 0) {
+		if (dlclose(dll)) {
+			print_dlerror("dlclose");
+		}
+		return;
+	}
+
+	char **dll_resources = get_dll_symbol(dll, "resources");
+	grug_assert(dll_resources, "Retrieving resources with get_dll_symbol() failed for %s", dll_path);
+
+	for (size_t i = 0; i < *dll_resources_size_ptr; i++) {
+		char *resource = dll_resources[i];
+
+		struct stat resource_stat;
+		grug_assert(stat(resource, &resource_stat) == 0, "%s: %s", resource, strerror(errno));
+
+		if (resource_stat.st_mtime > resource_mtimes[i]) {
+			resource_mtimes[i] = resource_stat.st_mtime;
+
+			struct grug_modified_resource modified = {0};
+
+			strncpy(modified.path, resource, sizeof(modified.path));
+
+			push_resource_reload(modified);
+		}
+	}
+
+	if (dlclose(dll)) {
+		print_dlerror("dlclose");
+	}
+}
 
 static void regenerate_dll(char *grug_path, char *dll_path) {
 	grug_log("# Regenerating %s\n", dll_path);
@@ -7349,9 +7410,100 @@ void grug_free_mods(void) {
 	memset(&grug_mods, 0, sizeof(grug_mods));
 }
 
+static u32 get_entity_index(char *entity) {
+	if (entities_size == 0) {
+		return UINT32_MAX;
+	}
+
+	u32 i = buckets_entities[elf_hash(entity) % MAX_ENTITIES];
+
+	while (true) {
+		if (i == UINT32_MAX) {
+			return UINT32_MAX;
+		}
+
+		if (streq(entity, entities[i])) {
+			break;
+		}
+
+		i = chains_entities[i];
+	}
+
+	return i;
+}
+
+void check_that_every_entity_exists(struct grug_mod_dir dir) {
+	for (size_t i = 0; i < dir.files_size; i++) {
+		struct grug_file file = dir.files[i];
+
+		size_t *entities_size_ptr = get_dll_symbol(file.dll, "entities_size");
+
+		if (*entities_size_ptr > 0) {
+			char **dll_entities = get_dll_symbol(file.dll, "entities");
+
+			for (size_t entity_index = 0; entity_index < *entities_size_ptr; entity_index++) {
+				grug_assert(get_entity_index(dll_entities[entity_index]) != UINT32_MAX, "The entity %s does not exist", dll_entities[entity_index]);
+			}
+		}
+	}
+
+	for (size_t i = 0; i < dir.dirs_size; i++) {
+		check_that_every_entity_exists(dir.dirs[i]);
+	}
+}
+
 static void push_reload(struct grug_modified modified) {
 	grug_assert(grug_reloads_size < MAX_RELOADS, "There are more than %d modified grug files, exceeding MAX_RELOADS", MAX_RELOADS);
 	grug_reloads[grug_reloads_size++] = modified;
+}
+
+// Returns `mod + ':' + grug_filename - ".grug"`
+static char *form_entity(char *grug_filename) {
+	static char grug_basename[MAX_ENTITY_NAME_LENGTH];
+
+	char *period = strrchr(grug_filename, '.');
+	if (period == NULL) {
+		grug_unreachable();
+	}
+
+	size_t basename_length = period - grug_filename;
+
+	grug_assert(basename_length < MAX_ENTITY_NAME_LENGTH, "There are more than %d characters in the grug filename '%s', exceeding MAX_ENTITY_NAME_LENGTH", MAX_ENTITY_NAME_LENGTH, grug_filename);
+	memcpy(grug_basename, grug_filename, basename_length);
+	grug_basename[basename_length] = '\0';
+
+	static char entity[MAX_ENTITY_NAME_LENGTH];
+	snprintf(entity, sizeof(entity), "%s:%s", mod, grug_basename);
+
+	size_t entity_length = strlen(entity);
+
+	grug_assert(entity_strings_size + entity_length < MAX_ENTITY_STRINGS_CHARACTERS, "There are more than %d characters in the entity_strings array, exceeding MAX_ENTITY_STRINGS_CHARACTERS", MAX_ENTITY_STRINGS_CHARACTERS);
+
+	char *entity_str = entity_strings + entity_strings_size;
+
+	memcpy(entity_strings, entity, entity_length);
+	entity_strings_size += entity_length;
+	entity_strings[entity_strings_size++] = '\0';
+
+	return entity_str;
+}
+
+static void add_entity(char *grug_filename, void *dll) {
+	grug_assert(entities_size < MAX_ENTITIES, "There are more than %d entities, exceeding MAX_ENTITIES", MAX_ENTITIES);
+
+	char *entity = form_entity(grug_filename);
+
+	grug_assert(get_entity_index(entity) == UINT32_MAX, "The entity '%s' already exists, because there are two grug files called '%s' in the mod '%s'", entity, grug_filename, mod);
+
+	u32 bucket_index = elf_hash(entity) % MAX_ENTITIES;
+
+	chains_entities[entities_size] = buckets_entities[bucket_index];
+
+	buckets_entities[bucket_index] = entities_size;
+
+	entity_dlls[entities_size] = dll;
+
+	entities[entities_size++] = entity;
 }
 
 static void push_file(struct grug_mod_dir *dir, struct grug_file file) {
@@ -7544,8 +7696,8 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 				// on_fns is optional, so don't check for NULL
 				file.on_fns = get_dll_symbol(file.dll, "on_fns");
 
-				size_t *resources_size_ptr = dlsym(file.dll, "resources_size");
-				size_t size = *resources_size_ptr;
+				size_t *resources_size_ptr = get_dll_symbol(file.dll, "resources_size");
+				size_t dll_resources_size = *resources_size_ptr;
 
 				if (old_file) {
 					old_file->dll = file.dll;
@@ -7555,8 +7707,8 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 					old_file->define_type = file.define_type;
 					old_file->on_fns = file.on_fns;
 
-					if (size > 0) {
-						old_file->resource_mtimes = realloc(old_file->resource_mtimes, size * sizeof(i64));
+					if (dll_resources_size > 0) {
+						old_file->resource_mtimes = realloc(old_file->resource_mtimes, dll_resources_size * sizeof(i64));
 						grug_assert(file.resource_mtimes, "realloc: %s", strerror(errno));
 					} else {
 						// We can't use realloc() to do this
@@ -7565,26 +7717,28 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 						old_file->resource_mtimes = NULL;
 					}
 				} else {
-					// We check size > 0, since whether malloc(0) returns NULL is implementation defined
+					// We check dll_resources_size > 0, since whether malloc(0) returns NULL is implementation defined
 					// See https://stackoverflow.com/a/1073175/13279557
-					if (size > 0) {
-						file.resource_mtimes = malloc(size * sizeof(i64));
+					if (dll_resources_size > 0) {
+						file.resource_mtimes = malloc(dll_resources_size * sizeof(i64));
 						grug_assert(file.resource_mtimes, "malloc: %s", strerror(errno));
 					}
 
 					push_file(dir, file);
 				}
 
-				if (size > 0) {
+				if (dll_resources_size > 0) {
 					char **dll_resources = get_dll_symbol(file.dll, "resources");
 
-					for (size_t i = 0; i < size; i++) {
+					for (size_t i = 0; i < dll_resources_size; i++) {
 						struct stat resource_stat;
 						grug_assert(stat(dll_resources[i], &resource_stat) == 0, "%s: %s", dll_resources[i], strerror(errno));
 
 						file.resource_mtimes[i] = resource_stat.st_mtime;
 					}
 				}
+
+				add_entity(dp->d_name, file.dll);
 
 				if (needs_regeneration) {
 					modified.new_dll = file.dll;
@@ -7699,21 +7853,22 @@ bool grug_regenerate_modified_mods(void) {
 		return true;
 	}
 
+	reset_regenerate_modified_mods();
+
 	static bool parsed_mod_api_json = false;
 	if (!parsed_mod_api_json) {
 		parse_mod_api_json();
 		parsed_mod_api_json = true;
 	}
 
-	grug_reloads_size = 0;
-
 	if (!grug_mods.name) {
 		grug_mods.name = strdup(get_basename(MODS_DIR_PATH));
 		grug_assert(grug_mods.name, "strdup: %s", strerror(errno));
 	}
 
-	grug_resource_reloads_size = 0;
 	reload_modified_mods();
+
+	check_that_every_entity_exists(grug_mods);
 
 	reset_previous_grug_error();
 
