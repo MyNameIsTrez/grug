@@ -4978,13 +4978,13 @@ static void validate_entity_string(char *string) {
 	for (size_t i = 0; mod_name[i] != '\0'; i++) {
 		char c = mod_name[i];
 
-		grug_assert(islower(c) || isdigit(c) || c == '_', "Entity '%s' has an invalid mod name", string);
+		grug_assert(islower(c) || isdigit(c) || c == '_', "Entity '%s' its mod name contains the invalid character '%c'", string, c);
 	}
 
 	for (size_t i = 0; entity_name[i] != '\0'; i++) {
 		char c = entity_name[i];
 
-		grug_assert(islower(c) || isdigit(c) || c == '_', "Entity '%s' is an invalid name", string);
+		grug_assert(islower(c) || isdigit(c) || c == '_', "Entity '%s' its entity name contains the invalid character '%c'", string, c);
 	}
 }
 
