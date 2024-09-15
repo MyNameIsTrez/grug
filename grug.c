@@ -6481,6 +6481,9 @@ static void push_dynamic(void) {
 	if (resources_size > 0 && on_fns_size > 0) {
 		padding += entry_size;
 	}
+	if (entity_dependencies_size > 0 && on_fns_size > 0) {
+		padding += entry_size;
+	}
 	push_zeros(padding);
 }
 
