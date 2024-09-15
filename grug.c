@@ -1111,6 +1111,7 @@ enum type {
 	type_f32,
 	type_string,
 	type_resource,
+	type_entity,
 };
 static char *type_names[] = {
 	[type_bool] = "bool",
@@ -1118,6 +1119,7 @@ static char *type_names[] = {
 	[type_f32] = "f32",
 	[type_string] = "string",
 	[type_resource] = "resource",
+	[type_entity] = "entity",
 };
 static size_t type_sizes[] = {
 	[type_bool] = sizeof(bool),
@@ -1125,6 +1127,7 @@ static size_t type_sizes[] = {
 	[type_f32] = sizeof(float),
 	[type_string] = sizeof(char *),
 	[type_resource] = sizeof(char *),
+	[type_entity] = sizeof(char *),
 };
 
 struct grug_on_function {
@@ -1239,9 +1242,12 @@ static enum type parse_type(char *type) {
 	if (streq(type, "resource")) {
 		return type_resource;
 	}
+	if (streq(type, "entity")) {
+		return type_entity;
+	}
 
-	// TODO: Make sure to add any new types to this error message
-	grug_error("The type '%s' must be changed to one of bool/i32/f32/string/resource", type);
+	// Make sure to add any new types to this error message
+	grug_error("The type '%s' must be changed to one of bool/i32/f32/string/resource/entity", type);
 }
 
 static void init_game_fns(struct json_object fns) {
@@ -1273,6 +1279,7 @@ static void init_game_fns(struct json_object fns) {
 				grug_assert(field->value->type == JSON_NODE_STRING, "\"game_functions\" its function return types must be strings");
 				grug_fn.return_type = parse_type(field->value->data.string);
 				grug_assert(grug_fn.return_type != type_resource, "\"game_functions\" its function return types must not be 'resource'");
+				grug_assert(grug_fn.return_type != type_entity, "\"game_functions\" its function return types must not be 'entity'");
 				seen_return_type = true;
 				field++;
 			} else {
@@ -1366,6 +1373,7 @@ static void init_on_fns(struct json_object fns) {
 				grug_assert(argument_field->value->type == JSON_NODE_STRING, "\"on_functions\" its function arguments must always have string values");
 				grug_arg.type = parse_type(argument_field->value->data.string);
 				grug_assert(grug_arg.type != type_resource, "\"on_functions\" its function argument types must not be 'resource'");
+				grug_assert(grug_arg.type != type_entity, "\"on_functions\" its function argument types must not be 'entity'");
 				argument_field++;
 
 				push_grug_argument(grug_arg);
@@ -2651,6 +2659,7 @@ static struct variable_statement parse_variable_statement(size_t *i) {
 		variable_statement.has_type = true;
 		variable_statement.type = parse_type(type_token.str);
 		grug_assert(variable_statement.type != type_resource, "The local variable '%s' can't have 'resource' as its type", variable_statement.name);
+		grug_assert(variable_statement.type != type_entity, "The local variable '%s' can't have 'entity' as its type", variable_statement.name);
 	}
 
 	token = peek_token(*i);
@@ -2680,6 +2689,7 @@ static void parse_global_variable(size_t *i) {
 	struct token type_token = consume_token(i);
 	global_variable.type = parse_type(type_token.str);
 	grug_assert(global_variable.type != type_resource, "The global variable '%s' can't have 'resource' as its type", global_variable.name);
+	grug_assert(global_variable.type != type_entity, "The global variable '%s' can't have 'entity' as its type", global_variable.name);
 
 	assert_token_type(*i, ASSIGNMENT_TOKEN);
 	consume_token(i);
@@ -2804,6 +2814,7 @@ static struct argument *parse_arguments(size_t *i, size_t *argument_count) {
 
 	argument.type = parse_type(token.str);
 	grug_assert(argument.type != type_resource, "The argument '%s' can't have 'resource' as its type", argument.name);
+	grug_assert(argument.type != type_entity, "The argument '%s' can't have 'entity' as its type", argument.name);
 	struct argument *first_argument = push_argument(argument);
 	(*argument_count)++;
 
@@ -2825,6 +2836,7 @@ static struct argument *parse_arguments(size_t *i, size_t *argument_count) {
 		token = consume_token(i);
 		argument.type = parse_type(token.str);
 		grug_assert(argument.type != type_resource, "The argument '%s' can't have 'resource' as its type", argument.name);
+		grug_assert(argument.type != type_entity, "The argument '%s' can't have 'entity' as its type", argument.name);
 		push_argument(argument);
 		(*argument_count)++;
 	}
@@ -2852,6 +2864,7 @@ static void parse_helper_fn(size_t *i) {
 		(*i)++;
 		fn.return_type = parse_type(token.str);
 		grug_assert(fn.return_type != type_resource, "The helper function '%s' can't have 'resource' as its return type", fn.fn_name);
+		grug_assert(fn.return_type != type_entity, "The helper function '%s' can't have 'entity' as its return type", fn.fn_name);
 	}
 
 	fn.body_statements = parse_statements(i, &fn.body_statement_count);
@@ -3902,6 +3915,7 @@ static void fill_result_types(void) {
 #define MAX_SYMBOLS 420420
 #define MAX_CODES 420420
 #define MAX_RESOURCE_STRINGS_CHARACTERS 420420
+#define MAX_ENTITY_STRINGS_CHARACTERS 420420
 #define MAX_DATA_STRINGS 420420
 #define MAX_DATA_STRING_CODES 420420
 #define MAX_GAME_FN_CALLS 420420
@@ -3910,10 +3924,13 @@ static void fill_result_types(void) {
 #define MAX_HELPER_FN_OFFSETS 420420
 #define MAX_STACK_SIZE 420420
 #define MAX_RESOURCES 420420
+#define MAX_ENTITIES 420420
 #define MAX_LOOP_DEPTH 420
 #define MAX_BREAK_STATEMENTS_PER_LOOP 420
 #define MAX_GOT_ACCESSES (MAX_ON_FNS_IN_FILE + MAX_HELPER_FNS_IN_FILE)
 #define NEXT_INSTRUCTION_OFFSET sizeof(u32)
+
+#define MAX_ENTITY_NAME_LENGTH 420
 
 // 0xDEADBEEF in little-endian
 #define PLACEHOLDER_16 0xADDE
@@ -4090,6 +4107,9 @@ static char *define_fn_name;
 static char resource_strings[MAX_RESOURCE_STRINGS_CHARACTERS];
 static size_t resource_strings_size;
 
+static char entity_strings[MAX_ENTITY_STRINGS_CHARACTERS];
+static size_t entity_strings_size;
+
 static char *data_strings[MAX_DATA_STRINGS];
 static size_t data_strings_size;
 
@@ -4146,15 +4166,20 @@ static bool in_on_fn;
 static bool calling_game_fn;
 
 static bool string_is_resource;
+static bool string_is_entity;
 
 static char *mod;
 
 static u32 resources[MAX_RESOURCES];
 static size_t resources_size;
 
+static u32 entities[MAX_ENTITIES];
+static size_t entities_size;
+
 static void reset_compiling(void) {
 	codes_size = 0;
 	resource_strings_size = 0;
+	entity_strings_size = 0;
 	data_strings_size = 0;
 	memset(buckets_data_strings, 0xff, sizeof(buckets_data_strings));
 	data_string_codes_size = 0;
@@ -4170,7 +4195,9 @@ static void reset_compiling(void) {
 	in_on_fn = false;
 	calling_game_fn = false;
 	string_is_resource = false;
+	string_is_entity = false;
 	resources_size = 0;
+	entities_size = 0;
 }
 
 static size_t get_helper_fn_offset(char *name) {
@@ -4843,7 +4870,105 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 	}
 }
 
-static void validate_resource_string_base(char *string) {
+static u32 get_data_string_index(char *string) {
+	u32 i = buckets_data_strings[elf_hash(string) % MAX_DATA_STRINGS];
+
+	while (true) {
+		if (i == UINT32_MAX) {
+			return UINT32_MAX;
+		}
+
+		if (streq(string, data_strings[i])) {
+			break;
+		}
+
+		i = chains_data_strings[i];
+	}
+
+	return i;
+}
+
+static void push_entity(u32 string_index) {
+	grug_assert(entities_size < MAX_ENTITIES, "There are more than %d entities, exceeding MAX_ENTITIES", MAX_ENTITIES);
+
+	entities[entities_size++] = string_index;
+}
+
+static void push_resource(u32 string_index) {
+	grug_assert(resources_size < MAX_RESOURCES, "There are more than %d resources, exceeding MAX_RESOURCES", MAX_RESOURCES);
+
+	resources[resources_size++] = string_index;
+}
+
+static void push_data_string(char *string) {
+	grug_assert(data_strings_size < MAX_DATA_STRINGS, "There are more than %d data strings, exceeding MAX_DATA_STRINGS", MAX_DATA_STRINGS);
+
+	data_strings[data_strings_size++] = string;
+}
+
+static void add_data_string(char *string) {
+	if (get_data_string_index(string) == UINT32_MAX) {
+		u32 bucket_index = elf_hash(string) % MAX_DATA_STRINGS;
+
+		chains_data_strings[data_strings_size] = buckets_data_strings[bucket_index];
+
+		buckets_data_strings[bucket_index] = data_strings_size;
+
+		push_data_string(string);
+	}
+}
+
+static char *push_entity_string(char *string) {
+	static char entity[MAX_ENTITY_NAME_LENGTH];
+
+	if (strchr(string, ':')) {
+		snprintf(entity, sizeof(entity), "%s", string);
+	} else {
+		// TODO: Prefix `<mod>:` if the string doesn't contain a `':'` yet:
+		assert(false);
+		// char *other_mod = hash table lookup of "string"
+		// snprintf(entity, sizeof(entity), "%s:%s", other_mod, string);
+	}
+
+	size_t length = strlen(entity);
+
+	grug_assert(entity_strings_size + length < MAX_ENTITY_STRINGS_CHARACTERS, "There are more than %d characters in the entity_strings array, exceeding MAX_ENTITY_STRINGS_CHARACTERS", MAX_ENTITY_STRINGS_CHARACTERS);
+
+	char *entity_str = entity_strings + entity_strings_size;
+
+	for (size_t i = 0; i < length; i++) {
+		entity_strings[entity_strings_size++] = entity[i];
+	}
+	entity_strings[entity_strings_size++] = '\0';
+
+	return entity_str;
+}
+
+static void validate_entity_string(char *string) {
+	grug_assert(string[0] != '\0', "Entities can't be empty strings");
+
+	// TODO: Add more checks
+}
+
+static char *push_resource_string(char *string) {
+	static char resource[STUPID_MAX_PATH];
+	snprintf(resource, sizeof(resource), MODS_DIR_PATH"/%s/%s", mod, string);
+
+	size_t length = strlen(resource);
+
+	grug_assert(resource_strings_size + length < MAX_RESOURCE_STRINGS_CHARACTERS, "There are more than %d characters in the resource_strings array, exceeding MAX_RESOURCE_STRINGS_CHARACTERS", MAX_RESOURCE_STRINGS_CHARACTERS);
+
+	char *resource_str = resource_strings + resource_strings_size;
+
+	for (size_t i = 0; i < length; i++) {
+		resource_strings[resource_strings_size++] = resource[i];
+	}
+	resource_strings[resource_strings_size++] = '\0';
+
+	return resource_str;
+}
+
+static void validate_resource_string(char *string) {
 	grug_assert(string[0] != '\0', "Resources can't be empty strings");
 
 	grug_assert(string[0] != '/', "Remove the leading slash from the resource \"%s\"", string);
@@ -4875,68 +5000,6 @@ static void validate_resource_string_base(char *string) {
 	}
 }
 
-static char *push_resource_string(char *string) {
-	validate_resource_string_base(string);
-
-	char resource[STUPID_MAX_PATH];
-	snprintf(resource, sizeof(resource), MODS_DIR_PATH"/%s/%s", mod, string);
-
-	size_t length = strlen(resource);
-
-	grug_assert(resource_strings_size + length < MAX_RESOURCE_STRINGS_CHARACTERS, "There are more than %d characters in the resource_strings array, exceeding MAX_RESOURCE_STRINGS_CHARACTERS", MAX_RESOURCE_STRINGS_CHARACTERS);
-
-	char *resource_str = resource_strings + resource_strings_size;
-
-	for (size_t i = 0; i < length; i++) {
-		resource_strings[resource_strings_size++] = resource[i];
-	}
-	resource_strings[resource_strings_size++] = '\0';
-
-	return resource_str;
-}
-
-static void push_data_string(char *string) {
-	grug_assert(data_strings_size < MAX_DATA_STRINGS, "There are more than %d data strings, exceeding MAX_DATA_STRINGS", MAX_DATA_STRINGS);
-
-	data_strings[data_strings_size++] = string;
-}
-
-static u32 get_data_string_index(char *string) {
-	u32 i = buckets_data_strings[elf_hash(string) % MAX_DATA_STRINGS];
-
-	while (true) {
-		if (i == UINT32_MAX) {
-			return UINT32_MAX;
-		}
-
-		if (streq(string, data_strings[i])) {
-			break;
-		}
-
-		i = chains_data_strings[i];
-	}
-
-	return i;
-}
-
-static void add_data_string(char *string) {
-	if (get_data_string_index(string) == UINT32_MAX) {
-		u32 bucket_index = elf_hash(string) % MAX_DATA_STRINGS;
-
-		chains_data_strings[data_strings_size] = buckets_data_strings[bucket_index];
-
-		buckets_data_strings[bucket_index] = data_strings_size;
-
-		push_data_string(string);
-	}
-}
-
-static void push_resource(u32 string_index) {
-	grug_assert(resources_size < MAX_RESOURCES, "There are more than %d resources, exceeding MAX_RESOURCES", MAX_RESOURCES);
-
-	resources[resources_size++] = string_index;
-}
-
 static void compile_expr(struct expr expr) {
 	switch (expr.type) {
 		case TRUE_EXPR:
@@ -4950,7 +5013,11 @@ static void compile_expr(struct expr expr) {
 			char *string = expr.literal.string;
 
 			if (string_is_resource) {
+				validate_resource_string(string);
 				string = push_resource_string(string);
+			} else if (string_is_entity) {
+				validate_entity_string(string);
+				string = push_entity_string(string);
 			}
 
 			bool had_string = get_data_string_index(string) != UINT32_MAX;
@@ -4959,6 +5026,8 @@ static void compile_expr(struct expr expr) {
 
 			if (string_is_resource && !had_string) {
 				push_resource(get_data_string_index(string));
+			} else if (string_is_entity && !had_string) {
+				push_entity(get_data_string_index(string));
 			}
 
 			compile_unpadded(LEA_STRINGS_TO_RAX);
@@ -4976,6 +5045,7 @@ static void compile_expr(struct expr expr) {
 				switch (var->type) {
 					case type_void:
 					case type_resource:
+					case type_entity:
 						grug_unreachable();
 					case type_bool:
 					case type_i32:
@@ -4999,6 +5069,7 @@ static void compile_expr(struct expr expr) {
 			switch (var->type) {
 				case type_void:
 				case type_resource:
+				case type_entity:
 					grug_unreachable();
 				case type_bool:
 				case type_i32:
@@ -5062,6 +5133,7 @@ static void compile_variable_statement(struct variable_statement variable_statem
 		switch (var->type) {
 			case type_void:
 			case type_resource:
+			case type_entity:
 				grug_unreachable();
 			case type_bool:
 			case type_i32:
@@ -5085,6 +5157,7 @@ static void compile_variable_statement(struct variable_statement variable_statem
 	switch (var->type) {
 		case type_void:
 		case type_resource:
+		case type_entity:
 			grug_unreachable();
 		case type_bool:
 		case type_i32:
@@ -5249,6 +5322,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		switch (arg.type) {
 			case type_void:
 			case type_resource:
+			case type_entity:
 				grug_unreachable();
 			case type_bool:
 			case type_i32:
@@ -5429,10 +5503,14 @@ static void compile_define_fn_returned_fields(void) {
 
 		if (json_type == type_resource) {
 			string_is_resource = true;
+		} else if (json_type == type_entity) {
+			string_is_entity = true;
 		}
 		compile_expr(field);
 		if (json_type == type_resource) {
 			string_is_resource = false;
+		} else if (json_type == type_entity) {
+			string_is_entity = false;
 		}
 
 		if (field.result_type == type_f32) {
