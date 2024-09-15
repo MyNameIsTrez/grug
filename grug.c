@@ -3836,7 +3836,7 @@ static void fill_global_variables(void) {
 	}
 }
 
-static void check_define_expr(struct expr *expr) {
+static void check_define_fn_field_doesnt_contain_call_nor_identifier(struct expr *expr) {
 	switch (expr->type) {
 		case TRUE_EXPR:
 		case FALSE_EXPR:
@@ -3848,18 +3848,18 @@ static void check_define_expr(struct expr *expr) {
 			grug_error("The define function isn't allowed to use global variables");
 			break;
 		case UNARY_EXPR:
-			check_define_expr(expr->unary.expr);
+			check_define_fn_field_doesnt_contain_call_nor_identifier(expr->unary.expr);
 			break;
 		case BINARY_EXPR:
 		case LOGICAL_EXPR:
-			check_define_expr(expr->binary.left_expr);
-			check_define_expr(expr->binary.right_expr);
+			check_define_fn_field_doesnt_contain_call_nor_identifier(expr->binary.left_expr);
+			check_define_fn_field_doesnt_contain_call_nor_identifier(expr->binary.right_expr);
 			break;
 		case CALL_EXPR:
 			grug_error("The define function isn't allowed to call a function");
 			break;
 		case PARENTHESIZED_EXPR:
-			check_define_expr(expr->parenthesized);
+			check_define_fn_field_doesnt_contain_call_nor_identifier(expr->parenthesized);
 			break;
 	}
 }
@@ -3870,13 +3870,16 @@ static void fill_define_fn(void) {
 	for (size_t i = 0; i < field_count; i++) {
 		struct expr *field = &define_fn.returned_compound_literal.fields[i].expr_value;
 
-		// TODO: Throw in a similar way to fill_on_fns when there's a mismatch between the mod_api.json and the field
-
-		// TODO: Throw if any expr contains a call to a function
-
-		check_define_expr(field);
+		check_define_fn_field_doesnt_contain_call_nor_identifier(field);
 
 		fill_expr(field);
+
+		enum type field_type = field->result_type;
+		struct argument json_field = grug_define_entity->fields[i];
+
+		if (field_type != json_field.type) {
+			grug_assert(field_type == type_string && (json_field.type == type_resource || json_field.type == type_entity), "The define function its '%s' parameter was supposed to have the type %s, but was %s", json_field.name, type_names[json_field.type], type_names[field_type]);
+		}
 	}
 }
 
