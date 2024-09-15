@@ -4950,7 +4950,42 @@ static char *push_entity_string(char *string) {
 static void validate_entity_string(char *string) {
 	grug_assert(string[0] != '\0', "Entities can't be empty strings");
 
-	// TODO: Add more checks
+	char *mod_name = mod;
+	char *entity_name = string;
+
+	char *colon = strchr(string, ':');
+	if (colon) {
+		static char temp_mod_name[MAX_ENTITY_NAME_LENGTH];
+
+		size_t len = colon - string;
+		grug_assert(len > 0, "Entity '%s' is missing a mod name", string);
+
+		grug_assert(len < MAX_ENTITY_NAME_LENGTH, "There are more than %d characters in an entity, exceeding MAX_ENTITY_NAME_LENGTH", MAX_ENTITY_NAME_LENGTH);
+		memcpy(temp_mod_name, string, len);
+		temp_mod_name[len] = '\0';
+
+		mod_name = temp_mod_name;
+
+		grug_assert(*entity_name != '\0', "Entity '%s' specifies the mod name '%s', but it is missing an entity name after the ':'", string, mod_name);
+
+		entity_name = colon + 1;
+
+		grug_assert(*entity_name != '\0', "Entity '%s' specifies the mod name '%s', but it is missing an entity name after the ':'", string, mod_name);
+
+		grug_assert(!streq(mod_name, mod), "Entity '%s' its mod name '%s' is invalid, since the file it is in refers to its own mod; just change it to '%s'", string, mod_name, entity_name);
+	}
+
+	for (size_t i = 0; mod_name[i] != '\0'; i++) {
+		char c = mod_name[i];
+
+		grug_assert(islower(c) || isdigit(c) || c == '_', "Entity '%s' has an invalid mod name", string);
+	}
+
+	for (size_t i = 0; entity_name[i] != '\0'; i++) {
+		char c = entity_name[i];
+
+		grug_assert(islower(c) || isdigit(c) || c == '_', "Entity '%s' is an invalid name", string);
+	}
 }
 
 static char *push_resource_string(char *string) {
