@@ -7739,8 +7739,6 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 					}
 				}
 
-				add_entity(dp->d_name, file.dll);
-
 				if (needs_regeneration) {
 					modified.new_dll = file.dll;
 					modified.define_fn = file.define_fn;
@@ -7752,8 +7750,12 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 					push_reload(modified);
 				}
 
+				add_entity(dp->d_name, file.dll);
+
 				reload_resources_from_dll(dll_path, file.resource_mtimes);
 			} else {
+				add_entity(dp->d_name, old_file->dll);
+
 				reload_resources_from_dll(dll_path, old_file->resource_mtimes);
 			}
 		}
