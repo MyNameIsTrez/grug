@@ -7472,7 +7472,9 @@ static char *form_entity(char *grug_filename) {
 	grug_basename[basename_length] = '\0';
 
 	static char entity[MAX_ENTITY_NAME_LENGTH];
-	snprintf(entity, sizeof(entity), "%s:%s", mod, grug_basename);
+	if (snprintf(entity, sizeof(entity), "%s:%s", mod, grug_basename) < 0) {
+		grug_unreachable();
+	}
 
 	size_t entity_length = strlen(entity);
 
