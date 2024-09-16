@@ -7482,7 +7482,7 @@ static char *form_entity(char *grug_filename) {
 
 	char *entity_str = entity_strings + entity_strings_size;
 
-	memcpy(entity_strings, entity, entity_length);
+	memcpy(entity_str, entity, entity_length);
 	entity_strings_size += entity_length;
 	entity_strings[entity_strings_size++] = '\0';
 
