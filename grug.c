@@ -7240,6 +7240,7 @@ size_t grug_resource_reloads_size;
 static void reset_regenerate_modified_mods(void) {
 	grug_reloads_size = 0;
 	entity_strings_size = 0;
+	memset(buckets_entities, 0xff, sizeof(buckets_entities));
 	entities_size = 0;
 	grug_resource_reloads_size = 0;
 }
