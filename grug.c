@@ -6467,23 +6467,18 @@ static void push_dynamic(void) {
 	// From https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-42444.html
 	push_dynamic_entry(DT_NULL, 0);
 
-	// TODO: Figure out why these are needed
-	size_t padding = 2 * entry_size;
-	if (resources_size == 0) {
-		padding += entry_size;
+	// TODO: I have no clue where this 5 comes from
+	size_t padding = 5 * entry_size;
+
+	size_t count = 0;
+	count += resources_size > 0;
+	count += entity_dependencies_size > 0;
+	count += on_fns_size > 0;
+
+	if (count > 0) {
+		padding -= entry_size;
 	}
-	if (entity_dependencies_size == 0) {
-		padding += entry_size;
-	}
-	if (on_fns_size == 0) {
-		padding += entry_size;
-	}
-	if (resources_size > 0 && on_fns_size > 0) {
-		padding += entry_size;
-	}
-	if (entity_dependencies_size > 0 && on_fns_size > 0) {
-		padding += entry_size;
-	}
+
 	push_zeros(padding);
 }
 
