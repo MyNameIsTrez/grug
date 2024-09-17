@@ -7517,9 +7517,7 @@ static char *form_entity(char *grug_filename) {
 	grug_basename[basename_length] = '\0';
 
 	static char entity[MAX_ENTITY_NAME_LENGTH];
-	if (snprintf(entity, sizeof(entity), "%s:%s", mod, grug_basename) < 0) {
-		grug_unreachable();
-	}
+	grug_assert(snprintf(entity, sizeof(entity), "%s:%s", mod, grug_basename) >= 0, "Filling the variable 'entity' failed");
 
 	size_t entity_length = strlen(entity);
 
@@ -7656,6 +7654,7 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 				push_subdir(dir, inserted_subdir);
 				subdir = dir->dirs + dir->dirs_size - 1;
 			}
+
 			reload_modified_mod(entry_path, dll_entry_path, subdir);
 		} else if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(dp->d_name), ".grug")) {
 			if (seen_file_names_size >= seen_file_names_capacity) {
@@ -7861,6 +7860,11 @@ static void reload_modified_mods(void) {
 		if (S_ISDIR(entry_stat.st_mode)) {
 			mod = dp->d_name;
 
+			char about_json_path[STUPID_MAX_PATH];
+			grug_assert(snprintf(about_json_path, sizeof(about_json_path), "%s/about.json", entry_path) >= 0, "Filling the variable 'about_json_path' failed");
+
+			grug_assert(access(about_json_path, F_OK) == 0, "Every mod requires an 'about.json' file, but the mod '%s' doesn't have one", mod);
+
 			char dll_entry_path[STUPID_MAX_PATH];
 			snprintf(dll_entry_path, sizeof(dll_entry_path), DLL_DIR_PATH"/%s", dp->d_name);
 
@@ -7871,6 +7875,7 @@ static void reload_modified_mods(void) {
 				push_subdir(dir, inserted_subdir);
 				subdir = dir->dirs + dir->dirs_size - 1;
 			}
+
 			reload_modified_mod(entry_path, dll_entry_path, subdir);
 		}
 	}
