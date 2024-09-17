@@ -2021,6 +2021,8 @@ struct expr {
 		TRUE_EXPR,
 		FALSE_EXPR,
 		STRING_EXPR,
+		RESOURCE_EXPR,
+		ENTITY_EXPR,
 		IDENTIFIER_EXPR,
 		I32_EXPR,
 		F32_EXPR,
@@ -2043,6 +2045,8 @@ static char *get_expr_type_str[] = {
 	[TRUE_EXPR] = "TRUE_EXPR",
 	[FALSE_EXPR] = "FALSE_EXPR",
 	[STRING_EXPR] = "STRING_EXPR",
+	[RESOURCE_EXPR] = "RESOURCE_EXPR",
+	[ENTITY_EXPR] = "ENTITY_EXPR",
 	[IDENTIFIER_EXPR] = "IDENTIFIER_EXPR",
 	[I32_EXPR] = "I32_EXPR",
 	[F32_EXPR] = "F32_EXPR",
@@ -2990,6 +2994,8 @@ static void print_expr(struct expr expr) {
 		case FALSE_EXPR:
 			break;
 		case STRING_EXPR:
+		case RESOURCE_EXPR:
+		case ENTITY_EXPR:
 		case IDENTIFIER_EXPR:
 			grug_log(",");
 			grug_log("\"str\":\"%s\"", expr.literal.string);
@@ -3255,6 +3261,7 @@ static void print_ast(void) {
 //// FILLING RESULT TYPES
 
 #define MAX_VARIABLES_PER_FUNCTION 420420
+#define MAX_ENTITY_DEPENDENCY_NAME_LENGTH 420
 
 #define GLOBAL_OFFSET_TABLE_POINTER_SIZE sizeof(void *)
 #define GLOBAL_VARIABLES_POINTER_SIZE sizeof(void *)
@@ -3288,6 +3295,8 @@ static struct grug_entity *grug_define_entity;
 static u32 buckets_define_on_fns[MAX_ON_FNS_IN_FILE];
 static u32 chains_define_on_fns[MAX_ON_FNS_IN_FILE];
 
+static char *mod;
+
 static void reset_filling(void) {
 	global_variables_size = 0;
 	globals_bytes = 0;
@@ -3295,6 +3304,79 @@ static void reset_filling(void) {
 }
 
 static void fill_expr(struct expr *expr);
+
+static void validate_entity_string(char *string) {
+	grug_assert(string[0] != '\0', "Entities can't be empty strings");
+
+	char *mod_name = mod;
+	char *entity_name = string;
+
+	char *colon = strchr(string, ':');
+	if (colon) {
+		static char temp_mod_name[MAX_ENTITY_DEPENDENCY_NAME_LENGTH];
+
+		size_t len = colon - string;
+		grug_assert(len > 0, "Entity '%s' is missing a mod name", string);
+
+		grug_assert(len < MAX_ENTITY_DEPENDENCY_NAME_LENGTH, "There are more than %d characters in the entity '%s', exceeding MAX_ENTITY_DEPENDENCY_NAME_LENGTH", MAX_ENTITY_DEPENDENCY_NAME_LENGTH, string);
+		memcpy(temp_mod_name, string, len);
+		temp_mod_name[len] = '\0';
+
+		mod_name = temp_mod_name;
+
+		grug_assert(*entity_name != '\0', "Entity '%s' specifies the mod name '%s', but it is missing an entity name after the ':'", string, mod_name);
+
+		entity_name = colon + 1;
+
+		grug_assert(*entity_name != '\0', "Entity '%s' specifies the mod name '%s', but it is missing an entity name after the ':'", string, mod_name);
+
+		grug_assert(!streq(mod_name, mod), "Entity '%s' its mod name '%s' is invalid, since the file it is in refers to its own mod; just change it to '%s'", string, mod_name, entity_name);
+	}
+
+	for (size_t i = 0; mod_name[i] != '\0'; i++) {
+		char c = mod_name[i];
+
+		grug_assert(islower(c) || isdigit(c) || c == '_' || c == '-', "Entity '%s' its mod name contains the invalid character '%c'", string, c);
+	}
+
+	for (size_t i = 0; entity_name[i] != '\0'; i++) {
+		char c = entity_name[i];
+
+		grug_assert(islower(c) || isdigit(c) || c == '_' || c == '-', "Entity '%s' its entity name contains the invalid character '%c'", string, c);
+	}
+}
+
+static void validate_resource_string(char *string) {
+	grug_assert(string[0] != '\0', "Resources can't be empty strings");
+
+	grug_assert(string[0] != '/', "Remove the leading slash from the resource \"%s\"", string);
+
+	size_t string_len = strlen(string);
+
+	grug_assert(string[string_len - 1] != '/', "Remove the trailing slash from the resource \"%s\"", string);
+
+	grug_assert(!strchr(string, '\\'), "Replace the '\\' with '/' in the resource \"%s\"", string);
+
+	grug_assert(!strstr(string, "//"), "Replace the '//' with '/' in the resource \"%s\"", string);
+
+	char *dot = strchr(string, '.');
+	if (dot) {
+		if (dot == string) {
+			grug_assert(string_len != 1 && string[1] != '/', "Remove the '.' from the resource \"%s\"", string);
+		} else if (dot[-1] == '/') {
+			grug_assert(dot[1] != '/' && dot[1] != '\0', "Remove the '.' from the resource \"%s\"", string);
+		}
+	}
+
+	char *dotdot = strstr(string, "..");
+	if (dotdot) {
+		if (dotdot == string) {
+			grug_assert(string_len != 2 && string[2] != '/', "Remove the '..' from the resource \"%s\"", string);
+		} else if (dotdot[-1] == '/') {
+			grug_assert(dotdot[2] != '/' && dotdot[2] != '\0', "Remove the '..' from the resource \"%s\"", string);
+		}
+	}
+}
 
 static void check_arguments(struct argument *params, size_t param_count, struct call_expr call_expr) {
 	char *name = call_expr.fn_name;
@@ -3304,10 +3386,20 @@ static void check_arguments(struct argument *params, size_t param_count, struct 
 	grug_assert(call_expr.argument_count <= param_count, "Function call '%s' got an unexpected extra argument with type %s", name, type_names[call_expr.arguments[param_count].result_type]);
 
 	for (size_t argument_index = 0; argument_index < call_expr.argument_count; argument_index++) {
-		enum type arg_type = call_expr.arguments[argument_index].result_type;
+		struct expr *arg = &call_expr.arguments[argument_index];
 		struct argument param = params[argument_index];
 
-		grug_assert(arg_type == param.type, "Function call '%s' expected the type %s for argument '%s', but got %s", name, type_names[param.type], param.name, type_names[arg_type]);
+		if (arg->type == STRING_EXPR && param.type == type_resource) {
+			arg->result_type = type_resource;
+			arg->type = RESOURCE_EXPR;
+			validate_resource_string(arg->literal.string);
+		} else if (arg->type == STRING_EXPR && param.type == type_entity) {
+			arg->result_type = type_entity;
+			arg->type = ENTITY_EXPR;
+			validate_entity_string(arg->literal.string);
+		}
+
+		grug_assert(arg->result_type == param.type, "Function call '%s' expected the type %s for argument '%s', but got %s", name, type_names[param.type], param.name, type_names[arg->result_type]);
 	}
 }
 
@@ -3498,6 +3590,9 @@ static void fill_expr(struct expr *expr) {
 		case STRING_EXPR:
 			expr->result_type = type_string;
 			break;
+		case RESOURCE_EXPR:
+		case ENTITY_EXPR:
+			grug_unreachable();
 		case IDENTIFIER_EXPR: {
 			struct variable *var = get_variable(expr->literal.string);
 			if (var) {
@@ -3749,6 +3844,9 @@ static void check_global_expr(struct expr *expr, char *global_name) {
 		case I32_EXPR:
 		case F32_EXPR:
 			break;
+		case RESOURCE_EXPR:
+		case ENTITY_EXPR:
+			grug_unreachable();
 		case IDENTIFIER_EXPR:
 			grug_error("The global variable '%s' is using a global variable, which isn't allowed", global_name);
 			break;
@@ -3788,6 +3886,8 @@ static void check_define_fn_field_doesnt_contain_call_nor_identifier(struct expr
 		case TRUE_EXPR:
 		case FALSE_EXPR:
 		case STRING_EXPR:
+		case RESOURCE_EXPR:
+		case ENTITY_EXPR:
 		case I32_EXPR:
 		case F32_EXPR:
 			break;
@@ -3875,7 +3975,6 @@ static void fill_result_types(void) {
 #define MAX_STACK_SIZE 420420
 #define MAX_RESOURCES 420420
 #define MAX_ENTITY_DEPENDENCIES 420420
-#define MAX_ENTITY_DEPENDENCY_NAME_LENGTH 420
 #define MAX_LOOP_DEPTH 420
 #define MAX_BREAK_STATEMENTS_PER_LOOP 420
 #define MAX_GOT_ACCESSES (MAX_ON_FNS_IN_FILE + MAX_HELPER_FNS_IN_FILE)
@@ -4114,11 +4213,6 @@ static bool in_on_fn;
 
 static bool calling_game_fn;
 
-static bool string_is_resource;
-static bool string_is_entity;
-
-static char *mod;
-
 static u32 resources[MAX_RESOURCES];
 static size_t resources_size;
 
@@ -4143,8 +4237,6 @@ static void reset_compiling(void) {
 	got_accesses_size = 0;
 	in_on_fn = false;
 	calling_game_fn = false;
-	string_is_resource = false;
-	string_is_entity = false;
 	resources_size = 0;
 	entity_dependencies_size = 0;
 }
@@ -4890,47 +4982,6 @@ static char *push_entity_dependency_string(char *string) {
 	return entity_str;
 }
 
-static void validate_entity_string(char *string) {
-	grug_assert(string[0] != '\0', "Entities can't be empty strings");
-
-	char *mod_name = mod;
-	char *entity_name = string;
-
-	char *colon = strchr(string, ':');
-	if (colon) {
-		static char temp_mod_name[MAX_ENTITY_DEPENDENCY_NAME_LENGTH];
-
-		size_t len = colon - string;
-		grug_assert(len > 0, "Entity '%s' is missing a mod name", string);
-
-		grug_assert(len < MAX_ENTITY_DEPENDENCY_NAME_LENGTH, "There are more than %d characters in the entity '%s', exceeding MAX_ENTITY_DEPENDENCY_NAME_LENGTH", MAX_ENTITY_DEPENDENCY_NAME_LENGTH, string);
-		memcpy(temp_mod_name, string, len);
-		temp_mod_name[len] = '\0';
-
-		mod_name = temp_mod_name;
-
-		grug_assert(*entity_name != '\0', "Entity '%s' specifies the mod name '%s', but it is missing an entity name after the ':'", string, mod_name);
-
-		entity_name = colon + 1;
-
-		grug_assert(*entity_name != '\0', "Entity '%s' specifies the mod name '%s', but it is missing an entity name after the ':'", string, mod_name);
-
-		grug_assert(!streq(mod_name, mod), "Entity '%s' its mod name '%s' is invalid, since the file it is in refers to its own mod; just change it to '%s'", string, mod_name, entity_name);
-	}
-
-	for (size_t i = 0; mod_name[i] != '\0'; i++) {
-		char c = mod_name[i];
-
-		grug_assert(islower(c) || isdigit(c) || c == '_', "Entity '%s' its mod name contains the invalid character '%c'", string, c);
-	}
-
-	for (size_t i = 0; entity_name[i] != '\0'; i++) {
-		char c = entity_name[i];
-
-		grug_assert(islower(c) || isdigit(c) || c == '_', "Entity '%s' its entity name contains the invalid character '%c'", string, c);
-	}
-}
-
 static char *push_resource_string(char *string) {
 	static char resource[STUPID_MAX_PATH];
 	snprintf(resource, sizeof(resource), MODS_DIR_PATH"/%s/%s", mod, string);
@@ -4949,38 +5000,6 @@ static char *push_resource_string(char *string) {
 	return resource_str;
 }
 
-static void validate_resource_string(char *string) {
-	grug_assert(string[0] != '\0', "Resources can't be empty strings");
-
-	grug_assert(string[0] != '/', "Remove the leading slash from the resource \"%s\"", string);
-
-	size_t string_len = strlen(string);
-
-	grug_assert(string[string_len - 1] != '/', "Remove the trailing slash from the resource \"%s\"", string);
-
-	grug_assert(!strchr(string, '\\'), "Replace the '\\' with '/' in the resource \"%s\"", string);
-
-	grug_assert(!strstr(string, "//"), "Replace the '//' with '/' in the resource \"%s\"", string);
-
-	char *dot = strchr(string, '.');
-	if (dot) {
-		if (dot == string) {
-			grug_assert(string_len != 1 && string[1] != '/', "Remove the '.' from the resource \"%s\"", string);
-		} else if (dot[-1] == '/') {
-			grug_assert(dot[1] != '/' && dot[1] != '\0', "Remove the '.' from the resource \"%s\"", string);
-		}
-	}
-
-	char *dotdot = strstr(string, "..");
-	if (dotdot) {
-		if (dotdot == string) {
-			grug_assert(string_len != 2 && string[2] != '/', "Remove the '..' from the resource \"%s\"", string);
-		} else if (dotdot[-1] == '/') {
-			grug_assert(dotdot[2] != '/' && dotdot[2] != '\0', "Remove the '..' from the resource \"%s\"", string);
-		}
-	}
-}
-
 static void compile_expr(struct expr expr) {
 	switch (expr.type) {
 		case TRUE_EXPR:
@@ -4993,21 +5012,47 @@ static void compile_expr(struct expr expr) {
 		case STRING_EXPR: {
 			char *string = expr.literal.string;
 
-			if (string_is_resource) {
-				validate_resource_string(string);
-				string = push_resource_string(string);
-			} else if (string_is_entity) {
-				validate_entity_string(string);
-				string = push_entity_dependency_string(string);
-			}
+			add_data_string(string);
+
+			compile_unpadded(LEA_STRINGS_TO_RAX);
+
+			// RIP-relative address of data string
+			push_data_string_code(string, codes_size);
+			compile_unpadded(PLACEHOLDER_32);
+
+			break;
+		}
+		case RESOURCE_EXPR: {
+			char *string = expr.literal.string;
+
+			string = push_resource_string(string);
 
 			bool had_string = get_data_string_index(string) != UINT32_MAX;
 
 			add_data_string(string);
 
-			if (string_is_resource && !had_string) {
+			if (!had_string) {
 				push_resource(get_data_string_index(string));
-			} else if (string_is_entity && !had_string) {
+			}
+
+			compile_unpadded(LEA_STRINGS_TO_RAX);
+
+			// RIP-relative address of data string
+			push_data_string_code(string, codes_size);
+			compile_unpadded(PLACEHOLDER_32);
+
+			break;
+		}
+		case ENTITY_EXPR: {
+			char *string = expr.literal.string;
+
+			string = push_entity_dependency_string(string);
+
+			bool had_string = get_data_string_index(string) != UINT32_MAX;
+
+			add_data_string(string);
+
+			if (!had_string) {
 				push_entity_dependency(get_data_string_index(string));
 			}
 
@@ -5480,22 +5525,7 @@ static void compile_define_fn_returned_fields(void) {
 	for (size_t i = field_count; i > 0;) {
 		struct expr field = define_fn.returned_compound_literal.fields[--i].expr_value;
 
-		enum type json_type = grug_define_entity->fields[i].type;
-
-		// TODO: Checking the JSON type shouldn't be done here,
-		// since it should the be parser's job to assign type_resource and type_entity!
-		// This *will* require a new RESOURCE_EXPR and ENTITY_EXPR
-		if (json_type == type_resource) {
-			string_is_resource = true;
-		} else if (json_type == type_entity) {
-			string_is_entity = true;
-		}
 		compile_expr(field);
-		if (json_type == type_resource) {
-			string_is_resource = false;
-		} else if (json_type == type_entity) {
-			string_is_entity = false;
-		}
 
 		if (field.result_type == type_f32) {
 			static u32 movs[] = {
