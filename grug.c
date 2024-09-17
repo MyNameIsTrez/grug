@@ -3914,6 +3914,8 @@ static void check_define_fn_field_doesnt_contain_call_nor_identifier(struct expr
 static void fill_define_fn(void) {
 	size_t field_count = define_fn.returned_compound_literal.field_count;
 
+	grug_assert(grug_define_entity->field_count == define_fn.returned_compound_literal.field_count, "The entity '%s' expects %zu fields, but got %zu", grug_define_entity->name, grug_define_entity->field_count, define_fn.returned_compound_literal.field_count);
+
 	for (size_t i = 0; i < field_count; i++) {
 		struct expr *field = &define_fn.returned_compound_literal.fields[i].expr_value;
 
@@ -3921,12 +3923,19 @@ static void fill_define_fn(void) {
 
 		fill_expr(field);
 
-		enum type field_type = field->result_type;
 		struct argument json_field = grug_define_entity->fields[i];
 
-		if (field_type != json_field.type) {
-			grug_assert(field_type == type_string && (json_field.type == type_resource || json_field.type == type_entity), "The define function its '%s' parameter was supposed to have the type %s, but was %s", json_field.name, type_names[json_field.type], type_names[field_type]);
+		if (field->type == STRING_EXPR && json_field.type == type_resource) {
+			field->result_type = type_resource;
+			field->type = RESOURCE_EXPR;
+			validate_resource_string(field->literal.string);
+		} else if (field->type == STRING_EXPR && json_field.type == type_entity) {
+			field->result_type = type_entity;
+			field->type = ENTITY_EXPR;
+			validate_entity_string(field->literal.string);
 		}
+
+		grug_assert(field->result_type == json_field.type, "The define function its '%s' parameter was supposed to have the type %s, but was %s", json_field.name, type_names[json_field.type], type_names[field->result_type]);
 	}
 }
 
@@ -3946,8 +3955,6 @@ static void fill_result_types(void) {
 	grug_define_entity = get_grug_define_entity(define_fn.return_type);
 
 	grug_assert(grug_define_entity, "The entity '%s' was not declared by mod_api.json", define_fn.return_type);
-
-	grug_assert(grug_define_entity->field_count == define_fn.returned_compound_literal.field_count, "The entity '%s' expects %zu fields, but got %zu", grug_define_entity->name, grug_define_entity->field_count, define_fn.returned_compound_literal.field_count);
 
 	hash_define_on_fns();
 
