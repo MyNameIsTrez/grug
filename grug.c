@@ -7645,6 +7645,8 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 
 			struct grug_file *old_file = get_file(dir, dp->d_name);
 
+			struct grug_file file = {0};
+
 			if (needs_regeneration || !old_file) {
 				struct grug_modified modified = {0};
 
@@ -7662,7 +7664,6 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 					regenerate_dll(entry_path, dll_path);
 				}
 
-				struct grug_file file = {0};
 				if (old_file) {
 					file.name = old_file->name;
 				} else {
@@ -7710,7 +7711,7 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 
 					if (dll_resources_size > 0) {
 						old_file->resource_mtimes = realloc(old_file->resource_mtimes, dll_resources_size * sizeof(i64));
-						grug_assert(file.resource_mtimes, "realloc: %s", strerror(errno));
+						grug_assert(old_file->resource_mtimes, "realloc: %s", strerror(errno));
 					} else {
 						// We can't use realloc() to do this
 						// See https://stackoverflow.com/a/16760080/13279557
@@ -7726,17 +7727,7 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 					}
 
 					push_file(dir, file);
-				}
-
-				if (dll_resources_size > 0) {
-					char **dll_resources = get_dll_symbol(file.dll, "resources");
-
-					for (size_t i = 0; i < dll_resources_size; i++) {
-						struct stat resource_stat;
-						grug_assert(stat(dll_resources[i], &resource_stat) == 0, "%s: %s", dll_resources[i], strerror(errno));
-
-						file.resource_mtimes[i] = resource_stat.st_mtime;
-					}
+					old_file = &file;
 				}
 
 				if (needs_regeneration) {
@@ -7749,15 +7740,25 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 					strncpy(modified.path, entry_path, sizeof(modified.path));
 					push_reload(modified);
 				}
-
-				add_entity(dp->d_name, file.dll);
-
-				reload_resources_from_dll(dll_path, file.resource_mtimes);
-			} else {
-				add_entity(dp->d_name, old_file->dll);
-
-				reload_resources_from_dll(dll_path, old_file->resource_mtimes);
 			}
+
+			size_t *resources_size_ptr = get_dll_symbol(old_file->dll, "resources_size");
+			size_t dll_resources_size = *resources_size_ptr;
+
+			if (dll_resources_size > 0) {
+				char **dll_resources = get_dll_symbol(old_file->dll, "resources");
+
+				for (size_t i = 0; i < dll_resources_size; i++) {
+					struct stat resource_stat;
+					grug_assert(stat(dll_resources[i], &resource_stat) == 0, "%s: %s", dll_resources[i], strerror(errno));
+
+					old_file->resource_mtimes[i] = resource_stat.st_mtime;
+				}
+			}
+
+			add_entity(dp->d_name, old_file->dll);
+
+			reload_resources_from_dll(dll_path, old_file->resource_mtimes);
 		}
 	}
 	grug_assert(errno == 0, "readdir: %s", strerror(errno));
