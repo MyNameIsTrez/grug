@@ -86,6 +86,7 @@ extern jmp_buf grug_runtime_error_jmp_buffer;
 bool grug_regenerate_modified_mods(void);
 void grug_free_mods(void);
 char *grug_get_runtime_error_reason(void);
+struct grug_file *grug_get_entitity_file(char *entity_name);
 
 // For the grug-tests repository
 bool grug_test_regenerate_dll(char *grug_file_path, char *dll_path, char *mod);

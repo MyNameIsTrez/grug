@@ -7268,7 +7268,7 @@ static char entity_strings[MAX_ENTITY_STRINGS_CHARACTERS];
 static size_t entity_strings_size;
 static u32 buckets_entities[MAX_ENTITIES];
 static u32 chains_entities[MAX_ENTITIES];
-static void *entity_dlls[MAX_ENTITIES];
+static struct grug_file *entity_files[MAX_ENTITIES];
 static size_t entities_size;
 
 struct grug_modified_resource grug_resource_reloads[MAX_RESOURCE_RELOADS];
@@ -7468,6 +7468,14 @@ static u32 get_entity_index(char *entity) {
 	return i;
 }
 
+struct grug_file *grug_get_entitity_file(char *entity_name) {
+	u32 index = get_entity_index(entity_name);
+	if (index == UINT32_MAX) {
+		return NULL;
+	}
+	return entity_files[index];
+}
+
 void check_that_every_entity_exists(struct grug_mod_dir dir) {
 	for (size_t i = 0; i < dir.files_size; i++) {
 		struct grug_file file = dir.files[i];
@@ -7526,7 +7534,7 @@ static char *form_entity(char *grug_filename) {
 	return entity_str;
 }
 
-static void add_entity(char *grug_filename, void *dll) {
+static void add_entity(char *grug_filename, struct grug_file *file) {
 	grug_assert(entities_size < MAX_ENTITIES, "There are more than %d entities, exceeding MAX_ENTITIES", MAX_ENTITIES);
 
 	char *entity = form_entity(grug_filename);
@@ -7539,18 +7547,19 @@ static void add_entity(char *grug_filename, void *dll) {
 
 	buckets_entities[bucket_index] = entities_size;
 
-	entity_dlls[entities_size] = dll;
+	entity_files[entities_size] = file;
 
 	entities[entities_size++] = entity;
 }
 
-static void push_file(struct grug_mod_dir *dir, struct grug_file file) {
+static struct grug_file *push_file(struct grug_mod_dir *dir, struct grug_file file) {
 	if (dir->files_size >= dir->files_capacity) {
 		dir->files_capacity = dir->files_capacity == 0 ? 1 : dir->files_capacity * 2;
 		dir->files = realloc(dir->files, dir->files_capacity * sizeof(*dir->files));
 		grug_assert(dir->files, "realloc: %s", strerror(errno));
 	}
-	dir->files[dir->files_size++] = file;
+	dir->files[dir->files_size] = file;
+	return &dir->files[dir->files_size++];
 }
 
 static void push_subdir(struct grug_mod_dir *dir, struct grug_mod_dir subdir) {
@@ -7763,8 +7772,18 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 						grug_assert(file.resource_mtimes, "malloc: %s", strerror(errno));
 					}
 
-					push_file(dir, file);
-					old_file = &file;
+					old_file = push_file(dir, file);
+				}
+
+				if (dll_resources_size > 0) {
+					char **dll_resources = get_dll_symbol(old_file->dll, "resources");
+
+					for (size_t i = 0; i < dll_resources_size; i++) {
+						struct stat resource_stat;
+						grug_assert(stat(dll_resources[i], &resource_stat) == 0, "%s: %s", dll_resources[i], strerror(errno));
+
+						old_file->resource_mtimes[i] = resource_stat.st_mtime;
+					}
 				}
 
 				if (needs_regeneration) {
@@ -7779,21 +7798,7 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 				}
 			}
 
-			size_t *resources_size_ptr = get_dll_symbol(old_file->dll, "resources_size");
-			size_t dll_resources_size = *resources_size_ptr;
-
-			if (dll_resources_size > 0) {
-				char **dll_resources = get_dll_symbol(old_file->dll, "resources");
-
-				for (size_t i = 0; i < dll_resources_size; i++) {
-					struct stat resource_stat;
-					grug_assert(stat(dll_resources[i], &resource_stat) == 0, "%s: %s", dll_resources[i], strerror(errno));
-
-					old_file->resource_mtimes[i] = resource_stat.st_mtime;
-				}
-			}
-
-			add_entity(dp->d_name, old_file->dll);
+			add_entity(dp->d_name, old_file);
 
 			reload_resources_from_dll(dll_path, old_file->resource_mtimes);
 		}
