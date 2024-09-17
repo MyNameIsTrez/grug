@@ -7282,11 +7282,6 @@ static void reset_regenerate_modified_mods(void) {
 	grug_resource_reloads_size = 0;
 }
 
-static void push_resource_reload(struct grug_modified_resource modified) {
-	grug_assert(grug_resource_reloads_size < MAX_RESOURCE_RELOADS, "There are more than %d modified resources, exceeding MAX_RESOURCE_RELOADS", MAX_RESOURCE_RELOADS);
-	grug_resource_reloads[grug_resource_reloads_size++] = modified;
-}
-
 static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
 	void *dll = dlopen(dll_path, RTLD_NOW);
 	if (!dll) {
@@ -7294,7 +7289,12 @@ static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
 	}
 
 	size_t *dll_resources_size_ptr = get_dll_symbol(dll, "resources_size");
-	grug_assert(dll_resources_size_ptr, "Retrieving resources_size with get_dll_symbol() failed for %s", dll_path);
+	if (!dll_resources_size_ptr) {
+		if (dlclose(dll)) {
+			print_dlerror("dlclose");
+		}
+		grug_error("Retrieving resources_size with get_dll_symbol() failed for %s", dll_path);
+	}
 
 	if (*dll_resources_size_ptr == 0) {
 		if (dlclose(dll)) {
@@ -7304,13 +7304,23 @@ static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
 	}
 
 	char **dll_resources = get_dll_symbol(dll, "resources");
-	grug_assert(dll_resources, "Retrieving resources with get_dll_symbol() failed for %s", dll_path);
+	if (!dll_resources) {
+		if (dlclose(dll)) {
+			print_dlerror("dlclose");
+		}
+		grug_error("Retrieving resources with get_dll_symbol() failed for %s", dll_path);
+	}
 
 	for (size_t i = 0; i < *dll_resources_size_ptr; i++) {
 		char *resource = dll_resources[i];
 
 		struct stat resource_stat;
-		grug_assert(stat(resource, &resource_stat) == 0, "%s: %s", resource, strerror(errno));
+		if (stat(resource, &resource_stat) == -1) {
+			if (dlclose(dll)) {
+				print_dlerror("dlclose");
+			}
+			grug_error("%s: %s", resource, strerror(errno));
+		}
 
 		if (resource_stat.st_mtime > resource_mtimes[i]) {
 			resource_mtimes[i] = resource_stat.st_mtime;
@@ -7319,7 +7329,14 @@ static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
 
 			strncpy(modified.path, resource, sizeof(modified.path));
 
-			push_resource_reload(modified);
+			if (grug_resource_reloads_size >= MAX_RESOURCE_RELOADS) {
+				if (dlclose(dll)) {
+					print_dlerror("dlclose");
+				}
+				grug_error("There are more than %d modified resources, exceeding MAX_RESOURCE_RELOADS", MAX_RESOURCE_RELOADS);
+			}
+
+			grug_resource_reloads[grug_resource_reloads_size++] = modified;
 		}
 	}
 
