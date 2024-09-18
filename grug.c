@@ -7616,6 +7616,155 @@ static bool seen_entry(char *name, char **seen_names, size_t seen_names_size) {
 	return false;
 }
 
+static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char entry_path[STUPID_MAX_PATH], bool needs_regeneration, char dll_path[STUPID_MAX_PATH], char *grug_filename, struct grug_mod_dir *dir) {
+	struct grug_modified modified = {0};
+
+	strncpy(grug_error.path, entry_path, sizeof(grug_error.path));
+
+	if (file && file->dll) {
+		modified.old_dll = file->dll;
+		if (dlclose(file->dll)) {
+			print_dlerror("dlclose");
+		}
+		file->dll = NULL;
+	}
+
+	if (needs_regeneration) {
+		regenerate_dll(entry_path, dll_path);
+	}
+
+	struct grug_file new_file = {0};
+
+	if (file) {
+		new_file.name = file->name;
+	} else {
+		new_file.name = strdup(grug_filename);
+		grug_assert(new_file.name, "strdup: %s", strerror(errno));
+	}
+
+	new_file.dll = dlopen(dll_path, RTLD_NOW);
+	if (!new_file.dll) {
+		print_dlerror("dlopen");
+	}
+
+	#pragma GCC diagnostic push
+	#pragma GCC diagnostic ignored "-Wpedantic"
+	new_file.define_fn = get_dll_symbol(new_file.dll, "define");
+	#pragma GCC diagnostic pop
+	grug_assert(new_file.define_fn, "Retrieving the define() function with get_dll_symbol() failed for %s", dll_path);
+
+	size_t *globals_size_ptr = get_dll_symbol(new_file.dll, "globals_size");
+	grug_assert(globals_size_ptr, "Retrieving the globals_size variable with get_dll_symbol() failed for %s", dll_path);
+	new_file.globals_size = *globals_size_ptr;
+
+	#pragma GCC diagnostic push
+	#pragma GCC diagnostic ignored "-Wpedantic"
+	new_file.init_globals_fn = get_dll_symbol(new_file.dll, "init_globals");
+	#pragma GCC diagnostic pop
+	grug_assert(new_file.init_globals_fn, "Retrieving the init_globals() function with get_dll_symbol() failed for %s", dll_path);
+
+	new_file.define_type = get_dll_symbol(new_file.dll, "define_type");
+	grug_assert(new_file.define_type, "Retrieving the define_type string with get_dll_symbol() failed for %s", dll_path);
+
+	// on_fns is optional, so don't check for NULL
+	new_file.on_fns = get_dll_symbol(new_file.dll, "on_fns");
+
+	size_t *resources_size_ptr = get_dll_symbol(new_file.dll, "resources_size");
+	size_t dll_resources_size = *resources_size_ptr;
+
+	if (file) {
+		file->dll = new_file.dll;
+		file->define_fn = new_file.define_fn;
+		file->globals_size = new_file.globals_size;
+		file->init_globals_fn = new_file.init_globals_fn;
+		file->define_type = new_file.define_type;
+		file->on_fns = new_file.on_fns;
+
+		if (dll_resources_size > 0) {
+			file->resource_mtimes = realloc(file->resource_mtimes, dll_resources_size * sizeof(i64));
+			grug_assert(file->resource_mtimes, "realloc: %s", strerror(errno));
+		} else {
+			// We can't use realloc() to do this
+			// See https://stackoverflow.com/a/16760080/13279557
+			free(file->resource_mtimes);
+			file->resource_mtimes = NULL;
+		}
+	} else {
+		// We check dll_resources_size > 0, since whether malloc(0) returns NULL is implementation defined
+		// See https://stackoverflow.com/a/1073175/13279557
+		if (dll_resources_size > 0) {
+			new_file.resource_mtimes = malloc(dll_resources_size * sizeof(i64));
+			grug_assert(new_file.resource_mtimes, "malloc: %s", strerror(errno));
+		}
+
+		file = push_file(dir, new_file);
+	}
+
+	if (dll_resources_size > 0) {
+		char **dll_resources = get_dll_symbol(file->dll, "resources");
+
+		// Initialize file->resource_mtimes
+		for (size_t i = 0; i < dll_resources_size; i++) {
+			struct stat resource_stat;
+			grug_assert(stat(dll_resources[i], &resource_stat) == 0, "%s: %s", dll_resources[i], strerror(errno));
+
+			file->resource_mtimes[i] = resource_stat.st_mtime;
+		}
+	}
+
+	// Let the game developer know that a grug file was recompiled
+	if (needs_regeneration) {
+		modified.new_dll = new_file.dll;
+		modified.define_fn = new_file.define_fn;
+		modified.globals_size = new_file.globals_size;
+		modified.init_globals_fn = new_file.init_globals_fn;
+		modified.define_type = new_file.define_type;
+		modified.on_fns = new_file.on_fns;
+		strncpy(modified.path, entry_path, sizeof(modified.path));
+		push_reload(modified);
+	}
+
+	return file;
+}
+
+static void reload_grug_file(char *dll_entry_path, i64 entry_mtime, char *grug_filename, struct grug_mod_dir *dir, char entry_path[STUPID_MAX_PATH]) {
+	// Fill dll_path
+	char dll_path[STUPID_MAX_PATH];
+	memcpy(dll_path, dll_entry_path, STUPID_MAX_PATH);
+	char *ext = get_file_extension(dll_path);
+	assert(*ext);
+	ext[1] = '\0';
+	strncat(ext + 1, "so", STUPID_MAX_PATH - 1 - strlen(dll_path));
+
+	struct stat dll_stat;
+	bool dll_exists = stat(dll_path, &dll_stat) == 0;
+
+	if (!dll_exists) {
+		// If the dll doesn't exist, try to create the parent directories
+		errno = 0;
+		if (access(dll_path, F_OK) && errno == ENOENT) {
+			try_create_parent_dirs(dll_path);
+			errno = 0;
+		}
+		grug_assert(errno == 0 || errno == ENOENT, "access: %s", strerror(errno));
+	}
+
+	// If the dll doesn't exist or is outdated
+	bool needs_regeneration = !dll_exists || entry_mtime > dll_stat.st_mtime;
+
+	struct grug_file *file = get_file(dir, grug_filename);
+
+	if (needs_regeneration || !file) {
+		file = regenerate_dll_and_file(file, entry_path, needs_regeneration, dll_path, grug_filename, dir);
+	}
+
+	// Needed for grug_get_entitity_file() and check_that_every_entity_exists()
+	add_entity(grug_filename, file);
+
+	// Let the game developer know when they need to reload a resource
+	reload_resources_from_dll(dll_path, file->resource_mtimes);
+}
+
 static bool is_lowercase(char *str) {
 	for (; *str; str++) {
         // `!islower()` doesn't work, since '-' isn't considered lowercase
@@ -7681,142 +7830,7 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 			}
 			seen_file_names[seen_file_names_size++] = strdup(dp->d_name);
 
-			// Fill dll_path
-			char dll_path[STUPID_MAX_PATH];
-			memcpy(dll_path, dll_entry_path, STUPID_MAX_PATH);
-			char *ext = get_file_extension(dll_path);
-			assert(*ext);
-			ext[1] = '\0';
-			strncat(ext + 1, "so", STUPID_MAX_PATH - 1 - strlen(dll_path));
-
-			struct stat dll_stat;
-			bool dll_exists = stat(dll_path, &dll_stat) == 0;
-
-			if (!dll_exists) {
-				// If the dll doesn't exist, try to create the parent directories
-				errno = 0;
-				if (access(dll_path, F_OK) && errno == ENOENT) {
-					try_create_parent_dirs(dll_path);
-					errno = 0;
-				}
-				grug_assert(errno == 0 || errno == ENOENT, "access: %s", strerror(errno));
-			}
-
-			// If the dll doesn't exist or is outdated
-			bool needs_regeneration = !dll_exists || entry_stat.st_mtime > dll_stat.st_mtime;
-
-			struct grug_file *file = get_file(dir, dp->d_name);
-
-			if (needs_regeneration || !file) {
-				struct grug_modified modified = {0};
-
-				strncpy(grug_error.path, entry_path, sizeof(grug_error.path));
-
-				if (file && file->dll) {
-					modified.old_dll = file->dll;
-					if (dlclose(file->dll)) {
-						print_dlerror("dlclose");
-					}
-					file->dll = NULL;
-				}
-
-				if (needs_regeneration) {
-					regenerate_dll(entry_path, dll_path);
-				}
-
-				struct grug_file new_file = {0};
-
-				if (file) {
-					new_file.name = file->name;
-				} else {
-					new_file.name = strdup(dp->d_name);
-					grug_assert(new_file.name, "strdup: %s", strerror(errno));
-				}
-
-				new_file.dll = dlopen(dll_path, RTLD_NOW);
-				if (!new_file.dll) {
-					print_dlerror("dlopen");
-				}
-
-				#pragma GCC diagnostic push
-				#pragma GCC diagnostic ignored "-Wpedantic"
-				new_file.define_fn = get_dll_symbol(new_file.dll, "define");
-				#pragma GCC diagnostic pop
-				grug_assert(new_file.define_fn, "Retrieving the define() function with get_dll_symbol() failed for %s", dll_path);
-
-				size_t *globals_size_ptr = get_dll_symbol(new_file.dll, "globals_size");
-				grug_assert(globals_size_ptr, "Retrieving the globals_size variable with get_dll_symbol() failed for %s", dll_path);
-				new_file.globals_size = *globals_size_ptr;
-
-				#pragma GCC diagnostic push
-				#pragma GCC diagnostic ignored "-Wpedantic"
-				new_file.init_globals_fn = get_dll_symbol(new_file.dll, "init_globals");
-				#pragma GCC diagnostic pop
-				grug_assert(new_file.init_globals_fn, "Retrieving the init_globals() function with get_dll_symbol() failed for %s", dll_path);
-
-				new_file.define_type = get_dll_symbol(new_file.dll, "define_type");
-				grug_assert(new_file.define_type, "Retrieving the define_type string with get_dll_symbol() failed for %s", dll_path);
-
-				// on_fns is optional, so don't check for NULL
-				new_file.on_fns = get_dll_symbol(new_file.dll, "on_fns");
-
-				size_t *resources_size_ptr = get_dll_symbol(new_file.dll, "resources_size");
-				size_t dll_resources_size = *resources_size_ptr;
-
-				if (file) {
-					file->dll = new_file.dll;
-					file->define_fn = new_file.define_fn;
-					file->globals_size = new_file.globals_size;
-					file->init_globals_fn = new_file.init_globals_fn;
-					file->define_type = new_file.define_type;
-					file->on_fns = new_file.on_fns;
-
-					if (dll_resources_size > 0) {
-						file->resource_mtimes = realloc(file->resource_mtimes, dll_resources_size * sizeof(i64));
-						grug_assert(file->resource_mtimes, "realloc: %s", strerror(errno));
-					} else {
-						// We can't use realloc() to do this
-						// See https://stackoverflow.com/a/16760080/13279557
-						free(file->resource_mtimes);
-						file->resource_mtimes = NULL;
-					}
-				} else {
-					// We check dll_resources_size > 0, since whether malloc(0) returns NULL is implementation defined
-					// See https://stackoverflow.com/a/1073175/13279557
-					if (dll_resources_size > 0) {
-						new_file.resource_mtimes = malloc(dll_resources_size * sizeof(i64));
-						grug_assert(new_file.resource_mtimes, "malloc: %s", strerror(errno));
-					}
-
-					file = push_file(dir, new_file);
-				}
-
-				if (dll_resources_size > 0) {
-					char **dll_resources = get_dll_symbol(file->dll, "resources");
-
-					for (size_t i = 0; i < dll_resources_size; i++) {
-						struct stat resource_stat;
-						grug_assert(stat(dll_resources[i], &resource_stat) == 0, "%s: %s", dll_resources[i], strerror(errno));
-
-						file->resource_mtimes[i] = resource_stat.st_mtime;
-					}
-				}
-
-				if (needs_regeneration) {
-					modified.new_dll = new_file.dll;
-					modified.define_fn = new_file.define_fn;
-					modified.globals_size = new_file.globals_size;
-					modified.init_globals_fn = new_file.init_globals_fn;
-					modified.define_type = new_file.define_type;
-					modified.on_fns = new_file.on_fns;
-					strncpy(modified.path, entry_path, sizeof(modified.path));
-					push_reload(modified);
-				}
-			}
-
-			add_entity(dp->d_name, file);
-
-			reload_resources_from_dll(dll_path, file->resource_mtimes);
+			reload_grug_file(dll_entry_path, entry_stat.st_mtime, dp->d_name, dir, entry_path);
 		}
 	}
 	grug_assert(errno == 0, "readdir: %s", strerror(errno));
