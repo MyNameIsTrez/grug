@@ -7482,7 +7482,7 @@ static u32 get_entity_index(char *entity) {
 	return i;
 }
 
-struct grug_file *grug_get_entitity_file(char *entity_name) {
+struct grug_file *grug_get_entity_file(char *entity_name) {
 	u32 index = get_entity_index(entity_name);
 	if (index == UINT32_MAX) {
 		return NULL;
