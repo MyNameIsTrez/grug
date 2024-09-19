@@ -7667,6 +7667,8 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char en
 	grug_assert(new_file.define_type, "Retrieving the define_type string with get_dll_symbol() failed for %s", dll_path);
 
 	// on_fns is optional, so don't check for NULL
+	// Note that if an entity in mod_api.json specifies that it has on_fns that the modder can use,
+	// on_fns is guaranteed NOT to be NULL!
 	new_file.on_fns = get_dll_symbol(new_file.dll, "on_fns");
 
 	size_t *resources_size_ptr = get_dll_symbol(new_file.dll, "resources_size");
