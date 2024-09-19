@@ -7716,13 +7716,8 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char en
 
 	// Let the game developer know that a grug file was recompiled
 	if (needs_regeneration) {
-		modified.new_dll = new_file.dll;
-		modified.define_fn = new_file.define_fn;
-		modified.globals_size = new_file.globals_size;
-		modified.init_globals_fn = new_file.init_globals_fn;
-		modified.define_type = new_file.define_type;
-		modified.on_fns = new_file.on_fns;
 		strncpy(modified.path, entry_path, sizeof(modified.path));
+		modified.file = file;
 		push_reload(modified);
 	}
 
