@@ -42,12 +42,7 @@ struct grug_mod_dir {
 struct grug_modified {
 	char path[4096];
 	void *old_dll;
-	void *new_dll;
-	grug_define_fn_t define_fn;
-	size_t globals_size;
-	grug_init_globals_fn_t init_globals_fn;
-	char *define_type;
-	void *on_fns;
+	struct grug_file *file;
 };
 
 struct grug_modified_resource {
