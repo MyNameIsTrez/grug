@@ -4073,7 +4073,6 @@ static void fill_result_types(void) {
 #define TEST_EAX_IS_ZERO 0xc085 // test eax, eax
 
 #define JE_8_BIT_OFFSET 0x74 // je $+n
-#define JNE_8_BIT_OFFSET 0x75 // jne $+n
 #define JE_32_BIT_OFFSET 0x840f // je strict $+n
 #define JMP_32_BIT_OFFSET 0xe9 // jmp $+n
 
@@ -4698,9 +4697,7 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 		case AND_TOKEN: {
 			compile_expr(*logical_expr.left_expr);
 			compile_unpadded(TEST_EAX_IS_ZERO);
-			compile_byte(JNE_8_BIT_OFFSET);
-			compile_byte(5); // Jump 5 bytes forward
-			compile_unpadded(JMP_32_BIT_OFFSET);
+			compile_unpadded(JE_32_BIT_OFFSET);
 			size_t end_jump_offset = codes_size;
 			compile_unpadded(PLACEHOLDER_32);
 			compile_expr(*logical_expr.right_expr);
