@@ -182,8 +182,19 @@ static bool streq(char *a, char *b) {
 	return strcmp(a, b) == 0;
 }
 
+// "a" is the haystack, "b" is the needle
 static bool starts_with(char *a, char *b) {
 	return strncmp(a, b, strlen(b)) == 0;
+}
+
+// "a" is the haystack, "b" is the needle
+static bool ends_with(char *a, char *b) {
+	size_t len_a = strlen(a);
+	size_t len_b = strlen(b);
+	if (len_a < len_b) {
+		return false;
+	}
+	return strncmp(a + len_a - len_b, b, len_b) == 0;
 }
 
 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/elf.c#l193
@@ -3362,7 +3373,7 @@ static void validate_entity_string(char *string) {
 	}
 }
 
-static void validate_resource_string(char *string) {
+static void validate_resource_string(char *string, char *resource_extension) {
 	grug_assert(string[0] != '\0', "Resources can't be empty strings");
 
 	grug_assert(string[0] != '/', "Remove the leading slash from the resource \"%s\"", string);
@@ -3392,6 +3403,8 @@ static void validate_resource_string(char *string) {
 			grug_assert(dotdot[2] != '/' && dotdot[2] != '\0', "Remove the '..' from the resource \"%s\"", string);
 		}
 	}
+
+	grug_assert(ends_with(string, resource_extension), "The resource '%s' was supposed to have the extension '%s'", string, resource_extension);
 }
 
 static void check_arguments(struct argument *params, size_t param_count, struct call_expr call_expr) {
@@ -3408,7 +3421,7 @@ static void check_arguments(struct argument *params, size_t param_count, struct 
 		if (arg->type == STRING_EXPR && param.type == type_resource) {
 			arg->result_type = type_resource;
 			arg->type = RESOURCE_EXPR;
-			validate_resource_string(arg->literal.string);
+			validate_resource_string(arg->literal.string, param.resource_extension);
 		} else if (arg->type == STRING_EXPR && param.type == type_entity) {
 			arg->result_type = type_entity;
 			arg->type = ENTITY_EXPR;
@@ -3944,7 +3957,7 @@ static void fill_define_fn(void) {
 		if (field->type == STRING_EXPR && json_field.type == type_resource) {
 			field->result_type = type_resource;
 			field->type = RESOURCE_EXPR;
-			validate_resource_string(field->literal.string);
+			validate_resource_string(field->literal.string, json_field.resource_extension);
 		} else if (field->type == STRING_EXPR && json_field.type == type_entity) {
 			field->result_type = type_entity;
 			field->type = ENTITY_EXPR;
