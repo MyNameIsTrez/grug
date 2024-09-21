@@ -1112,7 +1112,10 @@ struct grug_game_function {
 struct argument {
 	char *name;
 	enum type type;
-	char *resource_extension; // This is optional
+	union {
+		char *resource_extension; // This is optional
+		char *entity_type; // This is optional
+	};
 };
 
 struct grug_on_function grug_on_functions[MAX_GRUG_FUNCTIONS];
@@ -1280,6 +1283,12 @@ static void init_game_fns(struct json_object fns) {
 					grug_assert(value->data.object.field_count == 3 && streq(argument_field->key, "resource_extension"), "\"game_functions\" its function arguments has a \"type\" field with the value \"resource\", which means a \"resource_extension\" field is required");
 					grug_assert(argument_field->value->type == JSON_NODE_STRING, "\"game_functions\" its function argument fields must always have string values");
 					grug_arg.resource_extension = argument_field->value->data.string;
+				} else if (grug_arg.type == type_entity) {
+					grug_assert(value->data.object.field_count == 3 && streq(argument_field->key, "entity_type"), "\"game_functions\" its function arguments has a \"type\" field with the value \"entity\", which means an \"entity_type\" field is required");
+					grug_assert(argument_field->value->type == JSON_NODE_STRING, "\"game_functions\" its function argument fields must always have string values");
+					grug_arg.entity_type = argument_field->value->data.string;
+				} else {
+					grug_assert(value->data.object.field_count == 2, "\"game_functions\" its function argument fields had an unexpected 3rd \"%s\" field", argument_field->key);
 				}
 
 				push_grug_argument(grug_arg);
@@ -1403,6 +1412,12 @@ static void init_entities(struct json_object entities) {
 						grug_assert(value->data.object.field_count == 3 && streq(json_field->key, "resource_extension"), "\"entities\" has a \"type\" field with the value \"resource\", which means a \"resource_extension\" field is required");
 						grug_assert(json_field->value->type == JSON_NODE_STRING, "\"entities\" its fields must always have string values");
 						grug_field.resource_extension = json_field->value->data.string;
+					} else if (grug_field.type == type_entity) {
+						grug_assert(value->data.object.field_count == 3 && streq(json_field->key, "entity_type"), "\"entities\" has a \"type\" field with the value \"entity\", which means an \"entity_type\" field is required");
+						grug_assert(json_field->value->type == JSON_NODE_STRING, "\"entities\" its fields must always have string values");
+						grug_field.entity_type = json_field->value->data.string;
+					} else {
+						grug_assert(value->data.object.field_count == 2, "\"entities\" had an unexpected 3rd \"%s\" field", json_field->key);
 					}
 
 					push_grug_argument(grug_field);
