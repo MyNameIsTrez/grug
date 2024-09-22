@@ -7359,7 +7359,7 @@ static char entity_strings[MAX_ENTITY_STRINGS_CHARACTERS];
 static size_t entity_strings_size;
 static u32 buckets_entities[MAX_ENTITIES];
 static u32 chains_entities[MAX_ENTITIES];
-static struct grug_file *entity_files[MAX_ENTITIES];
+static struct grug_file entity_files[MAX_ENTITIES];
 static size_t entities_size;
 
 struct grug_modified_resource grug_resource_reloads[MAX_RESOURCE_RELOADS];
@@ -7581,7 +7581,7 @@ struct grug_file *grug_get_entity_file(char *entity_name) {
 	if (index == UINT32_MAX) {
 		return NULL;
 	}
-	return entity_files[index];
+	return &entity_files[index];
 }
 
 void check_that_every_entity_exists(struct grug_mod_dir dir) {
@@ -7596,15 +7596,17 @@ void check_that_every_entity_exists(struct grug_mod_dir dir) {
 			char **dll_entity_types = get_dll_symbol(file.dll, "entity_types");
 
 			for (size_t dll_entity_index = 0; dll_entity_index < *entities_size_ptr; dll_entity_index++) {
-				u32 entity_index = get_entity_index(dll_entities[dll_entity_index]);
+				char *entity = dll_entities[dll_entity_index];
 
-				grug_assert(entity_index != UINT32_MAX, "The entity '%s' does not exist", dll_entities[dll_entity_index]);
+				u32 entity_index = get_entity_index(entity);
+
+				grug_assert(entity_index != UINT32_MAX, "The entity '%s' does not exist", entity);
 
 				char *json_entity_type = dll_entity_types[dll_entity_index];
 
-				struct grug_file *other_file = entity_files[entity_index];
+				struct grug_file other_file = entity_files[entity_index];
 
-				grug_assert(*json_entity_type == '\0' || streq(other_file->define_type, json_entity_type), "The entity '%s' has the type '%s', whereas the expected type from mod_api.json is '%s'", dll_entities[dll_entity_index], other_file->define_type, json_entity_type);
+				grug_assert(*json_entity_type == '\0' || streq(other_file.define_type, json_entity_type), "The entity '%s' has the type '%s', whereas the expected type from mod_api.json is '%s'", entity, other_file.define_type, json_entity_type);
 			}
 		}
 	}
@@ -7663,7 +7665,9 @@ static void add_entity(char *grug_filename, struct grug_file *file) {
 
 	buckets_entities[bucket_index] = entities_size;
 
-	entity_files[entities_size] = file;
+	// entity_files[] needs to take ownership of `file`,
+	// since reload_modified_mod() can swap-remove the file
+	entity_files[entities_size] = *file;
 
 	entities[entities_size++] = entity;
 }
