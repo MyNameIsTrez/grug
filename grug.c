@@ -3304,6 +3304,8 @@ static void print_ast(void) {
 
 #define MAX_VARIABLES_PER_FUNCTION 420420
 #define MAX_ENTITY_DEPENDENCY_NAME_LENGTH 420
+#define MAX_ENTITY_DEPENDENCIES 420420
+#define MAX_DATA_STRINGS 420420
 
 #define GLOBAL_OFFSET_TABLE_POINTER_SIZE sizeof(void *)
 #define GLOBAL_VARIABLES_POINTER_SIZE sizeof(void *)
@@ -3339,10 +3341,69 @@ static u32 chains_define_on_fns[MAX_ON_FNS_IN_FILE];
 
 static char *mod;
 
+static u32 entity_types[MAX_ENTITY_DEPENDENCIES];
+static size_t entity_types_size;
+
+static char *data_strings[MAX_DATA_STRINGS];
+static size_t data_strings_size;
+
+static u32 buckets_data_strings[MAX_DATA_STRINGS];
+static u32 chains_data_strings[MAX_DATA_STRINGS];
+
 static void reset_filling(void) {
 	global_variables_size = 0;
 	globals_bytes = 0;
 	memset(buckets_global_variables, 0xff, MAX_GLOBAL_VARIABLES_IN_FILE * sizeof(u32));
+	entity_types_size = 0;
+	data_strings_size = 0;
+}
+
+static void push_data_string(char *string) {
+	grug_assert(data_strings_size < MAX_DATA_STRINGS, "There are more than %d data strings, exceeding MAX_DATA_STRINGS", MAX_DATA_STRINGS);
+
+	data_strings[data_strings_size++] = string;
+}
+
+static u32 get_data_string_index(char *string) {
+	if (data_strings_size == 0) {
+		return UINT32_MAX;
+	}
+
+	u32 i = buckets_data_strings[elf_hash(string) % MAX_DATA_STRINGS];
+
+	while (true) {
+		if (i == UINT32_MAX) {
+			return UINT32_MAX;
+		}
+
+		if (streq(string, data_strings[i])) {
+			break;
+		}
+
+		i = chains_data_strings[i];
+	}
+
+	return i;
+}
+
+static void add_data_string(char *string) {
+	if (get_data_string_index(string) == UINT32_MAX) {
+		u32 bucket_index = elf_hash(string) % MAX_DATA_STRINGS;
+
+		chains_data_strings[data_strings_size] = buckets_data_strings[bucket_index];
+
+		buckets_data_strings[bucket_index] = data_strings_size;
+
+		push_data_string(string);
+	}
+}
+
+static void push_entity_type(char *entity_type) {
+	add_data_string(entity_type);
+
+	grug_assert(entity_types_size < MAX_ENTITY_DEPENDENCIES, "There are more than %d entity types, exceeding MAX_ENTITY_DEPENDENCIES", MAX_ENTITY_DEPENDENCIES);
+
+	entity_types[entity_types_size++] = get_data_string_index(entity_type);
 }
 
 static void fill_expr(struct expr *expr);
@@ -3441,6 +3502,7 @@ static void check_arguments(struct argument *params, size_t param_count, struct 
 			arg->result_type = type_entity;
 			arg->type = ENTITY_EXPR;
 			validate_entity_string(arg->literal.string);
+			push_entity_type(param.entity_type);
 		}
 
 		grug_assert(arg->result_type == param.type, "Function call '%s' expected the type %s for argument '%s', but got %s", name, type_names[param.type], param.name, type_names[arg->result_type]);
@@ -3977,6 +4039,7 @@ static void fill_define_fn(void) {
 			field->result_type = type_entity;
 			field->type = ENTITY_EXPR;
 			validate_entity_string(field->literal.string);
+			push_entity_type(json_field.entity_type);
 		}
 
 		grug_assert(field->result_type == json_field.type, "The define function its '%s' parameter was supposed to have the type %s, but was %s", json_field.name, type_names[json_field.type], type_names[field->result_type]);
@@ -4017,7 +4080,6 @@ static void fill_result_types(void) {
 #define MAX_CODES 420420
 #define MAX_RESOURCE_STRINGS_CHARACTERS 420420
 #define MAX_ENTITY_DEPENDENCIES_STRINGS_CHARACTERS 420420
-#define MAX_DATA_STRINGS 420420
 #define MAX_DATA_STRING_CODES 420420
 #define MAX_GAME_FN_CALLS 420420
 #define MAX_HELPER_FN_CALLS 420420
@@ -4025,7 +4087,6 @@ static void fill_result_types(void) {
 #define MAX_HELPER_FN_OFFSETS 420420
 #define MAX_STACK_SIZE 420420
 #define MAX_RESOURCES 420420
-#define MAX_ENTITY_DEPENDENCIES 420420
 #define MAX_LOOP_DEPTH 420
 #define MAX_BREAK_STATEMENTS_PER_LOOP 420
 #define MAX_GOT_ACCESSES (MAX_ON_FNS_IN_FILE + MAX_HELPER_FNS_IN_FILE)
@@ -4038,7 +4099,7 @@ static void fill_result_types(void) {
 
 // Start of code enums
 
-#define CALL 0xe8 // call foo
+#define CALL 0xe8 // call a function
 #define RET 0xc3 // ret
 #define MOV_EAX_TO_DEREF_RDI_8_BIT_OFFSET 0x4789 // mov rdi[n], eax
 #define MOV_RAX_TO_DEREF_RDI_8_BIT_OFFSET 0x478948 // mov rdi[n], rax
@@ -4208,12 +4269,6 @@ static size_t resource_strings_size;
 static char entity_dependency_strings[MAX_ENTITY_DEPENDENCIES_STRINGS_CHARACTERS];
 static size_t entity_dependency_strings_size;
 
-static char *data_strings[MAX_DATA_STRINGS];
-static size_t data_strings_size;
-
-static u32 buckets_data_strings[MAX_DATA_STRINGS];
-static u32 chains_data_strings[MAX_DATA_STRINGS];
-
 static struct data_string_code data_string_codes[MAX_DATA_STRING_CODES];
 static size_t data_string_codes_size;
 
@@ -4273,7 +4328,6 @@ static void reset_compiling(void) {
 	codes_size = 0;
 	resource_strings_size = 0;
 	entity_dependency_strings_size = 0;
-	data_strings_size = 0;
 	memset(buckets_data_strings, 0xff, sizeof(buckets_data_strings));
 	data_string_codes_size = 0;
 	extern_fn_calls_size = 0;
@@ -4959,24 +5013,6 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 	}
 }
 
-static u32 get_data_string_index(char *string) {
-	u32 i = buckets_data_strings[elf_hash(string) % MAX_DATA_STRINGS];
-
-	while (true) {
-		if (i == UINT32_MAX) {
-			return UINT32_MAX;
-		}
-
-		if (streq(string, data_strings[i])) {
-			break;
-		}
-
-		i = chains_data_strings[i];
-	}
-
-	return i;
-}
-
 static void push_entity_dependency(u32 string_index) {
 	grug_assert(entity_dependencies_size < MAX_ENTITY_DEPENDENCIES, "There are more than %d entity dependencies, exceeding MAX_ENTITY_DEPENDENCIES", MAX_ENTITY_DEPENDENCIES);
 
@@ -4987,24 +5023,6 @@ static void push_resource(u32 string_index) {
 	grug_assert(resources_size < MAX_RESOURCES, "There are more than %d resources, exceeding MAX_RESOURCES", MAX_RESOURCES);
 
 	resources[resources_size++] = string_index;
-}
-
-static void push_data_string(char *string) {
-	grug_assert(data_strings_size < MAX_DATA_STRINGS, "There are more than %d data strings, exceeding MAX_DATA_STRINGS", MAX_DATA_STRINGS);
-
-	data_strings[data_strings_size++] = string;
-}
-
-static void add_data_string(char *string) {
-	if (get_data_string_index(string) == UINT32_MAX) {
-		u32 bucket_index = elf_hash(string) % MAX_DATA_STRINGS;
-
-		chains_data_strings[data_strings_size] = buckets_data_strings[bucket_index];
-
-		buckets_data_strings[bucket_index] = data_strings_size;
-
-		push_data_string(string);
-	}
 }
 
 static char *push_entity_dependency_string(char *string) {
@@ -5096,13 +5114,14 @@ static void compile_expr(struct expr expr) {
 
 			string = push_entity_dependency_string(string);
 
-			bool had_string = get_data_string_index(string) != UINT32_MAX;
-
 			add_data_string(string);
 
-			if (!had_string) {
-				push_entity_dependency(get_data_string_index(string));
-			}
+			// We can't do the same thing as with RESOURCE_EXPR,
+			// where we only call `push_entity_dependency()` when `!had_string`,
+			// because the same entity dependency strings
+			// can have with different "entity_type" values in mod_api.json
+			// (namely, game fn 1 might have "car", and game fn 2 the empty string "")
+			push_entity_dependency(get_data_string_index(string));
 
 			compile_unpadded(LEA_STRINGS_TO_RAX);
 
@@ -5810,6 +5829,7 @@ static u32 chains_game_fn_offsets[MAX_GAME_FN_OFFSETS];
 static size_t strings_offset;
 static size_t resources_offset;
 static size_t entities_offset;
+static size_t entity_types_offset;
 
 static void reset_generate_shared_object(void) {
 	symbols_size = 0;
@@ -5969,6 +5989,13 @@ static void patch_rela_dyn(void) {
 		overwrite_64(entities_offset + i * sizeof(u64), bytes_offset);
 		bytes_offset += 2 * sizeof(u64);
 		overwrite_64(data_offset + data_string_offsets[entity_dependencies[i]], bytes_offset);
+		bytes_offset += sizeof(u64);
+	}
+
+	for (size_t i = 0; i < entity_dependencies_size; i++) {
+		overwrite_64(entity_types_offset + i * sizeof(u64), bytes_offset);
+		bytes_offset += 2 * sizeof(u64);
+		overwrite_64(data_offset + data_string_offsets[entity_types[i]], bytes_offset);
 		bytes_offset += sizeof(u64);
 	}
 
@@ -6444,8 +6471,7 @@ static void push_data(void) {
 	// "resources" symbol
 	resources_offset = bytes_size;
 	for (size_t i = 0; i < resources_size; i++) {
-		u32 resource_index = resources[i];
-		push_64(data_offset + data_string_offsets[resource_index]);
+		push_64(data_offset + data_string_offsets[resources[i]]);
 	}
 
 	// "entities_size" symbol
@@ -6454,8 +6480,13 @@ static void push_data(void) {
 	// "entities" symbol
 	entities_offset = bytes_size;
 	for (size_t i = 0; i < entity_dependencies_size; i++) {
-		u32 entity_index = entity_dependencies[i];
-		push_64(data_offset + data_string_offsets[entity_index]);
+		push_64(data_offset + data_string_offsets[entity_dependencies[i]]);
+	}
+
+	// "entity_types" symbol
+	entity_types_offset = bytes_size;
+	for (size_t i = 0; i < entity_dependencies_size; i++) {
+		push_64(data_offset + data_string_offsets[entity_types[i]]);
 	}
 
 	push_alignment(8);
@@ -6536,9 +6567,9 @@ static void push_dynamic(void) {
 
 	if (has_rela_dyn()) {
 		push_dynamic_entry(DT_RELA, rela_dyn_offset);
-		push_dynamic_entry(DT_RELASZ, (on_fns_size + extern_data_symbols_size + resources_size + entity_dependencies_size) * RELA_ENTRY_SIZE);
+		push_dynamic_entry(DT_RELASZ, (on_fns_size + extern_data_symbols_size + resources_size + 2 * entity_dependencies_size) * RELA_ENTRY_SIZE);
 		push_dynamic_entry(DT_RELAENT, RELA_ENTRY_SIZE);
-		push_dynamic_entry(DT_RELACOUNT, on_fns_size + resources_size + entity_dependencies_size);
+		push_dynamic_entry(DT_RELACOUNT, on_fns_size + resources_size + 2 * entity_dependencies_size);
 	}
 
 	// "Marks the end of the _DYNAMIC array."
@@ -6670,6 +6701,12 @@ static void push_rela_dyn(void) {
 		push_rela(PLACEHOLDER_64, ELF64_R_INFO(0, R_X86_64_RELATIVE), PLACEHOLDER_64);
 	}
 
+	// "entities" symbol
+	for (size_t i = 0; i < entity_dependencies_size; i++) {
+		push_rela(PLACEHOLDER_64, ELF64_R_INFO(0, R_X86_64_RELATIVE), PLACEHOLDER_64);
+	}
+
+	// "entity_types" symbol
 	for (size_t i = 0; i < entity_dependencies_size; i++) {
 		push_rela(PLACEHOLDER_64, ELF64_R_INFO(0, R_X86_64_RELATIVE), PLACEHOLDER_64);
 	}
@@ -7093,8 +7130,14 @@ static void init_data_offsets(void) {
 	data_offsets[i++] = offset;
 	offset += sizeof(u64);
 
-	// "entities" symbol
 	if (entity_dependencies_size > 0) {
+		// "entities" symbol
+		data_offsets[i++] = offset;
+		for (size_t entity_dependency_index = 0; entity_dependency_index < entity_dependencies_size; entity_dependency_index++) {
+			offset += sizeof(size_t);
+		}
+
+		// "entity_types" symbol
 		data_offsets[i++] = offset;
 		for (size_t entity_dependency_index = 0; entity_dependency_index < entity_dependencies_size; entity_dependency_index++) {
 			offset += sizeof(size_t);
@@ -7235,8 +7278,15 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 	push_symbol("entities_size");
 	data_symbols_size++;
 
+	if (entity_dependencies_size != entity_types_size) {
+		grug_unreachable();
+	}
+
 	if (entity_dependencies_size > 0) {
 		push_symbol("entities");
+		data_symbols_size++;
+
+		push_symbol("entity_types");
 		data_symbols_size++;
 	}
 
@@ -7543,8 +7593,18 @@ void check_that_every_entity_exists(struct grug_mod_dir dir) {
 		if (*entities_size_ptr > 0) {
 			char **dll_entities = get_dll_symbol(file.dll, "entities");
 
-			for (size_t entity_index = 0; entity_index < *entities_size_ptr; entity_index++) {
-				grug_assert(get_entity_index(dll_entities[entity_index]) != UINT32_MAX, "The entity %s does not exist", dll_entities[entity_index]);
+			char **dll_entity_types = get_dll_symbol(file.dll, "entity_types");
+
+			for (size_t dll_entity_index = 0; dll_entity_index < *entities_size_ptr; dll_entity_index++) {
+				u32 entity_index = get_entity_index(dll_entities[dll_entity_index]);
+
+				grug_assert(entity_index != UINT32_MAX, "The entity '%s' does not exist", dll_entities[dll_entity_index]);
+
+				char *json_entity_type = dll_entity_types[dll_entity_index];
+
+				struct grug_file *other_file = entity_files[entity_index];
+
+				grug_assert(*json_entity_type == '\0' || streq(other_file->define_type, json_entity_type), "The entity '%s' has the type '%s', whereas the expected type from mod_api.json is '%s'", dll_entities[dll_entity_index], other_file->define_type, json_entity_type);
 			}
 		}
 	}
