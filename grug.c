@@ -3356,6 +3356,7 @@ static void reset_filling(void) {
 	memset(buckets_global_variables, 0xff, MAX_GLOBAL_VARIABLES_IN_FILE * sizeof(u32));
 	entity_types_size = 0;
 	data_strings_size = 0;
+	memset(buckets_data_strings, 0xff, sizeof(buckets_data_strings));
 }
 
 static void push_data_string(char *string) {
@@ -4328,7 +4329,6 @@ static void reset_compiling(void) {
 	codes_size = 0;
 	resource_strings_size = 0;
 	entity_dependency_strings_size = 0;
-	memset(buckets_data_strings, 0xff, sizeof(buckets_data_strings));
 	data_string_codes_size = 0;
 	extern_fn_calls_size = 0;
 	helper_fn_calls_size = 0;
