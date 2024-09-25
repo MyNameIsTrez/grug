@@ -7483,7 +7483,8 @@ static void reset_previous_grug_error(void) {
 	previous_grug_error.line_number = 0;
 }
 
-// Returns whether an error occurred
+// This function just exists for the grug-tests repository
+// It returns whether an error occurred
 bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
