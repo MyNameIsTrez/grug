@@ -14,7 +14,11 @@
 
 bool grug_regenerate_modified_mods(void);
 
+// I would have made this a function if I could have, but it'd be Undefined Behavior:
+// You can't jump to a function that called sigsetjmp(), if we've already returned from that function.
+// See this: https://stackoverflow.com/a/21151061/13279557
 #define grug_mod_had_runtime_error() sigsetjmp(grug_runtime_error_jmp_buffer, 1)
+
 char *grug_get_runtime_error_reason(void);
 
 // Do NOT store the returned pointer!
