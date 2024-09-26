@@ -32,7 +32,7 @@ You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
 ## Small example programs
 
 - [Box2D and raylib game](https://github.com/MyNameIsTrez/grug-box2d-and-raylib-game)
-- [terminal game](https://github.com/MyNameIsTrez/grug-terminal-fighting-game)
+- [terminal game: C/C++](https://github.com/MyNameIsTrez/grug-terminal-game-c-cpp)
 - [grug benchmarks](https://github.com/MyNameIsTrez/grug-benchmarks)
 
 ## Options
