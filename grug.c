@@ -19,13 +19,12 @@
 // 7. PARSING MOD API JSON
 // 8. READING
 // 9. TOKENIZATION
-// 10. VERIFY AND TRIM SPACES
-// 11. PARSING
-// 12. PRINTING AST
-// 13. FILLING RESULT TYPES
-// 14. COMPILING
-// 15. LINKING
-// 16. HOT RELOADING
+// 10. PARSING
+// 11. PRINTING AST
+// 12. FILLING RESULT TYPES
+// 13. COMPILING
+// 14. LINKING
+// 15. HOT RELOADING
 //
 // ## Small example programs
 //
@@ -1851,186 +1850,6 @@ static void tokenize(char *grug_text) {
 	}
 }
 
-//// VERIFY AND TRIM SPACES
-
-static void assert_token_type(size_t token_index, unsigned int expected_type) {
-	struct token token = peek_token(token_index);
-	grug_assert(token.type == expected_type, "Expected token type %s, but got %s at token index %zu", get_token_type_str[expected_type], get_token_type_str[token.type], token_index);
-}
-
-static void assert_spaces(size_t token_index, size_t expected_spaces) {
-	assert_token_type(token_index, SPACES_TOKEN);
-
-	struct token token = peek_token(token_index);
-	grug_assert(strlen(token.str) == expected_spaces, "Expected %zu space%s, but got %zu at token index %zu", expected_spaces, expected_spaces > 1 ? "s" : "", strlen(token.str), token_index);
-}
-
-// Trims whitespace tokens after verifying that the formatting is correct.
-// 1. The whitespace indentation follows the block scope nesting, like in Python.
-// 2. There aren't any leading/trailing/missing/extra spaces.
-static void verify_and_trim_spaces(void) {
-	size_t i = 0;
-	size_t new_index = 0;
-	int depth = 0;
-
-	while (i < tokens_size) {
-		struct token token = peek_token(i);
-
-		switch (token.type) {
-			case OPEN_PARENTHESIS_TOKEN:
-			case CLOSE_PARENTHESIS_TOKEN:
-			case OPEN_BRACE_TOKEN:
-				break;
-			case CLOSE_BRACE_TOKEN: {
-				depth--;
-				grug_assert(depth >= 0, "Expected a '{' to match the '}' at token index %zu", i + 1);
-				if (depth > 0) {
-					assert_spaces(i - 1, depth * SPACES_PER_INDENT);
-				}
-				break;
-			}
-			case PLUS_TOKEN:
-			case MINUS_TOKEN:
-			case MULTIPLICATION_TOKEN:
-			case DIVISION_TOKEN:
-			case REMAINDER_TOKEN:
-				break;
-			case COMMA_TOKEN: {
-				grug_assert(i + 1 < tokens_size, "Expected something after the comma at token index %zu", i);
-
-				struct token next_token = peek_token(i + 1);
-				grug_assert(next_token.type == NEWLINES_TOKEN || next_token.type == SPACES_TOKEN, "Expected a single newline or space after the comma, but got token type %s at token index %zu", get_token_type_str[next_token.type], i + 1);
-				grug_assert(strlen(next_token.str) == 1, "Expected one newline or space, but got several after the comma at token index %zu", i + 1);
-
-				if (next_token.type == SPACES_TOKEN) {
-					grug_assert(i + 2 < tokens_size, "Expected text after the comma and space at token index %zu", i);
-
-					next_token = peek_token(i + 2);
-					switch (next_token.type) {
-						case OPEN_PARENTHESIS_TOKEN: // For example the inner open parenthesis in "foo(1, (2 + 3))"
-						case MINUS_TOKEN:
-						case TRUE_TOKEN:
-						case FALSE_TOKEN:
-						case STRING_TOKEN:
-						case WORD_TOKEN:
-						case I32_TOKEN:
-						case F32_TOKEN:
-							break;
-						default:
-							grug_error("Unexpected token type %s after the comma and space, at token index %zu", get_token_type_str[next_token.type], i + 2);
-					}
-				}
-				break;
-			}
-			case COLON_TOKEN:
-			case EQUALS_TOKEN:
-			case NOT_EQUALS_TOKEN:
-			case ASSIGNMENT_TOKEN:
-			case GREATER_OR_EQUAL_TOKEN:
-			case GREATER_TOKEN:
-			case LESS_OR_EQUAL_TOKEN:
-			case LESS_TOKEN:
-			case AND_TOKEN:
-			case OR_TOKEN:
-			case NOT_TOKEN:
-			case TRUE_TOKEN:
-			case FALSE_TOKEN:
-			case IF_TOKEN:
-			case ELSE_TOKEN:
-			case WHILE_TOKEN:
-			case BREAK_TOKEN:
-			case RETURN_TOKEN:
-			case CONTINUE_TOKEN:
-				break;
-			case SPACES_TOKEN: {
-				grug_assert(i + 1 < tokens_size, "Expected another token after the space at token index %zu", i);
-
-				struct token next_token = peek_token(i + 1);
-				switch (next_token.type) {
-					case OPEN_BRACE_TOKEN:
-						depth++;
-						assert_spaces(i, 1);
-						break;
-					case PLUS_TOKEN:
-					case MULTIPLICATION_TOKEN:
-					case DIVISION_TOKEN:
-					case REMAINDER_TOKEN:
-					case COMMA_TOKEN:
-					case ELSE_TOKEN: // Skip the space in "} else"
-						assert_spaces(i, 1);
-						break;
-					case IF_TOKEN:
-					case WHILE_TOKEN:
-					case BREAK_TOKEN:
-					case RETURN_TOKEN:
-					case CONTINUE_TOKEN:
-					case PERIOD_TOKEN:
-						assert_spaces(i, depth * SPACES_PER_INDENT);
-						break;
-					case SPACES_TOKEN:
-						grug_unreachable();
-					case NEWLINES_TOKEN:
-						grug_error("Unexpected trailing whitespace '%s' at token index %zu", token.str, i);
-					case COMMENT_TOKEN:
-						// TODO: Ideally we'd assert there only ever being 1 space,
-						// but the problem is that a standalone comment is allowed to have indentation
-						// assert_spaces(i, 1);
-
-						grug_assert(strlen(next_token.str) >= 2 && next_token.str[1] == ' ', "Expected a single space between the '#' in '%s' and the rest of the comment at token index %zu", next_token.str, i + 1);
-
-						grug_assert(!isspace(next_token.str[strlen(next_token.str) - 1]), "Unexpected trailing whitespace in the comment token '%s' at token index %zu", next_token.str, i + 1);
-
-						break;
-					case OPEN_PARENTHESIS_TOKEN:
-					case CLOSE_PARENTHESIS_TOKEN:
-					case CLOSE_BRACE_TOKEN:
-					case MINUS_TOKEN:
-					case COLON_TOKEN:
-					case EQUALS_TOKEN:
-					case NOT_EQUALS_TOKEN:
-					case ASSIGNMENT_TOKEN:
-					case GREATER_OR_EQUAL_TOKEN:
-					case GREATER_TOKEN:
-					case LESS_OR_EQUAL_TOKEN:
-					case LESS_TOKEN:
-					case AND_TOKEN:
-					case OR_TOKEN:
-					case NOT_TOKEN:
-					case TRUE_TOKEN:
-					case FALSE_TOKEN:
-					case STRING_TOKEN:
-					case WORD_TOKEN:
-					case I32_TOKEN:
-					case F32_TOKEN:
-						break;
-				}
-				break;
-			}
-			case NEWLINES_TOKEN:
-			case STRING_TOKEN:
-			case PERIOD_TOKEN:
-			case WORD_TOKEN:
-			case I32_TOKEN:
-			case F32_TOKEN:
-			case COMMENT_TOKEN:
-				break;
-		}
-
-		// We're trimming all spaces in a single pass by copying every
-		// non-space token to the start
-		if (token.type != SPACES_TOKEN) {
-			tokens[new_index] = token;
-			new_index++;
-		}
-
-		i++;
-	}
-
-	grug_assert(depth == 0, "There were more '{' than '}'");
-
-	tokens_size = new_index;
-}
-
 //// PARSING
 
 struct literal_expr {
@@ -2152,6 +1971,8 @@ struct statement {
 		WHILE_STATEMENT,
 		BREAK_STATEMENT,
 		CONTINUE_STATEMENT,
+		EMPTY_LINE_STATEMENT,
+		COMMENT_STATEMENT,
 	} type;
 	union {
 		struct variable_statement variable_statement;
@@ -2169,6 +1990,8 @@ static char *get_statement_type_str[] = {
 	[WHILE_STATEMENT] = "WHILE_STATEMENT",
 	[BREAK_STATEMENT] = "BREAK_STATEMENT",
 	[CONTINUE_STATEMENT] = "CONTINUE_STATEMENT",
+	[EMPTY_LINE_STATEMENT] = "EMPTY_LINE_STATEMENT",
+	[COMMENT_STATEMENT] = "COMMENT_STATEMENT",
 };
 static struct statement statements[MAX_STATEMENTS_IN_FILE];
 static size_t statements_size;
@@ -2287,6 +2110,19 @@ static void potentially_skip_comment(size_t *i) {
 		(*i)++;
 	}
 }
+
+static void assert_token_type(size_t token_index, unsigned int expected_type) {
+	struct token token = peek_token(token_index);
+	grug_assert(token.type == expected_type, "Expected token type %s, but got %s at token index %zu", get_token_type_str[expected_type], get_token_type_str[token.type], token_index);
+}
+
+// TODO: Split into assert_1_space(), assert_4_spaces(), and assert_indentation_spaces()
+// static void assert_spaces(size_t token_index, size_t expected_spaces) {
+// 	assert_token_type(token_index, SPACES_TOKEN);
+
+// 	struct token token = peek_token(token_index);
+// 	grug_assert(strlen(token.str) == expected_spaces, "Expected %zu space%s, but got %zu at token index %zu", expected_spaces, expected_spaces > 1 ? "s" : "", strlen(token.str), token_index);
+// }
 
 static void consume_token_type(size_t *token_index_ptr, unsigned int expected_type) {
 	assert_token_type((*token_index_ptr)++, expected_type);
@@ -7450,12 +7286,6 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 	print_tokens();
 #else
 	(void)print_tokens;
-#endif
-
-	verify_and_trim_spaces();
-	grug_log("\n# Tokens after verify_and_trim_spaces()\n");
-#ifdef LOGGING
-	print_tokens();
 #endif
 
 	parse();
