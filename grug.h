@@ -2,19 +2,42 @@
 
 #pragma once
 
+//// Includes
+
 #include <setjmp.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdlib.h>
 
+//// Functions
+
+bool grug_regenerate_modified_mods(void);
+
+// I would have made this a function if I could have, but it'd be Undefined Behavior:
+// We aren't allowed to jump to a function that called sigsetjmp(), if we've already returned from that function.
+// You can find more information here: https://stackoverflow.com/a/21151061/13279557
+#define grug_mod_had_runtime_error() sigsetjmp(grug_runtime_error_jmp_buffer, 1)
+
+char *grug_get_runtime_error_reason(void);
+
+// Do NOT store the returned pointer!
+// It has a chance to dangle after the next grug_regenerate_modified_mods() call
+struct grug_file *grug_get_entity_file(char *entity_name);
+
+void grug_free_mods(void);
+
+//// Defines
+
 #define MAX_RELOADS 6969
 #define MAX_RESOURCE_RELOADS 6969
 
-#define grug_mod_had_runtime_error() sigsetjmp(grug_runtime_error_jmp_buffer, 1)
+//// Function typedefs
 
 typedef void (*grug_define_fn_t)(void);
 typedef void (*grug_init_globals_fn_t)(void *globals);
+
+//// Structs
 
 struct grug_file {
 	char *name;
@@ -57,11 +80,15 @@ struct grug_error {
 	int grug_c_line_number;
 };
 
+//// Enums
+
 enum grug_runtime_error {
 	GRUG_ON_FN_TIME_LIMIT_EXCEEDED,
 	GRUG_ON_FN_STACK_OVERFLOW,
 	GRUG_ON_FN_ARITHMETIC_ERROR,
 };
+
+//// Globals
 
 extern struct grug_mod_dir grug_mods;
 
@@ -77,14 +104,3 @@ extern char *grug_on_fn_path;
 
 extern volatile sig_atomic_t grug_runtime_error;
 extern jmp_buf grug_runtime_error_jmp_buffer;
-
-bool grug_regenerate_modified_mods(void);
-void grug_free_mods(void);
-char *grug_get_runtime_error_reason(void);
-
-// Do NOT store the returned pointer!
-// It has a chance to dangle after the next grug_regenerate_modified_mods() call
-struct grug_file *grug_get_entity_file(char *entity_name);
-
-// For the grug-tests repository
-bool grug_test_regenerate_dll(char *grug_file_path, char *dll_path, char *mod);
