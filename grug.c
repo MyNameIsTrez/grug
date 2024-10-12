@@ -60,7 +60,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#define MAX_CHARACTERS_IN_FILE 420420
 #define MAX_TOKENS_IN_FILE 420420
 #define MAX_FIELDS_IN_FILE 420420
 #define MAX_EXPRS_IN_FILE 420420
@@ -1465,7 +1464,11 @@ static void parse_mod_api_json(void) {
 
 //// READING
 
-static char *read_file(char *path) {
+#define MAX_CHARACTERS_IN_FILE 420420
+
+static char grug_text[MAX_CHARACTERS_IN_FILE];
+
+static void read_file(char *path) {
 	FILE *f = fopen(path, "rb");
 	grug_assert(f, "fopen: %s", strerror(errno));
 
@@ -1477,16 +1480,12 @@ static char *read_file(char *path) {
 
 	rewind(f);
 
-	static char text[MAX_CHARACTERS_IN_FILE];
-
-	size_t bytes_read = fread(text, sizeof(char), count, f);
+	size_t bytes_read = fread(grug_text, sizeof(char), count, f);
 	grug_assert(bytes_read == (size_t)count, "fread: %s", strerror(errno));
 
-	text[count] = '\0';
+	grug_text[count] = '\0';
 
 	grug_assert(fclose(f) == 0, "fclose: %s", strerror(errno));
-
-	return text;
 }
 
 //// TOKENIZATION
@@ -1634,6 +1633,25 @@ static void print_tokens(void) {
 	}
 }
 
+// Here are some examples, where the part in <> indicates the character_index character
+// "" => 1
+// "<a>" => 1
+// "a<b>" => 1
+// "<\n>" => 1
+// "\n<a>" => 2
+// "\n<\n>" => 2
+static size_t get_character_line_number(size_t character_index) {
+	size_t line_number = 1;
+
+	for (size_t i = 0; i < character_index; i++) {
+		if (grug_text[i] == '\n' || (grug_text[i] == '\r' && grug_text[i + 1] == '\n')) {
+			line_number++;
+		}
+	}
+
+	return line_number;
+}
+
 static char *get_escaped_char(char *str) {
 	switch (*str) {
 	case '\f':
@@ -1666,7 +1684,7 @@ static void push_token(enum token_type type, char *str, size_t len) {
 	};
 }
 
-static void tokenize(char *grug_text) {
+static void tokenize(void) {
 	reset_tokenization();
 
 	size_t i = 0;
@@ -1780,7 +1798,7 @@ static void tokenize(char *grug_text) {
 
 			size_t spaces = i - old_i;
 
-			grug_assert(spaces % SPACES_PER_INDENT == 0, "Encountered %zu spaces, while indentation expects multiples of %d spaces, at character %zu of the grug text file", spaces, SPACES_PER_INDENT, i);
+			grug_assert(spaces % SPACES_PER_INDENT == 0, "Encountered %zu spaces, while indentation expects multiples of %d spaces, on line %zu of the grug text file", spaces, SPACES_PER_INDENT, get_character_line_number(i));
 
 			push_token(INDENTATION_TOKEN, str, spaces);
 		} else if (grug_text[i] == '\"') {
@@ -1791,7 +1809,7 @@ static void tokenize(char *grug_text) {
 
 			do {
 				i++;
-				grug_assert(grug_text[i] != '\0', "Unclosed \" at character %zu of the grug text file", open_double_quote_index + 1);
+				grug_assert(grug_text[i] != '\0', "Unclosed \" on line %zu of the grug text file", get_character_line_number(open_double_quote_index + 1));
 			} while (grug_text[i] != '\"');
 			i++;
 
@@ -1814,7 +1832,7 @@ static void tokenize(char *grug_text) {
 			i++;
 			while (isdigit(grug_text[i]) || grug_text[i] == '.') {
 				if (grug_text[i] == '.') {
-					grug_assert(!seen_period, "Encountered two '.' periods in a number at character %zu of the grug text file", i);
+					grug_assert(!seen_period, "Encountered two '.' periods in a number on line %zu of the grug text file", get_character_line_number(i));
 					seen_period = true;
 				}
 				i++;
@@ -1829,7 +1847,7 @@ static void tokenize(char *grug_text) {
 		} else if (grug_text[i] == '#') {
 			i++;
 
-			grug_assert(grug_text[i] == ' ', "Expected a single space after the '#' at character %zu of the grug text file", i);
+			grug_assert(grug_text[i] == ' ', "Expected a single space after the '#' on line %zu of the grug text file", get_character_line_number(i));
 			i++;
 
 			char *str = grug_text+i;
@@ -1841,20 +1859,20 @@ static void tokenize(char *grug_text) {
 						break;
 					}
 
-					grug_error("Unexpected unprintable character '%.*s' at character %zu of the grug text file", is_escaped_char(grug_text[i]) ? 2 : 1, get_escaped_char(&grug_text[i]), i + 1);
+					grug_error("Unexpected unprintable character '%.*s' on line %zu of the grug text file", is_escaped_char(grug_text[i]) ? 2 : 1, get_escaped_char(&grug_text[i]), get_character_line_number(i + 1));
 				}
 				i++;
 			}
 
 			size_t len = i - old_i;
 
-			grug_assert(len > 0, "Expected the comment to contain some text, at character %zu of the grug text file", i);
+			grug_assert(len > 0, "Expected the comment to contain some text, on line %zu of the grug text file", get_character_line_number(i));
 
-			grug_assert(!isspace(grug_text[i - 1]), "A comment has trailing whitespace at character %zu of the grug text file", i);
+			grug_assert(!isspace(grug_text[i - 1]), "A comment has trailing whitespace on line %zu of the grug text file", get_character_line_number(i));
 
 			push_token(COMMENT_TOKEN, str, len);
 		} else {
-			grug_error("Unrecognized character '%.*s' at character %zu of the grug text file", is_escaped_char(grug_text[i]) ? 2 : 1, get_escaped_char(&grug_text[i]), i + 1);
+			grug_error("Unrecognized character '%.*s' on line %zu of the grug text file", is_escaped_char(grug_text[i]) ? 2 : 1, get_escaped_char(&grug_text[i]), get_character_line_number(i + 1));
 		}
 	}
 }
@@ -2123,7 +2141,7 @@ static struct expr *push_expr(struct expr expr) {
 // "<\n>" => 1
 // "\n<a>" => 2
 // "\n<\n>" => 2
-static size_t get_line_number(size_t token_index) {
+static size_t get_token_line_number(size_t token_index) {
 	assert(token_index < tokens_size);
 
 	size_t line_number = 1;
@@ -2139,7 +2157,7 @@ static size_t get_line_number(size_t token_index) {
 
 static void assert_token_type(size_t token_index, unsigned int expected_type) {
 	struct token token = peek_token(token_index);
-	grug_assert(token.type == expected_type, "Expected token type %s, but got %s on line %zu", get_token_type_str[expected_type], get_token_type_str[token.type], get_line_number(token_index));
+	grug_assert(token.type == expected_type, "Expected token type %s, but got %s on line %zu", get_token_type_str[expected_type], get_token_type_str[token.type], get_token_line_number(token_index));
 }
 
 static void consume_token_type(size_t *token_index_ptr, unsigned int expected_type) {
@@ -2161,7 +2179,7 @@ static void consume_indentation(size_t *token_index_ptr) {
 
 	size_t spaces = strlen(peek_token(*token_index_ptr).str);
 
-	grug_assert(spaces == indentation * SPACES_PER_INDENT, "Expected %zu spaces, but got %zu spaces on line %zu", indentation * SPACES_PER_INDENT, spaces, get_line_number(*token_index_ptr));
+	grug_assert(spaces == indentation * SPACES_PER_INDENT, "Expected %zu spaces, but got %zu spaces on line %zu", indentation * SPACES_PER_INDENT, spaces, get_token_line_number(*token_index_ptr));
 
 	(*token_index_ptr)++;
 }
@@ -2176,7 +2194,7 @@ static bool is_end_of_block(size_t *token_index_ptr) {
 		return false;
 	}
 
-	grug_assert(token.type == INDENTATION_TOKEN, "Expected indentation, or an empty line, or '}', but got '%s' on line %zu", token.str, get_line_number(*token_index_ptr));
+	grug_assert(token.type == INDENTATION_TOKEN, "Expected indentation, or an empty line, or '}', but got '%s' on line %zu", token.str, get_token_line_number(*token_index_ptr));
 
 	size_t spaces = strlen(token.str);
 	return spaces == (indentation - 1) * SPACES_PER_INDENT;
@@ -2271,7 +2289,7 @@ static struct expr parse_primary(size_t *i) {
 			expr.literal.f32 = str_to_f32(token.str);
 			return expr;
 		default:
-			grug_error("Expected a primary expression token, but got token type %s on line %zu", get_token_type_str[token.type], get_line_number(*i));
+			grug_error("Expected a primary expression token, but got token type %s on line %zu", get_token_type_str[token.type], get_token_line_number(*i));
 	}
 }
 
@@ -2285,7 +2303,7 @@ static struct expr parse_call(size_t *i) {
 
 	(*i)++;
 
-	grug_assert(expr.type == IDENTIFIER_EXPR, "Unexpected open parenthesis after non-identifier expression type %s on line %zu", get_expr_type_str[expr.type], get_line_number(*i - 2));
+	grug_assert(expr.type == IDENTIFIER_EXPR, "Unexpected open parenthesis after non-identifier expression type %s on line %zu", get_expr_type_str[expr.type], get_token_line_number(*i - 2));
 	expr.type = CALL_EXPR;
 
 	expr.call.fn_name = expr.literal.string;
@@ -2506,7 +2524,7 @@ static struct variable_statement parse_variable_statement(size_t *i) {
 
 		consume_space(i);
 		struct token type_token = consume_token(i);
-		grug_assert(type_token.type == WORD_TOKEN, "Expected a word token after the colon on line %zu", get_line_number(name_token_index));
+		grug_assert(type_token.type == WORD_TOKEN, "Expected a word token after the colon on line %zu", get_token_line_number(name_token_index));
 
 		variable_statement.has_type = true;
 		variable_statement.type = parse_type(type_token.str);
@@ -2514,7 +2532,7 @@ static struct variable_statement parse_variable_statement(size_t *i) {
 		grug_assert(variable_statement.type != type_entity, "The local variable '%s' can't have 'entity' as its type", variable_statement.name);
 	}
 
-	grug_assert(peek_token(*i).type == SPACE_TOKEN, "The variable '%s' was not assigned a value on line %zu", variable_statement.name, get_line_number(name_token_index));
+	grug_assert(peek_token(*i).type == SPACE_TOKEN, "The variable '%s' was not assigned a value on line %zu", variable_statement.name, get_token_line_number(name_token_index));
 
 	consume_space(i);
 	consume_token_type(i, ASSIGNMENT_TOKEN);
@@ -2572,7 +2590,7 @@ static struct statement parse_statement(size_t *i) {
 				statement.type = VARIABLE_STATEMENT;
 				statement.variable_statement = parse_variable_statement(i);
 			} else {
-				grug_error("Expected '(', or ':', or ' =' after the word '%s' on line %zu", switch_token.str, get_line_number(*i));
+				grug_error("Expected '(', or ':', or ' =' after the word '%s' on line %zu", switch_token.str, get_token_line_number(*i));
 			}
 
 			break;
@@ -2618,7 +2636,7 @@ static struct statement parse_statement(size_t *i) {
 			statement.comment = switch_token.str;
 			break;
 		default:
-			grug_error("Expected a statement token, but got token type %s on line %zu", get_token_type_str[switch_token.type], get_line_number(*i - 1));
+			grug_error("Expected a statement token, but got token type %s on line %zu", get_token_type_str[switch_token.type], get_token_line_number(*i - 1));
 	}
 
 	return statement;
@@ -2888,12 +2906,12 @@ static void parse(void) {
 			newline_allowed = true;
 			just_seen_newline = false;
 		} else if (type == NEWLINE_TOKEN) {
-			grug_assert(newline_allowed, "Unexpected empty line, on line %zu", get_line_number(i));
+			grug_assert(newline_allowed, "Unexpected empty line, on line %zu", get_token_line_number(i));
 
 			if (just_seen_newline && recently_pushed_global_variable) {
 				grug_assert(empty_line_after_global_variables == 0, "Unexpected empty line between global variables on line %zu", empty_line_after_global_variables);
 				recently_pushed_global_variable = false;
-				empty_line_after_global_variables = get_line_number(i);
+				empty_line_after_global_variables = get_token_line_number(i);
 			}
 
 			// Disallows "\n\n\n"
@@ -2904,9 +2922,9 @@ static void parse(void) {
 
 			i++;
 		} else if (type == COMMENT_TOKEN) {
-			grug_error("Comments can only be put inside on_ functions and helper functions, but encountered the comment '%s' on line %zu", token.str, get_line_number(i));
+			grug_error("Comments can only be put inside on_ functions and helper functions, but encountered the comment '%s' on line %zu", token.str, get_token_line_number(i));
 		} else {
-			grug_error("Unexpected token '%s' on line %zu", token.str, get_line_number(i));
+			grug_error("Unexpected token '%s' on line %zu", token.str, get_token_line_number(i));
 		}
 	}
 
@@ -7371,10 +7389,10 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 
 	reset_utils();
 
-	char *grug_text = read_file(grug_path);
+	read_file(grug_path);
 	grug_log("\n# Read text\n%s", grug_text);
 
-	tokenize(grug_text);
+	tokenize();
 	grug_log("\n# Tokens\n");
 #ifdef LOGGING
 	print_tokens();
