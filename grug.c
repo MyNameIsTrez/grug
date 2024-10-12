@@ -1827,21 +1827,32 @@ static void tokenize(char *grug_text) {
 				push_token(I32_TOKEN, str, i - old_i);
 			}
 		} else if (grug_text[i] == '#') {
+			i++;
+
+			grug_assert(grug_text[i] == ' ', "Expected a single space after the '#' at character %zu of the grug text file", i);
+			i++;
+
 			char *str = grug_text+i;
 			size_t old_i = i;
 
 			while (true) {
-				i++;
 				if (!isprint(grug_text[i])) {
-					if (grug_text[i] == '\n' || grug_text[i] == '\0') {
+					if (grug_text[i] == '\r' || grug_text[i] == '\n' || grug_text[i] == '\0') {
 						break;
 					}
 
 					grug_error("Unexpected unprintable character '%.*s' at character %zu of the grug text file", is_escaped_char(grug_text[i]) ? 2 : 1, get_escaped_char(&grug_text[i]), i + 1);
 				}
+				i++;
 			}
 
-			push_token(COMMENT_TOKEN, str, i - old_i);
+			size_t len = i - old_i;
+
+			grug_assert(len > 0, "Expected the comment to contain some text, at character %zu of the grug text file", i);
+
+			grug_assert(!isspace(grug_text[i - 1]), "A comment has trailing whitespace at character %zu of the grug text file", i);
+
+			push_token(COMMENT_TOKEN, str, len);
 		} else {
 			grug_error("Unrecognized character '%.*s' at character %zu of the grug text file", is_escaped_char(grug_text[i]) ? 2 : 1, get_escaped_char(&grug_text[i]), i + 1);
 		}
@@ -2268,42 +2279,46 @@ static struct expr parse_call(size_t *i) {
 	struct expr expr = parse_primary(i);
 
 	struct token token = peek_token(*i);
-	if (token.type == OPEN_PARENTHESIS_TOKEN) {
+	if (token.type != OPEN_PARENTHESIS_TOKEN) {
+		return expr;
+	}
+
+	(*i)++;
+
+	grug_assert(expr.type == IDENTIFIER_EXPR, "Unexpected open parenthesis after non-identifier expression type %s on line %zu", get_expr_type_str[expr.type], get_line_number(*i - 2));
+	expr.type = CALL_EXPR;
+
+	expr.call.fn_name = expr.literal.string;
+
+	expr.call.argument_count = 0;
+
+	token = peek_token(*i);
+	if (token.type == CLOSE_PARENTHESIS_TOKEN) {
 		(*i)++;
+		return expr;
+	}
 
-		grug_assert(expr.type == IDENTIFIER_EXPR, "Unexpected open parenthesis after non-identifier expression type %s on line %zu", get_expr_type_str[expr.type], get_line_number(*i - 2));
-		expr.type = CALL_EXPR;
+	struct expr local_call_arguments[MAX_CALL_ARGUMENTS_PER_STACK_FRAME];
 
-		expr.call.fn_name = expr.literal.string;
+	while (true) {
+		struct expr call_argument = parse_expression(i);
 
-		expr.call.argument_count = 0;
+		grug_assert(expr.call.argument_count < MAX_CALL_ARGUMENTS_PER_STACK_FRAME, "There are more than %d arguments to a function call in one of the grug file's stack frames, exceeding MAX_CALL_ARGUMENTS_PER_STACK_FRAME", MAX_CALL_ARGUMENTS_PER_STACK_FRAME);
+		local_call_arguments[expr.call.argument_count++] = call_argument;
 
 		token = peek_token(*i);
-		if (token.type == CLOSE_PARENTHESIS_TOKEN) {
+		if (token.type != COMMA_TOKEN) {
+			assert_token_type(*i, CLOSE_PARENTHESIS_TOKEN);
 			(*i)++;
-		} else {
-			struct expr local_call_arguments[MAX_CALL_ARGUMENTS_PER_STACK_FRAME];
-
-			while (true) {
-				struct expr call_argument = parse_expression(i);
-
-				grug_assert(expr.call.argument_count < MAX_CALL_ARGUMENTS_PER_STACK_FRAME, "There are more than %d arguments to a function call in one of the grug file's stack frames, exceeding MAX_CALL_ARGUMENTS_PER_STACK_FRAME", MAX_CALL_ARGUMENTS_PER_STACK_FRAME);
-				local_call_arguments[expr.call.argument_count++] = call_argument;
-
-				token = peek_token(*i);
-				if (token.type != COMMA_TOKEN) {
-					assert_token_type(*i, CLOSE_PARENTHESIS_TOKEN);
-					(*i)++;
-					break;
-				}
-				(*i)++;
-			}
-
-			expr.call.arguments = exprs + exprs_size;
-			for (size_t argument_index = 0; argument_index < expr.call.argument_count; argument_index++) {
-				(void)push_expr(local_call_arguments[argument_index]);
-			}
+			break;
 		}
+		(*i)++;
+		consume_space(i);
+	}
+
+	expr.call.arguments = exprs + exprs_size;
+	for (size_t argument_index = 0; argument_index < expr.call.argument_count; argument_index++) {
+		(void)push_expr(local_call_arguments[argument_index]);
 	}
 
 	return expr;
@@ -2314,6 +2329,10 @@ static struct expr parse_unary(size_t *i) {
 	if (token.type == MINUS_TOKEN
 	 || token.type == NOT_TOKEN) {
 		(*i)++;
+		if (token.type == NOT_TOKEN) {
+			consume_space(i);
+		}
+
 		struct expr expr = {0};
 
 		expr.unary.operator = token.type;
@@ -2329,16 +2348,14 @@ static struct expr parse_unary(size_t *i) {
 static struct expr parse_factor(size_t *i) {
 	struct expr expr = parse_unary(i);
 
-	while (true) {
-		struct token token = peek_token(*i);
-		if (token.type != MULTIPLICATION_TOKEN
-		 && token.type != DIVISION_TOKEN
-		 && token.type != REMAINDER_TOKEN) {
-			break;
-		}
+	while (peek_token(*i).type == SPACE_TOKEN && (
+		   peek_token(*i + 1).type == MULTIPLICATION_TOKEN
+		|| peek_token(*i + 1).type == DIVISION_TOKEN
+		|| peek_token(*i + 1).type == REMAINDER_TOKEN)) {
 		(*i)++;
 		expr.binary.left_expr = push_expr(expr);
-		expr.binary.operator = token.type;
+		expr.binary.operator = consume_token(i).type;
+		consume_space(i);
 		expr.binary.right_expr = push_expr(parse_unary(i));
 		expr.type = BINARY_EXPR;
 	}
@@ -2349,15 +2366,13 @@ static struct expr parse_factor(size_t *i) {
 static struct expr parse_term(size_t *i) {
 	struct expr expr = parse_factor(i);
 
-	while (true) {
-		struct token token = peek_token(*i);
-		if (token.type != PLUS_TOKEN
-		 && token.type != MINUS_TOKEN) {
-			break;
-		}
+	while (peek_token(*i).type == SPACE_TOKEN && (
+		   peek_token(*i + 1).type == PLUS_TOKEN
+		|| peek_token(*i + 1).type == MINUS_TOKEN)) {
 		(*i)++;
 		expr.binary.left_expr = push_expr(expr);
-		expr.binary.operator = token.type;
+		expr.binary.operator = consume_token(i).type;
+		consume_space(i);
 		expr.binary.right_expr = push_expr(parse_factor(i));
 		expr.type = BINARY_EXPR;
 	}
@@ -2368,17 +2383,15 @@ static struct expr parse_term(size_t *i) {
 static struct expr parse_comparison(size_t *i) {
 	struct expr expr = parse_term(i);
 
-	while (true) {
-		struct token token = peek_token(*i);
-		if (token.type != GREATER_OR_EQUAL_TOKEN
-		 && token.type != GREATER_TOKEN
-		 && token.type != LESS_OR_EQUAL_TOKEN
-		 && token.type != LESS_TOKEN) {
-			break;
-		}
+	while (peek_token(*i).type == SPACE_TOKEN && (
+		   peek_token(*i + 1).type == GREATER_OR_EQUAL_TOKEN
+		|| peek_token(*i + 1).type == GREATER_TOKEN
+		|| peek_token(*i + 1).type == LESS_OR_EQUAL_TOKEN
+		|| peek_token(*i + 1).type == LESS_TOKEN)) {
 		(*i)++;
 		expr.binary.left_expr = push_expr(expr);
-		expr.binary.operator = token.type;
+		expr.binary.operator = consume_token(i).type;
+		consume_space(i);
 		expr.binary.right_expr = push_expr(parse_term(i));
 		expr.type = BINARY_EXPR;
 	}
@@ -2389,15 +2402,13 @@ static struct expr parse_comparison(size_t *i) {
 static struct expr parse_equality(size_t *i) {
 	struct expr expr = parse_comparison(i);
 
-	while (true) {
-		struct token token = peek_token(*i);
-		if (token.type != EQUALS_TOKEN
-		 && token.type != NOT_EQUALS_TOKEN) {
-			break;
-		}
+	while (peek_token(*i).type == SPACE_TOKEN && (
+		   peek_token(*i + 1).type == EQUALS_TOKEN
+		|| peek_token(*i + 1).type == NOT_EQUALS_TOKEN)) {
 		(*i)++;
 		expr.binary.left_expr = push_expr(expr);
-		expr.binary.operator = token.type;
+		expr.binary.operator = consume_token(i).type;
+		consume_space(i);
 		expr.binary.right_expr = push_expr(parse_comparison(i));
 		expr.type = BINARY_EXPR;
 	}
@@ -2408,14 +2419,11 @@ static struct expr parse_equality(size_t *i) {
 static struct expr parse_and(size_t *i) {
 	struct expr expr = parse_equality(i);
 
-	while (true) {
-		struct token token = peek_token(*i);
-		if (token.type != AND_TOKEN) {
-			break;
-		}
+	while (peek_token(*i).type == SPACE_TOKEN && peek_token(*i + 1).type == AND_TOKEN) {
 		(*i)++;
 		expr.binary.left_expr = push_expr(expr);
-		expr.binary.operator = token.type;
+		expr.binary.operator = consume_token(i).type;
+		consume_space(i);
 		expr.binary.right_expr = push_expr(parse_equality(i));
 		expr.type = LOGICAL_EXPR;
 	}
@@ -2426,14 +2434,11 @@ static struct expr parse_and(size_t *i) {
 static struct expr parse_or(size_t *i) {
 	struct expr expr = parse_and(i);
 
-	while (true) {
-		struct token token = peek_token(*i);
-		if (token.type != OR_TOKEN) {
-			break;
-		}
+	while (peek_token(*i).type == SPACE_TOKEN && peek_token(*i + 1).type == OR_TOKEN) {
 		(*i)++;
 		expr.binary.left_expr = push_expr(expr);
-		expr.binary.operator = token.type;
+		expr.binary.operator = consume_token(i).type;
+		consume_space(i);
 		expr.binary.right_expr = push_expr(parse_and(i));
 		expr.type = LOGICAL_EXPR;
 	}
@@ -2470,11 +2475,13 @@ static struct statement parse_if_statement(size_t *i) {
 
 	statement.if_statement.if_body_statements = parse_statements(i, &statement.if_statement.if_body_statement_count);
 
-	if (peek_token(*i).type == ELSE_TOKEN) {
+	if (peek_token(*i).type == SPACE_TOKEN) {
 		(*i)++;
 
-		if (peek_token(*i).type == IF_TOKEN) {
-			(*i)++;
+		consume_token_type(i, ELSE_TOKEN);
+
+		if (peek_token(*i).type == SPACE_TOKEN && peek_token(*i + 1).type == IF_TOKEN) {
+			(*i) += 2;
 
 			statement.if_statement.else_body_statement_count = 1;
 
@@ -2492,11 +2499,9 @@ static struct variable_statement parse_variable_statement(size_t *i) {
 	struct variable_statement variable_statement = {0};
 
 	size_t name_token_index = *i;
-	struct token name_token = consume_token(i);
-	variable_statement.name = name_token.str;
+	variable_statement.name = consume_token(i).str;
 
-	struct token token = peek_token(*i);
-	if (token.type == COLON_TOKEN) {
+	if (peek_token(*i).type == COLON_TOKEN) {
 		(*i)++;
 
 		consume_space(i);
@@ -2509,10 +2514,10 @@ static struct variable_statement parse_variable_statement(size_t *i) {
 		grug_assert(variable_statement.type != type_entity, "The local variable '%s' can't have 'entity' as its type", variable_statement.name);
 	}
 
+	grug_assert(peek_token(*i).type == SPACE_TOKEN, "The variable '%s' was not assigned a value on line %zu", variable_statement.name, get_line_number(name_token_index));
+
 	consume_space(i);
-	token = peek_token(*i);
-	grug_assert(token.type == ASSIGNMENT_TOKEN, "The variable '%s' was not assigned a value on line %zu", variable_statement.name, get_line_number(name_token_index));
-	(*i)++;
+	consume_token_type(i, ASSIGNMENT_TOKEN);
 
 	consume_space(i);
 	variable_statement.assignment_expr = push_expr(parse_expression(i));
@@ -2585,6 +2590,7 @@ static struct statement parse_statement(size_t *i) {
 				statement.return_statement.has_value = false;
 			} else {
 				statement.return_statement.has_value = true;
+				consume_space(i);
 				statement.return_statement.value = push_expr(parse_expression(i));
 			}
 
@@ -2603,9 +2609,11 @@ static struct statement parse_statement(size_t *i) {
 			statement.type = CONTINUE_STATEMENT;
 			break;
 		case NEWLINE_TOKEN:
+			(*i)++;
 			statement.type = EMPTY_LINE_STATEMENT;
 			break;
 		case COMMENT_TOKEN:
+			(*i)++;
 			statement.type = COMMENT_STATEMENT;
 			statement.comment = switch_token.str;
 			break;
@@ -2657,6 +2665,9 @@ static struct statement *parse_statements(size_t *i, size_t *body_statement_coun
 		push_statement(local_statements[statement_index]);
 	}
 
+	if (indentation > 0) {
+		consume_indentation(i);
+	}
 	consume_token_type(i, CLOSE_BRACE_TOKEN);
 
 	return first_statement;
@@ -2669,15 +2680,14 @@ static struct argument *push_argument(struct argument argument) {
 }
 
 static struct argument *parse_arguments(size_t *i, size_t *argument_count) {
-	struct token token = consume_token(i);
-	struct argument argument = {.name = token.str};
+	struct argument argument = {.name = consume_token(i).str};
 
 	consume_token_type(i, COLON_TOKEN);
 
+	consume_space(i);
 	assert_token_type(*i, WORD_TOKEN);
-	token = consume_token(i);
 
-	argument.type = parse_type(token.str);
+	argument.type = parse_type(consume_token(i).str);
 	grug_assert(argument.type != type_resource, "The argument '%s' can't have 'resource' as its type", argument.name);
 	grug_assert(argument.type != type_entity, "The argument '%s' can't have 'entity' as its type", argument.name);
 	struct argument *first_argument = push_argument(argument);
@@ -2685,21 +2695,20 @@ static struct argument *parse_arguments(size_t *i, size_t *argument_count) {
 
 	// Every argument after the first one starts with a comma
 	while (true) {
-		token = peek_token(*i);
-		if (token.type != COMMA_TOKEN) {
+		if (peek_token(*i).type != COMMA_TOKEN) {
 			break;
 		}
 		(*i)++;
 
+		consume_space(i);
 		assert_token_type(*i, WORD_TOKEN);
-		token = consume_token(i);
-		argument.name = token.str;
+		argument.name = consume_token(i).str;
 
 		consume_token_type(i, COLON_TOKEN);
 
+		consume_space(i);
 		assert_token_type(*i, WORD_TOKEN);
-		token = consume_token(i);
-		argument.type = parse_type(token.str);
+		argument.type = parse_type(consume_token(i).str);
 
 		grug_assert(argument.type != type_resource, "The argument '%s' can't have 'resource' as its type", argument.name);
 		grug_assert(argument.type != type_entity, "The argument '%s' can't have 'entity' as its type", argument.name);
@@ -2726,9 +2735,10 @@ static void parse_helper_fn(size_t *i) {
 
 	consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
 
-	token = peek_token(*i);
+	assert_token_type(*i, SPACE_TOKEN);
+	token = peek_token(*i + 1);
 	if (token.type == WORD_TOKEN) {
-		(*i)++;
+		(*i) += 2;
 		fn.return_type = parse_type(token.str);
 		grug_assert(fn.return_type != type_resource, "The helper function '%s' can't have 'resource' as its return type", fn.fn_name);
 		grug_assert(fn.return_type != type_entity, "The helper function '%s' can't have 'entity' as its return type", fn.fn_name);
@@ -2788,8 +2798,10 @@ static struct compound_literal parse_compound_literal(size_t *i) {
 		struct field field = {.key = peek_token(*i).str};
 		(*i)++;
 
+		consume_space(i);
 		consume_token_type(i, ASSIGNMENT_TOKEN);
 
+		consume_space(i);
 		field.expr_value = parse_expression(i);
 		push_field(field);
 		compound_literal.field_count++;
