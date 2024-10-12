@@ -1504,6 +1504,7 @@ enum token_type {
 	COMMA_TOKEN,
 	COLON_TOKEN,
 	PERIOD_TOKEN,
+	NEWLINE_TOKEN,
 	EQUALS_TOKEN,
 	NOT_EQUALS_TOKEN,
 	ASSIGNMENT_TOKEN,
@@ -1522,8 +1523,8 @@ enum token_type {
 	BREAK_TOKEN,
 	RETURN_TOKEN,
 	CONTINUE_TOKEN,
-	SPACES_TOKEN,
-	NEWLINES_TOKEN,
+	SPACE_TOKEN,
+	INDENTATION_TOKEN,
 	STRING_TOKEN,
 	WORD_TOKEN,
 	I32_TOKEN,
@@ -1548,6 +1549,7 @@ static char *get_token_type_str[] = {
 	[COMMA_TOKEN] = "COMMA_TOKEN",
 	[COLON_TOKEN] = "COLON_TOKEN",
 	[PERIOD_TOKEN] = "PERIOD_TOKEN",
+	[NEWLINE_TOKEN] = "NEWLINE_TOKEN",
 	[EQUALS_TOKEN] = "EQUALS_TOKEN",
 	[NOT_EQUALS_TOKEN] = "NOT_EQUALS_TOKEN",
 	[ASSIGNMENT_TOKEN] = "ASSIGNMENT_TOKEN",
@@ -1566,8 +1568,8 @@ static char *get_token_type_str[] = {
 	[BREAK_TOKEN] = "BREAK_TOKEN",
 	[RETURN_TOKEN] = "RETURN_TOKEN",
 	[CONTINUE_TOKEN] = "CONTINUE_TOKEN",
-	[SPACES_TOKEN] = "SPACES_TOKEN",
-	[NEWLINES_TOKEN] = "NEWLINES_TOKEN",
+	[SPACE_TOKEN] = "SPACE_TOKEN",
+	[INDENTATION_TOKEN] = "INDENTATION_TOKEN",
 	[STRING_TOKEN] = "STRING_TOKEN",
 	[WORD_TOKEN] = "WORD_TOKEN",
 	[I32_TOKEN] = "I32_TOKEN",
@@ -1628,15 +1630,7 @@ static void print_tokens(void) {
 		char *token_type_str = get_token_type_str[token.type];
 		grug_log("| %*s ", (int)longest_token_type_len, token_type_str);
 
-		if (token.type == NEWLINES_TOKEN) {
-			grug_log("| '");
-			for (size_t j = 0; j < strlen(token.str); j++) {
-				grug_log("\\n");
-			}
-			grug_log("'\n");
-		} else {
-			grug_log("| '%s'\n", token.str);
-		}
+		grug_log("| '%s'\n", token.type == NEWLINE_TOKEN ? "\\n" : token.str);
 	}
 }
 
@@ -1713,6 +1707,9 @@ static void tokenize(char *grug_text) {
 		} else if (grug_text[i] == '.') {
 			push_token(PERIOD_TOKEN, grug_text+i, 1);
 			i += 1;
+		} else if (grug_text[i] == '\n') {
+			push_token(NEWLINE_TOKEN, grug_text+i, 1);
+			i += 1;
 		} else if (grug_text[i] == '=' && grug_text[i + 1] == '=') {
 			push_token(EQUALS_TOKEN, grug_text+i, 2);
 			i += 2;
@@ -1768,6 +1765,12 @@ static void tokenize(char *grug_text) {
 			push_token(CONTINUE_TOKEN, grug_text+i, 8);
 			i += 8;
 		} else if (grug_text[i] == ' ') {
+			if (grug_text[i + 1] != ' ') {
+				push_token(SPACE_TOKEN, grug_text+i, 1);
+				i += 1;
+				continue;
+			}
+
 			char *str = grug_text+i;
 			size_t old_i = i;
 
@@ -1775,16 +1778,11 @@ static void tokenize(char *grug_text) {
 				i++;
 			} while (grug_text[i] == ' ');
 
-			push_token(SPACES_TOKEN, str, i - old_i);
-		} else if (grug_text[i] == '\n') {
-			char *str = grug_text+i;
-			size_t old_i = i;
+			size_t spaces = i - old_i;
 
-			do {
-				i++;
-			} while (grug_text[i] == '\n');
+			grug_assert(spaces % SPACES_PER_INDENT == 0, "Encountered %zu spaces, while indentation expects multiples of %d spaces, at character %zu of the grug text file", spaces, SPACES_PER_INDENT, i);
 
-			push_token(NEWLINES_TOKEN, str, i - old_i);
+			push_token(INDENTATION_TOKEN, str, spaces);
 		} else if (grug_text[i] == '\"') {
 			char *str = grug_text+i + 1;
 			size_t old_i = i + 1;
@@ -1980,6 +1978,7 @@ struct statement {
 		struct if_statement if_statement;
 		struct return_statement return_statement;
 		struct while_statement while_statement;
+		char *comment;
 	};
 };
 static char *get_statement_type_str[] = {
@@ -2035,6 +2034,8 @@ struct global_variable_statement {
 };
 static struct global_variable_statement global_variable_statements[MAX_GLOBAL_VARIABLES_IN_FILE];
 static size_t global_variable_statements_size;
+
+static size_t indentation;
 
 static void reset_parsing(void) {
 	exprs_size = 0;
@@ -2104,59 +2105,71 @@ static struct expr *push_expr(struct expr expr) {
 	return exprs + exprs_size++;
 }
 
-static void potentially_skip_comment(size_t *i) {
-	struct token token = peek_token(*i);
-	if (token.type == COMMENT_TOKEN) {
-		(*i)++;
+// Here are some examples, where the part in <> indicates the token_index token
+// "" => 1
+// "<a>" => 1
+// "a<b>" => 1
+// "<\n>" => 1
+// "\n<a>" => 2
+// "\n<\n>" => 2
+static size_t get_line_number(size_t token_index) {
+	assert(token_index < tokens_size);
+
+	size_t line_number = 1;
+
+	for (size_t i = 0; i < token_index; i++) {
+		if (tokens[i].type == NEWLINE_TOKEN) {
+			line_number++;
+		}
 	}
+
+	return line_number;
 }
 
 static void assert_token_type(size_t token_index, unsigned int expected_type) {
 	struct token token = peek_token(token_index);
-	grug_assert(token.type == expected_type, "Expected token type %s, but got %s at token index %zu", get_token_type_str[expected_type], get_token_type_str[token.type], token_index);
+	grug_assert(token.type == expected_type, "Expected token type %s, but got %s on line %zu", get_token_type_str[expected_type], get_token_type_str[token.type], get_line_number(token_index));
 }
-
-// TODO: Split into assert_1_space(), assert_4_spaces(), and assert_indentation_spaces()
-// static void assert_spaces(size_t token_index, size_t expected_spaces) {
-// 	assert_token_type(token_index, SPACES_TOKEN);
-
-// 	struct token token = peek_token(token_index);
-// 	grug_assert(strlen(token.str) == expected_spaces, "Expected %zu space%s, but got %zu at token index %zu", expected_spaces, expected_spaces > 1 ? "s" : "", strlen(token.str), token_index);
-// }
 
 static void consume_token_type(size_t *token_index_ptr, unsigned int expected_type) {
 	assert_token_type((*token_index_ptr)++, expected_type);
 }
 
-static void consume_1_newline(size_t *token_index_ptr) {
-	assert_token_type(*token_index_ptr, NEWLINES_TOKEN);
+static void consume_newline(size_t *token_index_ptr) {
+	assert_token_type(*token_index_ptr, NEWLINE_TOKEN);
+	(*token_index_ptr)++;
+}
 
-	struct token token = peek_token(*token_index_ptr);
-	grug_assert(strlen(token.str) == 1, "Expected 1 newline, but got %zu at token index %zu", strlen(token.str), *token_index_ptr);
+static void consume_space(size_t *token_index_ptr) {
+	assert_token_type(*token_index_ptr, SPACE_TOKEN);
+	(*token_index_ptr)++;
+}
+
+static void consume_indentation(size_t *token_index_ptr) {
+	assert_token_type(*token_index_ptr, INDENTATION_TOKEN);
+
+	size_t spaces = strlen(peek_token(*token_index_ptr).str);
+
+	grug_assert(spaces == indentation * SPACES_PER_INDENT, "Expected %zu spaces, but got %zu spaces on line %zu", indentation * SPACES_PER_INDENT, spaces, get_line_number(*token_index_ptr));
 
 	(*token_index_ptr)++;
 }
 
-// TODO: Either use or remove this function
-// Inspiration: https://stackoverflow.com/a/12923949/13279557
-// static i64 str_to_i64(char *str) {
-// 	char *end;
-// 	errno = 0;
-// 	long long n = strtoll(str, &end, 10);
+static bool is_end_of_block(size_t *token_index_ptr) {
+	assert(indentation > 0);
 
-// 	grug_assert(n <= INT64_MAX && !(errno == ERANGE && n == LLONG_MAX), "The number %s is too big for an i64, which has a maximum value of %d", str, INT64_MAX);
+	struct token token = peek_token(*token_index_ptr);
+	if (token.type == CLOSE_BRACE_TOKEN) {
+		return true;
+	} else if (token.type == NEWLINE_TOKEN) {
+		return false;
+	}
 
-// 	// This function can't ever return a negative number,
-// 	// since the minus symbol gets tokenized separately
-// 	assert(errno != ERANGE);
-// 	assert(n >= 0);
+	grug_assert(token.type == INDENTATION_TOKEN, "Expected indentation, or an empty line, or '}', but got '%s' on line %zu", token.str, get_line_number(*token_index_ptr));
 
-// 	// This function can't ever have trailing characters,
-// 	// since the number was tokenized
-// 	assert(*end == '\0');
-
-// 	return n;
-// }
+	size_t spaces = strlen(token.str);
+	return spaces == (indentation - 1) * SPACES_PER_INDENT;
+}
 
 static f32 str_to_f32(char *str) {
 	char *end;
@@ -2247,7 +2260,7 @@ static struct expr parse_primary(size_t *i) {
 			expr.literal.f32 = str_to_f32(token.str);
 			return expr;
 		default:
-			grug_error("Expected a primary expression token, but got token type %s at token index %zu", get_token_type_str[token.type], *i);
+			grug_error("Expected a primary expression token, but got token type %s on line %zu", get_token_type_str[token.type], get_line_number(*i));
 	}
 }
 
@@ -2258,7 +2271,7 @@ static struct expr parse_call(size_t *i) {
 	if (token.type == OPEN_PARENTHESIS_TOKEN) {
 		(*i)++;
 
-		grug_assert(expr.type == IDENTIFIER_EXPR, "Unexpected open parenthesis after non-identifier expression type %s at token index %zu", get_expr_type_str[expr.type], *i - 2);
+		grug_assert(expr.type == IDENTIFIER_EXPR, "Unexpected open parenthesis after non-identifier expression type %s on line %zu", get_expr_type_str[expr.type], get_line_number(*i - 2));
 		expr.type = CALL_EXPR;
 
 		expr.call.fn_name = expr.literal.string;
@@ -2439,6 +2452,8 @@ static struct statement *parse_statements(size_t *i, size_t *body_statement_coun
 static struct statement parse_while_statement(size_t *i) {
 	struct statement statement = {0};
 	statement.type = WHILE_STATEMENT;
+
+	consume_space(i);
 	statement.while_statement.condition = parse_expression(i);
 
 	statement.while_statement.body_statements = parse_statements(i, &statement.while_statement.body_statement_count);
@@ -2449,6 +2464,8 @@ static struct statement parse_while_statement(size_t *i) {
 static struct statement parse_if_statement(size_t *i) {
 	struct statement statement = {0};
 	statement.type = IF_STATEMENT;
+
+	consume_space(i);
 	statement.if_statement.condition = parse_expression(i);
 
 	statement.if_statement.if_body_statements = parse_statements(i, &statement.if_statement.if_body_statement_count);
@@ -2482,8 +2499,9 @@ static struct variable_statement parse_variable_statement(size_t *i) {
 	if (token.type == COLON_TOKEN) {
 		(*i)++;
 
+		consume_space(i);
 		struct token type_token = consume_token(i);
-		grug_assert(type_token.type == WORD_TOKEN, "Expected a word token after the colon at token index %zu", name_token_index);
+		grug_assert(type_token.type == WORD_TOKEN, "Expected a word token after the colon on line %zu", get_line_number(name_token_index));
 
 		variable_statement.has_type = true;
 		variable_statement.type = parse_type(type_token.str);
@@ -2491,10 +2509,12 @@ static struct variable_statement parse_variable_statement(size_t *i) {
 		grug_assert(variable_statement.type != type_entity, "The local variable '%s' can't have 'entity' as its type", variable_statement.name);
 	}
 
+	consume_space(i);
 	token = peek_token(*i);
-	grug_assert(token.type == ASSIGNMENT_TOKEN, "The variable '%s' was not assigned a value at token index %zu", variable_statement.name, name_token_index);
-
+	grug_assert(token.type == ASSIGNMENT_TOKEN, "The variable '%s' was not assigned a value on line %zu", variable_statement.name, get_line_number(name_token_index));
 	(*i)++;
+
+	consume_space(i);
 	variable_statement.assignment_expr = push_expr(parse_expression(i));
 
 	return variable_statement;
@@ -2514,15 +2534,19 @@ static void parse_global_variable(size_t *i) {
 	assert_token_type(*i, COLON_TOKEN);
 	consume_token(i);
 
+	consume_space(i);
 	assert_token_type(*i, WORD_TOKEN);
 	struct token type_token = consume_token(i);
 	global_variable.type = parse_type(type_token.str);
+
 	grug_assert(global_variable.type != type_resource, "The global variable '%s' can't have 'resource' as its type", global_variable.name);
 	grug_assert(global_variable.type != type_entity, "The global variable '%s' can't have 'entity' as its type", global_variable.name);
 
+	consume_space(i);
 	assert_token_type(*i, ASSIGNMENT_TOKEN);
 	consume_token(i);
 
+	consume_space(i);
 	global_variable.assignment_expr = parse_expression(i);
 
 	push_global_variable(global_variable);
@@ -2539,11 +2563,11 @@ static struct statement parse_statement(size_t *i) {
 				statement.type = CALL_STATEMENT;
 				struct expr expr = parse_call(i);
 				statement.call_statement.expr = push_expr(expr);
-			} else if (token.type == COLON_TOKEN || token.type == ASSIGNMENT_TOKEN) {
+			} else if (token.type == COLON_TOKEN || token.type == SPACE_TOKEN) {
 				statement.type = VARIABLE_STATEMENT;
 				statement.variable_statement = parse_variable_statement(i);
 			} else {
-				grug_error("Expected '(' or ':' or ' =' after the word '%s' at token index %zu", switch_token.str, *i);
+				grug_error("Expected '(', or ':', or ' =' after the word '%s' on line %zu", switch_token.str, get_line_number(*i));
 			}
 
 			break;
@@ -2557,7 +2581,7 @@ static struct statement parse_statement(size_t *i) {
 			statement.type = RETURN_STATEMENT;
 
 			struct token token = peek_token(*i);
-			if (token.type == NEWLINES_TOKEN) {
+			if (token.type == NEWLINE_TOKEN) {
 				statement.return_statement.has_value = false;
 			} else {
 				statement.return_statement.has_value = true;
@@ -2578,39 +2602,55 @@ static struct statement parse_statement(size_t *i) {
 			(*i)++;
 			statement.type = CONTINUE_STATEMENT;
 			break;
+		case NEWLINE_TOKEN:
+			statement.type = EMPTY_LINE_STATEMENT;
+			break;
+		case COMMENT_TOKEN:
+			statement.type = COMMENT_STATEMENT;
+			statement.comment = switch_token.str;
+			break;
 		default:
-			grug_error("Expected a statement token, but got token type %s at token index %zu", get_token_type_str[switch_token.type], *i - 1);
+			grug_error("Expected a statement token, but got token type %s on line %zu", get_token_type_str[switch_token.type], get_line_number(*i - 1));
 	}
 
 	return statement;
 }
 
 static struct statement *parse_statements(size_t *i, size_t *body_statement_count) {
+	consume_space(i);
 	consume_token_type(i, OPEN_BRACE_TOKEN);
-	potentially_skip_comment(i);
 
-	consume_1_newline(i);
+	consume_newline(i);
 
 	// This local array is necessary, cause an IF or LOOP substatement can contain its own statements
 	struct statement local_statements[MAX_STATEMENTS_PER_STACK_FRAME];
 	*body_statement_count = 0;
 
+	indentation++;
+
 	while (true) {
-		struct token token = peek_token(*i);
-		if (token.type == CLOSE_BRACE_TOKEN) {
+		if (is_end_of_block(i)) {
 			break;
 		}
 
-		if (token.type != COMMENT_TOKEN) {
-			struct statement statement = parse_statement(i);
-
-			grug_assert(*body_statement_count < MAX_STATEMENTS_PER_STACK_FRAME, "There are more than %d statements in one of the grug file's stack frames, exceeding MAX_STATEMENTS_PER_STACK_FRAME", MAX_STATEMENTS_PER_STACK_FRAME);
-			local_statements[(*body_statement_count)++] = statement;
+		// Skip empty lines
+		if (peek_token(*i).type == NEWLINE_TOKEN) {
+			(*i)++;
+			continue;
 		}
-		potentially_skip_comment(i);
 
-		consume_token_type(i, NEWLINES_TOKEN);
+		consume_indentation(i);
+
+		struct statement statement = parse_statement(i);
+
+		grug_assert(*body_statement_count < MAX_STATEMENTS_PER_STACK_FRAME, "There are more than %d statements in one of the grug file's stack frames, exceeding MAX_STATEMENTS_PER_STACK_FRAME", MAX_STATEMENTS_PER_STACK_FRAME);
+		local_statements[(*body_statement_count)++] = statement;
+
+		consume_token_type(i, NEWLINE_TOKEN);
 	}
+
+	assert(indentation > 0);
+	indentation--;
 
 	struct statement *first_statement = statements + statements_size;
 	for (size_t statement_index = 0; statement_index < *body_statement_count; statement_index++) {
@@ -2618,10 +2658,6 @@ static struct statement *parse_statements(size_t *i, size_t *body_statement_coun
 	}
 
 	consume_token_type(i, CLOSE_BRACE_TOKEN);
-
-	if (peek_token(*i).type != ELSE_TOKEN) {
-		potentially_skip_comment(i);
-	}
 
 	return first_statement;
 }
@@ -2664,8 +2700,10 @@ static struct argument *parse_arguments(size_t *i, size_t *argument_count) {
 		assert_token_type(*i, WORD_TOKEN);
 		token = consume_token(i);
 		argument.type = parse_type(token.str);
+
 		grug_assert(argument.type != type_resource, "The argument '%s' can't have 'resource' as its type", argument.name);
 		grug_assert(argument.type != type_entity, "The argument '%s' can't have 'entity' as its type", argument.name);
+
 		push_argument(argument);
 		(*argument_count)++;
 	}
@@ -2696,6 +2734,7 @@ static void parse_helper_fn(size_t *i) {
 		grug_assert(fn.return_type != type_entity, "The helper function '%s' can't have 'entity' as its return type", fn.fn_name);
 	}
 
+	indentation = 0;
 	fn.body_statements = parse_statements(i, &fn.body_statement_count);
 
 	push_helper_fn(fn);
@@ -2716,6 +2755,7 @@ static void parse_on_fn(size_t *i) {
 
 	consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
 
+	indentation = 0;
 	fn.body_statements = parse_statements(i, &fn.body_statement_count);
 
 	push_on_fn(fn);
@@ -2728,23 +2768,24 @@ static void push_field(struct field field) {
 
 static struct compound_literal parse_compound_literal(size_t *i) {
 	(*i)++;
-	potentially_skip_comment(i);
 
 	struct compound_literal compound_literal = {.fields = fields + fields_size};
 
-	consume_1_newline(i);
+	consume_newline(i);
+
+	indentation++;
 
 	while (true) {
-		struct token token = peek_token(*i);
-		if (token.type == CLOSE_BRACE_TOKEN) {
+		if (is_end_of_block(i)) {
 			break;
 		}
+
+		consume_indentation(i);
 
 		consume_token_type(i, PERIOD_TOKEN);
 
 		assert_token_type(*i, WORD_TOKEN);
-		token = peek_token(*i);
-		struct field field = {.key = token.str};
+		struct field field = {.key = peek_token(*i).str};
 		(*i)++;
 
 		consume_token_type(i, ASSIGNMENT_TOKEN);
@@ -2754,15 +2795,16 @@ static struct compound_literal parse_compound_literal(size_t *i) {
 		compound_literal.field_count++;
 
 		consume_token_type(i, COMMA_TOKEN);
-		potentially_skip_comment(i);
 
-		consume_1_newline(i);
+		consume_newline(i);
 	}
 
-	consume_token_type(i, CLOSE_BRACE_TOKEN);
-	potentially_skip_comment(i);
+	indentation--;
 
-	consume_1_newline(i);
+	consume_indentation(i);
+	consume_token_type(i, CLOSE_BRACE_TOKEN);
+
+	consume_newline(i);
 
 	return compound_literal;
 }
@@ -2774,53 +2816,85 @@ static void parse_define_fn(size_t *i) {
 	consume_token_type(i, OPEN_PARENTHESIS_TOKEN);
 	consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
 
+	consume_space(i);
 	assert_token_type(*i, WORD_TOKEN);
 	struct token token = consume_token(i);
 	define_fn.return_type = token.str;
 
+	consume_space(i);
 	consume_token_type(i, OPEN_BRACE_TOKEN);
-	potentially_skip_comment(i);
 
-	consume_1_newline(i);
+	consume_newline(i);
+
+	indentation = 1;
 
 	// Parse the body of the function
+	consume_indentation(i);
 	consume_token_type(i, RETURN_TOKEN);
 
+	consume_space(i);
 	assert_token_type(*i, OPEN_BRACE_TOKEN);
+
 	define_fn.returned_compound_literal = parse_compound_literal(i);
 
 	consume_token_type(i, CLOSE_BRACE_TOKEN);
-	potentially_skip_comment(i);
 }
 
 static void parse(void) {
 	reset_parsing();
 
 	bool seen_define_fn = false;
+	bool newline_allowed = false;
+	bool just_seen_newline = false;
+	bool recently_pushed_global_variable = false;
+	size_t empty_line_after_global_variables = 0;
 
 	size_t i = 0;
 	while (i < tokens_size) {
 		struct token token = peek_token(i);
 		int type = token.type;
 
-		if (       type == WORD_TOKEN && streq(token.str, "define") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
+		if (type == WORD_TOKEN && streq(token.str, "define") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			grug_assert(!seen_define_fn, "There can't be more than one define_ function in a grug file");
 			parse_define_fn(&i);
 			seen_define_fn = true;
-		} else if (type == WORD_TOKEN && peek_token(i + 1).type == COLON_TOKEN) {
+			newline_allowed = true;
+			just_seen_newline = false;
+		} else if (type == WORD_TOKEN && i + 1 < tokens_size && peek_token(i + 1).type == COLON_TOKEN) {
 			grug_assert(seen_define_fn, "Move the global variable '%s' below the define_ function", token.str);
 			parse_global_variable(&i);
-		} else if (type == WORD_TOKEN && starts_with(token.str, "on_") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
+			newline_allowed = true;
+			just_seen_newline = false;
+			recently_pushed_global_variable = true;
+		} else if (type == WORD_TOKEN && starts_with(token.str, "on_") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			grug_assert(seen_define_fn, "Move the on_ function '%s' below the define_ function", token.str);
 			parse_on_fn(&i);
-		} else if (type == WORD_TOKEN && starts_with(token.str, "helper_") && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
+			newline_allowed = true;
+			just_seen_newline = false;
+		} else if (type == WORD_TOKEN && starts_with(token.str, "helper_") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			parse_helper_fn(&i);
+			newline_allowed = true;
+			just_seen_newline = false;
+		} else if (type == NEWLINE_TOKEN) {
+			grug_assert(newline_allowed, "Unexpected empty line, on line %zu", get_line_number(i));
+
+			if (just_seen_newline && recently_pushed_global_variable) {
+				grug_assert(empty_line_after_global_variables == 0, "Unexpected empty line between global variables on line %zu", empty_line_after_global_variables);
+				recently_pushed_global_variable = false;
+				empty_line_after_global_variables = get_line_number(i);
+			}
+
+			// Disallows "\n\n\n"
+			if (just_seen_newline) {
+				newline_allowed = false;
+			}
+			just_seen_newline = true;
+
+			i++;
 		} else if (type == COMMENT_TOKEN) {
-			i++;
-		} else if (type == NEWLINES_TOKEN) {
-			i++;
+			grug_error("Comments can only be put inside on_ functions and helper functions, but encountered the comment '%s' on line %zu", token.str, get_line_number(i));
 		} else {
-			grug_error("Unexpected token '%s' at token index %zu in parse()", token.str, i);
+			grug_error("Unexpected token '%s' on line %zu", token.str, get_line_number(i));
 		}
 	}
 
@@ -2975,9 +3049,13 @@ static void print_statements(struct statement *statements_offset, size_t stateme
 				grug_log("]");
 
 				break;
-			case BREAK_STATEMENT:
+			case COMMENT_STATEMENT:
+				grug_log(",");
+				grug_log("\"comment\":\"%s\"", statement.comment);
 				break;
+			case BREAK_STATEMENT:
 			case CONTINUE_STATEMENT:
+			case EMPTY_LINE_STATEMENT:
 				break;
 		}
 
@@ -3434,6 +3512,7 @@ static void fill_binary_expr(struct expr *expr) {
 		case COMMA_TOKEN:
 		case COLON_TOKEN:
 		case PERIOD_TOKEN:
+		case NEWLINE_TOKEN:
 		case ASSIGNMENT_TOKEN:
 		case NOT_TOKEN:
 		case TRUE_TOKEN:
@@ -3444,8 +3523,8 @@ static void fill_binary_expr(struct expr *expr) {
 		case BREAK_TOKEN:
 		case RETURN_TOKEN:
 		case CONTINUE_TOKEN:
-		case SPACES_TOKEN:
-		case NEWLINES_TOKEN:
+		case SPACE_TOKEN:
+		case INDENTATION_TOKEN:
 		case STRING_TOKEN:
 		case WORD_TOKEN:
 		case I32_TOKEN:
@@ -3657,8 +3736,9 @@ static void fill_statements(struct statement *statements_offset, size_t statemen
 
 				break;
 			case BREAK_STATEMENT:
-				break;
 			case CONTINUE_STATEMENT:
+			case EMPTY_LINE_STATEMENT:
+			case COMMENT_STATEMENT:
 				break;
 		}
 
@@ -5153,6 +5233,9 @@ static void compile_statements(struct statement *statements_offset, size_t state
 				size_t start_of_loop_jump_offset = start_of_loop_jump_offsets[start_of_loop_jump_offsets_size - 1];
 				compile_32(start_of_loop_jump_offset - (codes_size + NEXT_INSTRUCTION_OFFSET));
 				break;
+			case EMPTY_LINE_STATEMENT:
+			case COMMENT_STATEMENT:
+				break;
 		}
 	}
 }
@@ -5167,8 +5250,6 @@ static void add_variables_in_statements(struct statement *statements_offset, siz
 					add_local_variable(statement.variable_statement.name, statement.variable_statement.type);
 				}
 				break;
-			case CALL_STATEMENT:
-				break;
 			case IF_STATEMENT:
 				add_variables_in_statements(statement.if_statement.if_body_statements, statement.if_statement.if_body_statement_count);
 
@@ -5177,14 +5258,15 @@ static void add_variables_in_statements(struct statement *statements_offset, siz
 				}
 
 				break;
-			case RETURN_STATEMENT:
-				break;
 			case WHILE_STATEMENT:
 				add_variables_in_statements(statement.while_statement.body_statements, statement.while_statement.body_statement_count);
 				break;
+			case CALL_STATEMENT:
+			case RETURN_STATEMENT:
 			case BREAK_STATEMENT:
-				break;
 			case CONTINUE_STATEMENT:
+			case EMPTY_LINE_STATEMENT:
+			case COMMENT_STATEMENT:
 				break;
 		}
 	}
