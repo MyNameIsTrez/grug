@@ -12,6 +12,7 @@
 
 //// Functions
 
+// Returns whether an error occurred
 bool grug_regenerate_modified_mods(void);
 
 // I would have made this a function if I could have, but it'd be Undefined Behavior:
@@ -25,7 +26,22 @@ char *grug_get_runtime_error_reason(void);
 // It has a chance to dangle after the next grug_regenerate_modified_mods() call
 struct grug_file *grug_get_entity_file(char *entity_name);
 
+// You aren't expected to call this normally
 void grug_free_mods(void);
+
+// These functions are meant to be used together, to write and read the AST of the mods/ directory
+// One usecase is that this allows you to for example write a Python program that reads the mods/ AST,
+// and modifies it to apply mod API changes the game had,
+// like renaming game function calls, or doubling jump strength values if the game's gravity was doubled
+//
+// There's nothing stopping a game from doing this itself with these functions,
+// but an external tool has the advantage that it isn't tied to the game's release cycle
+//
+// Returns whether an error occurred
+bool grug_dump_file_ast(char *input_grug_path, char *output_json_path);
+bool grug_apply_file_ast(char *input_json_path, char *output_grug_path);
+// bool grug_dump_mods_ast(char *output_json_path);
+// bool grug_apply_mods_ast(char *input_json_path);
 
 //// Defines
 

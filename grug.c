@@ -20,7 +20,7 @@
 // 8. READING
 // 9. TOKENIZATION
 // 10. PARSING
-// 11. PRINTING AST
+// 11. DUMPING AST
 // 12. FILLING RESULT TYPES
 // 13. COMPILING
 // 14. LINKING
@@ -2933,43 +2933,51 @@ static void parse(void) {
 	hash_helper_fns();
 }
 
-//// PRINTING AST
+//// DUMPING AST
 
-static void print_expr(struct expr expr);
+static FILE *dumped_stream;
 
-static void print_parenthesized_expr(struct expr *parenthesized_expr) {
-	grug_log("\"expr\":{");
-	print_expr(*parenthesized_expr);
-	grug_log("}");
+#define dump(...) {\
+	if (fprintf(dumped_stream, __VA_ARGS__) < 0) {\
+		abort();\
+	}\
 }
 
-static void print_call_expr(struct call_expr call_expr) {
-	grug_log("\"fn_name\":\"%s\",", call_expr.fn_name);
+static void dump_expr(struct expr expr);
 
-	grug_log("\"arguments\":[");
+static void dump_parenthesized_expr(struct expr *parenthesized_expr) {
+	dump("\"expr\":{");
+	dump_expr(*parenthesized_expr);
+	dump("}");
+}
+
+static void dump_call_expr(struct call_expr call_expr) {
+	dump("\"fn_name\":\"%s\",", call_expr.fn_name);
+
+	dump("\"arguments\":[");
 	for (size_t argument_index = 0; argument_index < call_expr.argument_count; argument_index++) {
 		if (argument_index > 0) {
-			grug_log(",");
+			dump(",");
 		}
-		grug_log("{");
-		print_expr(call_expr.arguments[argument_index]);
-		grug_log("}");
+		dump("{");
+		dump_expr(call_expr.arguments[argument_index]);
+		dump("}");
 	}
-	grug_log("]");
+	dump("]");
 }
 
-static void print_binary_expr(struct binary_expr binary_expr) {
-	grug_log("\"left_expr\":{");
-	print_expr(*binary_expr.left_expr);
-	grug_log("},");
-	grug_log("\"operator\":\"%s\",", get_token_type_str[binary_expr.operator]);
-	grug_log("\"right_expr\":{");
-	print_expr(*binary_expr.right_expr);
-	grug_log("}");
+static void dump_binary_expr(struct binary_expr binary_expr) {
+	dump("\"left_expr\":{");
+	dump_expr(*binary_expr.left_expr);
+	dump("},");
+	dump("\"operator\":\"%s\",", get_token_type_str[binary_expr.operator]);
+	dump("\"right_expr\":{");
+	dump_expr(*binary_expr.right_expr);
+	dump("}");
 }
 
-static void print_expr(struct expr expr) {
-	grug_log("\"type\":\"%s\"", get_expr_type_str[expr.type]);
+static void dump_expr(struct expr expr) {
+	dump("\"type\":\"%s\"", get_expr_type_str[expr.type]);
 
 	switch (expr.type) {
 		case TRUE_EXPR:
@@ -2979,109 +2987,109 @@ static void print_expr(struct expr expr) {
 		case RESOURCE_EXPR:
 		case ENTITY_EXPR:
 		case IDENTIFIER_EXPR:
-			grug_log(",");
-			grug_log("\"str\":\"%s\"", expr.literal.string);
+			dump(",");
+			dump("\"str\":\"%s\"", expr.literal.string);
 			break;
 		case I32_EXPR:
-			grug_log(",");
-			grug_log("\"value\":%d", expr.literal.i32);
+			dump(",");
+			dump("\"value\":%d", expr.literal.i32);
 			break;
 		case F32_EXPR:
-			grug_log(",");
-			grug_log("\"value\":%f", expr.literal.f32);
+			dump(",");
+			dump("\"value\":%f", expr.literal.f32);
 			break;
 		case UNARY_EXPR:
-			grug_log(",");
-			grug_log("\"operator\":\"%s\",", get_token_type_str[expr.unary.operator]);
-			grug_log("\"expr\":{");
-			print_expr(*expr.unary.expr);
-			grug_log("}");
+			dump(",");
+			dump("\"operator\":\"%s\",", get_token_type_str[expr.unary.operator]);
+			dump("\"expr\":{");
+			dump_expr(*expr.unary.expr);
+			dump("}");
 			break;
 		case BINARY_EXPR:
 		case LOGICAL_EXPR:
-			grug_log(",");
-			print_binary_expr(expr.binary);
+			dump(",");
+			dump_binary_expr(expr.binary);
 			break;
 		case CALL_EXPR:
-			grug_log(",");
-			print_call_expr(expr.call);
+			dump(",");
+			dump_call_expr(expr.call);
 			break;
 		case PARENTHESIZED_EXPR:
-			grug_log(",");
-			print_parenthesized_expr(expr.parenthesized);
+			dump(",");
+			dump_parenthesized_expr(expr.parenthesized);
 			break;
 	}
 }
 
-static void print_statements(struct statement *statements_offset, size_t statement_count) {
+static void dump_statements(struct statement *statements_offset, size_t statement_count) {
 	for (size_t statement_index = 0; statement_index < statement_count; statement_index++) {
 		if (statement_index > 0) {
-			grug_log(",");
+			dump(",");
 		}
 
-		grug_log("{");
+		dump("{");
 
 		struct statement statement = statements_offset[statement_index];
 
-		grug_log("\"type\":\"%s\"", get_statement_type_str[statement.type]);
+		dump("\"type\":\"%s\"", get_statement_type_str[statement.type]);
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
-				grug_log(",");
-				grug_log("\"variable_name\":\"%s\",", statement.variable_statement.name);
+				dump(",");
+				dump("\"variable_name\":\"%s\",", statement.variable_statement.name);
 
 				if (statement.variable_statement.has_type) {
-					grug_log("\"variable_type\":\"%s\",", type_names[statement.variable_statement.type]);
+					dump("\"variable_type\":\"%s\",", type_names[statement.variable_statement.type]);
 				}
 
-				grug_log("\"assignment\":{");
-				print_expr(*statement.variable_statement.assignment_expr);
-				grug_log("}");
+				dump("\"assignment\":{");
+				dump_expr(*statement.variable_statement.assignment_expr);
+				dump("}");
 
 				break;
 			case CALL_STATEMENT:
-				grug_log(",");
-				print_call_expr(statement.call_statement.expr->call);
+				dump(",");
+				dump_call_expr(statement.call_statement.expr->call);
 				break;
 			case IF_STATEMENT:
-				grug_log(",");
-				grug_log("\"condition\":{");
-				print_expr(statement.if_statement.condition);
-				grug_log("},");
+				dump(",");
+				dump("\"condition\":{");
+				dump_expr(statement.if_statement.condition);
+				dump("},");
 
-				grug_log("\"if_statements\":[");
-				print_statements(statement.if_statement.if_body_statements, statement.if_statement.if_body_statement_count);
-				grug_log("],");
+				dump("\"if_statements\":[");
+				dump_statements(statement.if_statement.if_body_statements, statement.if_statement.if_body_statement_count);
+				dump("],");
 
 				if (statement.if_statement.else_body_statement_count > 0) {
-					grug_log("\"else_statements\":[");
-					print_statements(statement.if_statement.else_body_statements, statement.if_statement.else_body_statement_count);
-					grug_log("]");
+					dump("\"else_statements\":[");
+					dump_statements(statement.if_statement.else_body_statements, statement.if_statement.else_body_statement_count);
+					dump("]");
 				}
 
 				break;
 			case RETURN_STATEMENT:
 				if (statement.return_statement.has_value) {
-					grug_log(",");
-					grug_log("\"expr\":{");
-					print_expr(*statement.return_statement.value);
-					grug_log("}");
+					dump(",");
+					dump("\"expr\":{");
+					dump_expr(*statement.return_statement.value);
+					dump("}");
 				}
 				break;
 			case WHILE_STATEMENT:
-				grug_log(",");
-				grug_log("\"condition\":{");
-				print_expr(statement.while_statement.condition);
-				grug_log("},");
+				dump(",");
+				dump("\"condition\":{");
+				dump_expr(statement.while_statement.condition);
+				dump("},");
 
-				grug_log("\"statements\":[");
-				print_statements(statement.while_statement.body_statements, statement.while_statement.body_statement_count);
-				grug_log("]");
+				dump("\"statements\":[");
+				dump_statements(statement.while_statement.body_statements, statement.while_statement.body_statement_count);
+				dump("]");
 
 				break;
 			case COMMENT_STATEMENT:
-				grug_log(",");
-				grug_log("\"comment\":\"%s\"", statement.comment);
+				dump(",");
+				dump("\"comment\":\"%s\"", statement.comment);
 				break;
 			case BREAK_STATEMENT:
 			case CONTINUE_STATEMENT:
@@ -3089,159 +3097,174 @@ static void print_statements(struct statement *statements_offset, size_t stateme
 				break;
 		}
 
-		grug_log("}");
+		dump("}");
 	}
 }
 
-static void print_arguments(struct argument *arguments_offset, size_t argument_count) {
-	grug_log("\"arguments\":[");
+static void dump_arguments(struct argument *arguments_offset, size_t argument_count) {
+	dump("\"arguments\":[");
 
 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
 		if (argument_index > 0) {
-			grug_log(",");
+			dump(",");
 		}
 
-		grug_log("{");
+		dump("{");
 
 		struct argument arg = arguments_offset[argument_index];
 
-		grug_log("\"name\":\"%s\",", arg.name);
-		grug_log("\"type\":\"%s\"", type_names[arg.type]);
+		dump("\"name\":\"%s\",", arg.name);
+		dump("\"type\":\"%s\"", type_names[arg.type]);
 
-		grug_log("}");
+		dump("}");
 	}
 
-	grug_log("]");
+	dump("]");
 }
 
-static void print_helper_fns(void) {
-	grug_log("\"helper_fns\":[");
+static void dump_helper_fns(void) {
+	dump("\"helper_fns\":[");
 
 	for (size_t fn_index = 0; fn_index < helper_fns_size; fn_index++) {
 		if (fn_index > 0) {
-			grug_log(",");
+			dump(",");
 		}
 
-		grug_log("{");
+		dump("{");
 
 		struct helper_fn fn = helper_fns[fn_index];
 
-		grug_log("\"fn_name\":\"%s\",", fn.fn_name);
+		dump("\"fn_name\":\"%s\",", fn.fn_name);
 
-		print_arguments(fn.arguments, fn.argument_count);
+		dump_arguments(fn.arguments, fn.argument_count);
 
-		grug_log(",");
+		dump(",");
 		if (fn.return_type) {
-			grug_log("\"return_type\":\"%s\",", type_names[fn.return_type]);
+			dump("\"return_type\":\"%s\",", type_names[fn.return_type]);
 		}
 
-		grug_log("\"statements\":[");
-		print_statements(fn.body_statements, fn.body_statement_count);
-		grug_log("]");
+		dump("\"statements\":[");
+		dump_statements(fn.body_statements, fn.body_statement_count);
+		dump("]");
 
-		grug_log("}");
+		dump("}");
 	}
 
-	grug_log("]");
+	dump("]");
 }
 
-static void print_on_fns(void) {
-	grug_log("\"on_fns\":[");
+static void dump_on_fns(void) {
+	dump("\"on_fns\":[");
 
 	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
 		if (fn_index > 0) {
-			grug_log(",");
+			dump(",");
 		}
 
-		grug_log("{");
+		dump("{");
 
 		struct on_fn fn = on_fns[fn_index];
 
-		grug_log("\"fn_name\":\"%s\",", fn.fn_name);
+		dump("\"fn_name\":\"%s\",", fn.fn_name);
 
-		print_arguments(fn.arguments, fn.argument_count);
+		dump_arguments(fn.arguments, fn.argument_count);
 
-		grug_log(",");
-		grug_log("\"statements\":[");
-		print_statements(fn.body_statements, fn.body_statement_count);
-		grug_log("]");
+		dump(",");
+		dump("\"statements\":[");
+		dump_statements(fn.body_statements, fn.body_statement_count);
+		dump("]");
 
-		grug_log("}");
+		dump("}");
 	}
 
-	grug_log("]");
+	dump("]");
 }
 
-static void print_global_variables(void) {
-	grug_log("\"global_variables\":{");
+static void dump_global_variables(void) {
+	dump("\"global_variables\":{");
 
 	for (size_t global_variable_index = 0; global_variable_index < global_variable_statements_size; global_variable_index++) {
 		if (global_variable_index > 0) {
-			grug_log(",");
+			dump(",");
 		}
 
 		struct global_variable_statement global_variable = global_variable_statements[global_variable_index];
 
-		grug_log("\"%s\":{", global_variable.name);
+		dump("\"%s\":{", global_variable.name);
 
-		grug_log("\"type\":\"%s\",", type_names[global_variable.type]);
+		dump("\"type\":\"%s\",", type_names[global_variable.type]);
 
-		grug_log("\"assignment\":{");
-		print_expr(global_variable.assignment_expr);
-		grug_log("}");
+		dump("\"assignment\":{");
+		dump_expr(global_variable.assignment_expr);
+		dump("}");
 
-		grug_log("}");
+		dump("}");
 	}
 
-	grug_log("}");
+	dump("}");
 }
 
-static void print_fields(struct compound_literal compound_literal) {
-	grug_log("\"fields\":[");
+static void dump_fields(struct compound_literal compound_literal) {
+	dump("\"fields\":[");
 
 	for (size_t field_index = 0; field_index < compound_literal.field_count; field_index++) {
 		if (field_index > 0) {
-			grug_log(",");
+			dump(",");
 		}
 
-		grug_log("{");
+		dump("{");
 
 		struct field field = compound_literal.fields[field_index];
 
-		grug_log("\"name\":\"%s\",", field.key);
+		dump("\"name\":\"%s\",", field.key);
 
-		grug_log("\"value\":{");
-		print_expr(field.expr_value);
-		grug_log("}");
+		dump("\"value\":{");
+		dump_expr(field.expr_value);
+		dump("}");
 
-		grug_log("}");
+		dump("}");
 	}
 
-	grug_log("]");
+	dump("]");
 }
 
-static void print_define_fn(void) {
-	grug_log("\"entity\":{");
+static void dump_define_fn(void) {
+	dump("\"entity\":{");
 
-	grug_log("\"name\":\"%s\",", define_fn.return_type);
+	dump("\"name\":\"%s\",", define_fn.return_type);
 
-	print_fields(define_fn.returned_compound_literal);
+	dump_fields(define_fn.returned_compound_literal);
 
-	grug_log("}");
+	dump("}");
 }
 
-static void print_ast(void) {
-	grug_log("{");
+bool grug_dump_file_ast(char *input_grug_path, char *output_json_path) {
+	if (setjmp(error_jmp_buffer)) {
+		return true;
+	}
 
-	print_define_fn();
-	grug_log(",");
-	print_global_variables();
-	grug_log(",");
-	print_on_fns();
-	grug_log(",");
-	print_helper_fns();
+	reset_utils();
 
-	grug_log("}\n");
+	read_file(input_grug_path);
+
+	tokenize();
+
+	parse();
+
+	dumped_stream = fopen(output_json_path, "w");
+	grug_assert(dumped_stream, "fopen: %s", strerror(errno));
+
+	dump("{");
+	dump_define_fn();
+	dump(",");
+	dump_global_variables();
+	dump(",");
+	dump_on_fns();
+	dump(",");
+	dump_helper_fns();
+	dump("}\n");
+
+	return false;
 }
 
 //// FILLING RESULT TYPES
@@ -3771,8 +3794,6 @@ static void fill_statements(struct statement *statements_offset, size_t statemen
 			case COMMENT_STATEMENT:
 				break;
 		}
-
-		grug_log("}");
 	}
 }
 
@@ -7404,9 +7425,7 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 	fill_result_types();
 	grug_log("\n# AST (throw this into a JSON formatter)\n");
 #ifdef LOGGING
-	print_ast();
-#else
-	(void)print_ast;
+	dump_ast();
 #endif
 
 	compile(grug_path);
@@ -8001,6 +8020,23 @@ bool grug_regenerate_modified_mods(void) {
 
 	return false;
 }
+
+// TODO: Implement
+bool grug_apply_file_ast(char *input_json_path, char *output_grug_path) {
+	(void)input_json_path;
+	(void)output_grug_path;
+	return false;
+}
+
+// TODO: Implement
+// bool grug_dump_mods_ast(char *output_json_path) {
+// 	(void)output_json_path;
+// }
+
+// TODO: Implement
+// bool grug_apply_mods_ast(char *input_json_path) {
+// 	(void)input_json_path;
+// }
 
 // MIT License
 

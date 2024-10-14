@@ -22,7 +22,7 @@ You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
 8. READING
 9. TOKENIZATION
 10. PARSING
-11. PRINTING AST
+11. DUMPING AST
 12. FILLING RESULT TYPES
 13. COMPILING
 14. LINKING
