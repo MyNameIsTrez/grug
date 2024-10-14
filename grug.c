@@ -7418,7 +7418,7 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 
 	FILE *f = fopen(dll_path, "w");
 	grug_assert(f, "fopen: %s", strerror(errno));
-	grug_assert(fwrite(bytes, sizeof(u8), bytes_size, f) == 0, "fwrite error");
+	grug_assert(fwrite(bytes, sizeof(u8), bytes_size, f) > 0, "fwrite error");
 	grug_assert(fclose(f) == 0, "fclose: %s", strerror(errno));
 }
 
