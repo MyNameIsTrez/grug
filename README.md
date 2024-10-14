@@ -23,10 +23,11 @@ You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
 9. TOKENIZATION
 10. PARSING
 11. DUMPING AST
-12. FILLING RESULT TYPES
-13. COMPILING
-14. LINKING
-15. HOT RELOADING
+12. APPLYING AST
+13. FILLING RESULT TYPES
+14. COMPILING
+15. LINKING
+16. HOT RELOADING
 
 ## Small example programs
 
