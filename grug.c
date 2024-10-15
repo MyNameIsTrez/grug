@@ -558,7 +558,7 @@ char *grug_get_runtime_error_reason(void) {
 #define JSON_MAX_TOKENS 420420
 #define JSON_MAX_NODES 420420
 #define JSON_MAX_FIELDS 420420
-#define JSON_MAX_CHILD_NODES 420
+#define JSON_MAX_CHILD_NODES 1337
 #define JSON_MAX_STRINGS_CHARACTERS 420420
 #define JSON_MAX_RECURSION_DEPTH 42
 
@@ -3056,13 +3056,15 @@ static void dump_statements(struct statement *statements_offset, size_t statemen
 				dump(",");
 				dump("\"condition\":{");
 				dump_expr(statement.if_statement.condition);
-				dump("},");
+				dump("}");
 
+				dump(",");
 				dump("\"if_statements\":[");
 				dump_statements(statement.if_statement.if_body_statements, statement.if_statement.if_body_statement_count);
-				dump("],");
+				dump("]");
 
 				if (statement.if_statement.else_body_statement_count > 0) {
+					dump(",");
 					dump("\"else_statements\":[");
 					dump_statements(statement.if_statement.else_body_statements, statement.if_statement.else_body_statement_count);
 					dump("]");
@@ -3317,18 +3319,7 @@ void apply_entity(struct json_node node) {
 
 		struct json_node *field_value = value.object.fields[1].value;
 		grug_assert(field_value->type == JSON_NODE_OBJECT, "input_json_path its root.entity.fields[%zu].value is supposed to be an object", i);
-		grug_assert(field_value->object.field_count == 2, "input_json_path its root.entity.fields[%zu].value is supposed to have exactly 2 fields", i);
-
-		grug_assert(streq(field_value->object.fields[0].key, "type"), "input_json_path its root.entity.fields[%zu].value its first field is supposed to be \"type\"", i);
-
-		struct json_node *field_type = field_value->object.fields[0].value;
-		grug_assert(field_type->type == JSON_NODE_STRING, "input_json_path its root.entity.fields[%zu].value.type is supposed to be a string", i);
-		grug_assert(strlen(field_type->string) > 0, "input_json_path its root.entity.fields[%zu].value.type is not supposed to be an empty string", i);
-
-		grug_assert(streq(field_value->object.fields[1].key, "value"), "input_json_path its root.entity.fields[%zu].value its second field is supposed to be \"value\"", i);
-
-		struct json_node *field_value_value = field_value->object.fields[1].value;
-		apply_expr(field_value_value);
+		apply_expr(field_value);
 	}
 }
 
@@ -3369,7 +3360,6 @@ bool grug_apply_file_ast(char *input_json_path, char *output_grug_path) {
 	memcpy(mod_api_json_strings, json_strings, json_strings_size);
 
 	if (setjmp(error_jmp_buffer)) {
-		// TODO: Refactor this
 		// Restore the mod_api.json AST
 		json_text_size = mod_api_json_text_size;
 		memcpy(json_text, mod_api_json_text, json_text_size);
@@ -3386,16 +3376,7 @@ bool grug_apply_file_ast(char *input_json_path, char *output_grug_path) {
 	}
 
 	struct json_node node;
-	struct json_settings settings = {
-		.max_text = 420420,
-		.max_tokens = 420420,
-		.max_nodes = 420420,
-		.max_fields = 420420,
-		.max_string_characters = 420420,
-		.max_recursion_depth = 42,
-	};
-	// TODO: Consider passing &json_data, instead of &node
-	json(input_json_path, &node, settings);
+	json(input_json_path, &node);
 
 	applied_stream = fopen(output_grug_path, "w");
 	grug_assert(applied_stream, "fopen: %s", strerror(errno));
