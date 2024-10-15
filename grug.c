@@ -1905,22 +1905,23 @@ struct call_expr {
 	size_t argument_count;
 };
 
+enum expr_type {
+	TRUE_EXPR,
+	FALSE_EXPR,
+	STRING_EXPR,
+	RESOURCE_EXPR,
+	ENTITY_EXPR,
+	IDENTIFIER_EXPR,
+	I32_EXPR,
+	F32_EXPR,
+	UNARY_EXPR,
+	BINARY_EXPR,
+	LOGICAL_EXPR,
+	CALL_EXPR,
+	PARENTHESIZED_EXPR,
+};
 struct expr {
-	enum {
-		TRUE_EXPR,
-		FALSE_EXPR,
-		STRING_EXPR,
-		RESOURCE_EXPR,
-		ENTITY_EXPR,
-		IDENTIFIER_EXPR,
-		I32_EXPR,
-		F32_EXPR,
-		UNARY_EXPR,
-		BINARY_EXPR,
-		LOGICAL_EXPR,
-		CALL_EXPR,
-		PARENTHESIZED_EXPR,
-	} type;
+	enum expr_type type;
 	enum type result_type;
 	union {
 		struct literal_expr literal;
@@ -3282,9 +3283,159 @@ bool grug_dump_file_ast(char *input_grug_path, char *output_json_path) {
 
 static FILE *applied_stream;
 
-// TODO: Implement
-void apply_expr(struct json_node *expr) {
-	(void)expr;
+char *get_binary_operator_from_token(char *token) {
+	if (streq(token, "PLUS_TOKEN")) {
+		return "+";
+	} else if (streq(token, "MINUS_TOKEN")) {
+		return "-";
+	} else if (streq(token, "MULTIPLICATION_TOKEN")) {
+		return "*";
+	} else if (streq(token, "DIVISION_TOKEN")) {
+		return "/";
+	} else if (streq(token, "REMAINDER_TOKEN")) {
+		return "%";
+	} else if (streq(token, "EQUALS_TOKEN")) {
+		return "==";
+	} else if (streq(token, "NOT_EQUALS_TOKEN")) {
+		return "!=";
+	} else if (streq(token, "GREATER_OR_EQUAL_TOKEN")) {
+		return ">=";
+	} else if (streq(token, "GREATER_TOKEN")) {
+		return ">";
+	} else if (streq(token, "LESS_OR_EQUAL_TOKEN")) {
+		return "<=";
+	} else if (streq(token, "LESS_TOKEN")) {
+		return "<";
+	}
+	grug_error("get_binary_operator_from_token() was passed the token \"%s\", which isn't a binary operator", token);
+}
+
+enum expr_type get_expr_type_from_str(char *token) {
+	if (streq(token, "TRUE_EXPR")) {
+		return TRUE_EXPR;
+	} else if (streq(token, "FALSE_EXPR")) {
+		return FALSE_EXPR;
+	} else if (streq(token, "STRING_EXPR")) {
+		return STRING_EXPR;
+	} else if (streq(token, "RESOURCE_EXPR")) {
+		return RESOURCE_EXPR;
+	} else if (streq(token, "ENTITY_EXPR")) {
+		return ENTITY_EXPR;
+	} else if (streq(token, "IDENTIFIER_EXPR")) {
+		return IDENTIFIER_EXPR;
+	} else if (streq(token, "I32_EXPR")) {
+		return I32_EXPR;
+	} else if (streq(token, "F32_EXPR")) {
+		return F32_EXPR;
+	} else if (streq(token, "UNARY_EXPR")) {
+		return UNARY_EXPR;
+	} else if (streq(token, "BINARY_EXPR")) {
+		return BINARY_EXPR;
+	} else if (streq(token, "LOGICAL_EXPR")) {
+		return LOGICAL_EXPR;
+	} else if (streq(token, "CALL_EXPR")) {
+		return CALL_EXPR;
+	} else if (streq(token, "PARENTHESIZED_EXPR")) {
+		return PARENTHESIZED_EXPR;
+	}
+	grug_error("get_expr_type_from_str() was passed the token \"%s\", which isn't an expr_type", token);
+}
+
+void apply_expr(struct json_node expr) {
+	grug_assert(expr.type == JSON_NODE_OBJECT, "input_json_path its exprs are supposed to be an object");
+	grug_assert(expr.object.field_count > 0, "input_json_path its exprs are supposed to have at least a \"type\" field");
+
+	grug_assert(streq(expr.object.fields[0].key, "type"), "input_json_path its exprs are supposed to have \"type\" as their first field");
+
+	grug_assert(expr.object.fields[0].value->type == JSON_NODE_STRING, "input_json_path its exprs are supposed to have a \"type\" with type string");
+
+	char *type = expr.object.fields[0].value->string;
+	grug_assert(strlen(type) > 0, "input_json_path its exprs are not supposed to have an empty \"type\" string");
+
+	switch(get_expr_type_from_str(type)) {
+		case TRUE_EXPR:
+			grug_assert(expr.object.field_count == 1, "input_json_path its TRUE_EXPRs are supposed to have exactly 1 field");
+			apply("true");
+			break;
+		case FALSE_EXPR:
+			grug_assert(expr.object.field_count == 1, "input_json_path its FALSE_EXPRs are supposed to have exactly 1 field");
+			apply("false");
+			break;
+		case STRING_EXPR:
+			grug_assert(expr.object.field_count == 2, "input_json_path its STRING_EXPRs are supposed to have exactly 2 fields");
+
+			grug_assert(streq(expr.object.fields[1].key, "str"), "input_json_path its STRING_EXPRs are supposed to have \"str\" as their second field");
+
+			grug_assert(expr.object.fields[1].value->type == JSON_NODE_STRING, "input_json_path its STRING_EXPRs are supposed to have a \"str\" with type string");
+
+			apply("%s", expr.object.fields[1].value->string);
+
+			break;
+		case RESOURCE_EXPR:
+			assert(false); // TODO: Implement!
+			break;
+		case ENTITY_EXPR:
+			assert(false); // TODO: Implement!
+			break;
+		case IDENTIFIER_EXPR:
+			assert(false); // TODO: Implement!
+			break;
+		case I32_EXPR: {
+			grug_assert(expr.object.field_count == 2, "input_json_path its I32_EXPRs are supposed to have exactly 2 fields");
+
+			grug_assert(streq(expr.object.fields[1].key, "value"), "input_json_path its I32_EXPRs are supposed to have \"value\" as their second field");
+
+			grug_assert(expr.object.fields[1].value->type == JSON_NODE_STRING, "input_json_path its I32_EXPRs are supposed to have a \"value\" with type string");
+
+			char *i32 = expr.object.fields[1].value->string;
+			grug_assert(strlen(i32) > 0, "input_json_path its I32_EXPRs are not supposed to have an empty \"value\" string");
+
+			apply("%s", i32);
+
+			break;
+		}
+		case F32_EXPR:
+			grug_assert(expr.object.field_count == 2, "input_json_path its F32_EXPRs are supposed to have exactly 2 fields");
+
+			grug_assert(streq(expr.object.fields[1].key, "value"), "input_json_path its F32_EXPRs are supposed to have \"value\" as their second field");
+
+			grug_assert(expr.object.fields[1].value->type == JSON_NODE_STRING, "input_json_path its F32_EXPRs are supposed to have a \"value\" with type string");
+
+			char *f32 = expr.object.fields[1].value->string;
+			grug_assert(strlen(f32) > 0, "input_json_path its F32_EXPRs are not supposed to have an empty \"value\" string");
+
+			apply("%s", f32);
+
+			break;
+		case UNARY_EXPR:
+			assert(false); // TODO: Implement!
+			break;
+		case BINARY_EXPR:
+			grug_assert(expr.object.field_count == 4, "input_json_path its BINARY_EXPRs are supposed to have exactly 4 fields");
+
+			grug_assert(streq(expr.object.fields[1].key, "left_expr"), "input_json_path its I32_EXPRs are supposed to have \"left_expr\" as their second field");
+			grug_assert(expr.object.fields[1].value->type == JSON_NODE_OBJECT, "input_json_path its I32_EXPRs are supposed to have a \"left_expr\" with type object");
+			apply_expr(*expr.object.fields[1].value);
+
+			grug_assert(streq(expr.object.fields[2].key, "operator"), "input_json_path its I32_EXPRs are supposed to have \"operator\" as their third field");
+			grug_assert(expr.object.fields[2].value->type == JSON_NODE_STRING, "input_json_path its I32_EXPRs are supposed to have an \"operator\" with type string");
+			apply(" %s ", get_binary_operator_from_token(expr.object.fields[2].value->string));
+
+			grug_assert(streq(expr.object.fields[3].key, "right_expr"), "input_json_path its I32_EXPRs are supposed to have \"right_expr\" as their fourth field");
+			grug_assert(expr.object.fields[3].value->type == JSON_NODE_OBJECT, "input_json_path its I32_EXPRs are supposed to have a \"right_expr\" with type object");
+			apply_expr(*expr.object.fields[3].value);
+
+			break;
+		case LOGICAL_EXPR:
+			assert(false); // TODO: Implement!
+			break;
+		case CALL_EXPR:
+			assert(false); // TODO: Implement!
+			break;
+		case PARENTHESIZED_EXPR:
+			assert(false); // TODO: Implement!
+			break;
+	}
 }
 
 void apply_entity(struct json_node node) {
@@ -3298,6 +3449,9 @@ void apply_entity(struct json_node node) {
 	struct json_node *name = entity_fields[0].value;
 	grug_assert(name->type == JSON_NODE_STRING, "input_json_path its root.entity.name is supposed to be a string");
 	grug_assert(strlen(name->string) > 0, "input_json_path its root.entity.name is not supposed to be an empty string");
+
+	apply("define() %s {\n", name->string);
+	apply("\treturn {\n");
 
 	grug_assert(streq(entity_fields[1].key, "fields"), "input_json_path its root.entity its second field is supposed to be \"fields\"");
 
@@ -3317,10 +3471,15 @@ void apply_entity(struct json_node node) {
 
 		grug_assert(streq(value.object.fields[1].key, "value"), "input_json_path its root.entity.fields[%zu] its second field is supposed to be \"value\"", i);
 
-		struct json_node *field_value = value.object.fields[1].value;
-		grug_assert(field_value->type == JSON_NODE_OBJECT, "input_json_path its root.entity.fields[%zu].value is supposed to be an object", i);
-		apply_expr(field_value);
+		apply("\t\t.%s = ", field_name->string);
+
+		apply_expr(*value.object.fields[1].value);
+
+		apply(",\n");
 	}
+
+	apply("\t}\n");
+	apply("}\n");
 }
 
 // void apply_global_variables(struct json_node node) {
