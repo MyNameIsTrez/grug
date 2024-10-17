@@ -1999,8 +1999,6 @@ enum statement_type {
 	WHILE_STATEMENT,
 	BREAK_STATEMENT,
 	CONTINUE_STATEMENT,
-	EMPTY_LINE_STATEMENT,
-	COMMENT_STATEMENT,
 };
 struct statement {
 	enum statement_type type;
@@ -2010,7 +2008,6 @@ struct statement {
 		struct if_statement if_statement;
 		struct return_statement return_statement;
 		struct while_statement while_statement;
-		char *comment;
 	};
 };
 static char *get_statement_type_str[] = {
@@ -2021,8 +2018,6 @@ static char *get_statement_type_str[] = {
 	[WHILE_STATEMENT] = "WHILE_STATEMENT",
 	[BREAK_STATEMENT] = "BREAK_STATEMENT",
 	[CONTINUE_STATEMENT] = "CONTINUE_STATEMENT",
-	[EMPTY_LINE_STATEMENT] = "EMPTY_LINE_STATEMENT",
-	[COMMENT_STATEMENT] = "COMMENT_STATEMENT",
 };
 static struct statement statements[MAX_STATEMENTS_IN_FILE];
 static size_t statements_size;
@@ -2631,12 +2626,11 @@ static struct statement parse_statement(size_t *i) {
 			break;
 		case NEWLINE_TOKEN:
 			(*i)++;
-			statement.type = EMPTY_LINE_STATEMENT;
+			assert(false);
 			break;
 		case COMMENT_TOKEN:
 			(*i)++;
-			statement.type = COMMENT_STATEMENT;
-			statement.comment = switch_token.str;
+			assert(false);
 			break;
 		default:
 			grug_error("Expected a statement token, but got token type %s on line %zu", get_token_type_str[switch_token.type], get_token_line_number(*i - 1));
@@ -3093,13 +3087,8 @@ static void dump_statements(struct statement *statements_offset, size_t statemen
 				dump("]");
 
 				break;
-			case COMMENT_STATEMENT:
-				dump(",");
-				dump("\"comment\":\"%s\"", statement.comment);
-				break;
 			case BREAK_STATEMENT:
 			case CONTINUE_STATEMENT:
-			case EMPTY_LINE_STATEMENT:
 				break;
 		}
 
@@ -3302,10 +3291,6 @@ static enum statement_type get_statement_type_from_str(char *token) {
 		return BREAK_STATEMENT;
 	} else if (streq(token, "CONTINUE_STATEMENT")) {
 		return CONTINUE_STATEMENT;
-	} else if (streq(token, "EMPTY_LINE_STATEMENT")) {
-		return EMPTY_LINE_STATEMENT;
-	} else if (streq(token, "COMMENT_STATEMENT")) {
-		return COMMENT_STATEMENT;
 	}
 	grug_error("get_statement_type_from_str() was passed the token \"%s\", which isn't a statement_type", token);
 }
@@ -3668,12 +3653,6 @@ static void apply_statement(char *type, size_t field_count, struct json_field *s
 			break;
 		case CONTINUE_STATEMENT:
 			apply("continue\n");
-			break;
-		case EMPTY_LINE_STATEMENT:
-			assert(false);
-			break;
-		case COMMENT_STATEMENT:
-			assert(false);
 			break;
 	}
 }
@@ -4537,8 +4516,6 @@ static void fill_statements(struct statement *statements_offset, size_t statemen
 				break;
 			case BREAK_STATEMENT:
 			case CONTINUE_STATEMENT:
-			case EMPTY_LINE_STATEMENT:
-			case COMMENT_STATEMENT:
 				break;
 		}
 	}
@@ -6031,9 +6008,6 @@ static void compile_statements(struct statement *statements_offset, size_t state
 				size_t start_of_loop_jump_offset = start_of_loop_jump_offsets[start_of_loop_jump_offsets_size - 1];
 				compile_32(start_of_loop_jump_offset - (codes_size + NEXT_INSTRUCTION_OFFSET));
 				break;
-			case EMPTY_LINE_STATEMENT:
-			case COMMENT_STATEMENT:
-				break;
 		}
 	}
 }
@@ -6063,8 +6037,6 @@ static void add_variables_in_statements(struct statement *statements_offset, siz
 			case RETURN_STATEMENT:
 			case BREAK_STATEMENT:
 			case CONTINUE_STATEMENT:
-			case EMPTY_LINE_STATEMENT:
-			case COMMENT_STATEMENT:
 				break;
 		}
 	}
