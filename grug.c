@@ -3783,6 +3783,117 @@ static void apply_indentation(void) {
 
 static void apply_statement_groups(struct json_node node);
 
+static struct json_node *try_get_else_if(struct json_node node) {
+	grug_assert(node.type == JSON_NODE_ARRAY, "input_json_path its \"else_statement_groups\" is supposed to be an array");
+
+	grug_assert(node.array.value_count > 0, "input_json_path its \"else_statement_groups\" is supposed to contain at least one value");
+
+	grug_assert(node.array.values[0].type == JSON_NODE_OBJECT, "input_json_path its \"else_statement_groups\" is supposed to only contain objects");
+
+	grug_assert(node.array.values[0].object.field_count > 0, "input_json_path its \"else_statement_groups\" its object is supposed to contain at least one field");
+
+	// This uses the fact that there is no way for an else or else-if to have a comment
+	if (!streq(node.array.values[0].object.fields[0].key, "statements")) {
+		return NULL;
+	}
+
+	grug_assert(node.array.values[0].object.fields[0].value->type == JSON_NODE_ARRAY,  "input_json_path its \"statements\" is supposed to be an array");
+
+	struct json_array statements_array = node.array.values[0].object.fields[0].value->array;
+
+	grug_assert(statements_array.value_count > 0, "input_json_path its \"statements\" is supposed to contain at least one value");
+
+	grug_assert(statements_array.values[0].type == JSON_NODE_OBJECT, "input_json_path its \"statements\" is supposed to only contain object");
+
+	grug_assert(statements_array.values[0].object.field_count > 1, "input_json_path its \"statements\" its object is supposed to contain a \"type\" and \"condition\" field");
+
+	grug_assert(streq(statements_array.values[0].object.fields[0].key, "type"), "input_json_path its \"statements\" its object is supposed to contain \"type\" as the first field");
+
+	grug_assert(statements_array.values[0].object.fields[0].value->type == JSON_NODE_STRING, "input_json_path its \"type\" is supposed to be a string");
+
+	if (streq(statements_array.values[0].object.fields[0].value->string, "IF_STATEMENT")) {
+		return &statements_array.values[0];
+	}
+
+	return NULL;
+}
+
+static void apply_if_statement(size_t field_count, struct json_field *statement) {
+	grug_assert(field_count >= 2 && field_count <= 4, "input_json_path its IF_STATEMENTs are supposed to have between 2 and 4 fields");
+
+	apply("if ");
+
+	grug_assert(streq(statement[1].key, "condition"), "input_json_path its IF_STATEMENTs are supposed to have \"condition\" as their second field");
+
+	apply_expr(*statement[1].value);
+
+	apply(" {\n");
+
+	struct json_node *if_statement_groups_node = NULL;
+	struct json_node *else_statement_groups_node = NULL;
+
+	// `+ 2`, due to the "type" and "condition" fields not being included
+	struct json_field *fields_ptr = statement + 2;
+
+	if (streq(fields_ptr->key, "if_statement_groups")) {
+		if_statement_groups_node = fields_ptr->value;
+		fields_ptr++;
+	}
+
+	if (streq(fields_ptr->key, "else_statement_groups")) {
+		else_statement_groups_node = fields_ptr->value;
+		fields_ptr++;
+	}
+
+	size_t recognized_count = fields_ptr - (statement + 2);
+
+	size_t relevant_count = field_count - 2;
+
+	grug_assert(recognized_count == relevant_count, "input_json_path its IF_STATEMENT has %zu fields, but %zu of them are either not recognized, or are not in the right order. One of those fields is '%s'", field_count, relevant_count - recognized_count, fields_ptr->key);
+
+	if (if_statement_groups_node) {
+		apply_statement_groups(*if_statement_groups_node);
+	}
+
+	if (else_statement_groups_node) {
+		apply_indentation();
+
+		struct json_node *else_if_node = try_get_else_if(*else_statement_groups_node);
+
+		if (else_if_node) {
+			apply("} else if ");
+
+			grug_assert(streq(else_if_node->object.fields[1].key, "condition"), "input_json_path its IF_STATEMENT object is supposed to contain \"condition\" as the second field");
+
+			apply_expr(*else_if_node->object.fields[1].value);
+
+			apply(" {\n");
+
+			// TODO: This needs to add the if-case and elif-case
+			if (else_if_node->object.field_count > 2) {
+				// We can't use apply_statement_groups(), since it calls apply_statements(),
+				// which adds indentation before the if-statement
+				//
+				// We also can't call ourselves recursively, since it'll add the condition a second time
+				// TODO: REPLACE WITH ADDING THE IF AND ELSE SIDES MANUALLY!
+				apply_if_statement(else_if_node->object.field_count, else_if_node->object.fields);
+			} else {
+				apply_indentation();
+				apply("}\n");
+			}
+		} else {
+			apply("} else {\n");
+			apply_statement_groups(*else_statement_groups_node);
+
+			apply_indentation();
+			apply("}\n");
+		}
+	} else {
+		apply_indentation();
+		apply("}\n");
+	}
+}
+
 static void apply_statement(char *type, size_t field_count, struct json_field *statement) {
 	switch (get_statement_type_from_str(type)) {
 		case VARIABLE_STATEMENT: {
@@ -3857,42 +3968,7 @@ static void apply_statement(char *type, size_t field_count, struct json_field *s
 			break;
 		}
 		case IF_STATEMENT:
-			grug_assert(field_count >= 2 && field_count <= 4, "input_json_path its IF_STATEMENTs are supposed to have between 2 and 4 fields");
-
-			apply("if ");
-
-			grug_assert(streq(statement[1].key, "condition"), "input_json_path its IF_STATEMENTs are supposed to have \"condition\" as their second field");
-
-			apply_expr(*statement[1].value);
-
-			apply(" {\n");
-
-			if (field_count > 2) {
-				if (streq(statement[2].key, "if_statement_groups")) {
-					apply_statement_groups(*statement[2].value);
-
-					if (field_count > 3) {
-						grug_assert(streq(statement[3].key, "else_statement_groups"), "input_json_path its WHILE_STATEMENTs are supposed to have \"else_statement_groups\" as their fourth field");
-
-						apply_indentation();
-						apply("} else {\n");
-
-						apply_statement_groups(*statement[3].value);
-					}
-				} else if (streq(statement[2].key, "else_statement_groups")) {
-					apply_indentation();
-					// TODO: Printing "} else if {\n" will need to be done specially somehow
-					apply("} else {\n");
-
-					apply_statement_groups(*statement[2].value);
-				} else {
-					grug_error("input_json_path its IF_STATEMENTs its third fields are supposed to be either \"if_statement_groups\" or \"else_statement_groups\"");
-				}
-			}
-
-			apply_indentation();
-			apply("}\n");
-
+			apply_if_statement(field_count, statement);
 			break;
 		case RETURN_STATEMENT:
 			assert(false);
@@ -3967,7 +4043,7 @@ static void apply_comments(struct json_node node) {
 }
 
 static void apply_statement_groups(struct json_node node) {
-	grug_assert(node.type == JSON_NODE_ARRAY, "input_json_path its \"statement_groups\" is supposed to be an array");
+	grug_assert(node.type == JSON_NODE_ARRAY, "input_json_path its \"statement_groups\" and \"else_statement_groups\" is supposed to be an array");
 
 	struct json_node *groups_array = node.array.values;
 
