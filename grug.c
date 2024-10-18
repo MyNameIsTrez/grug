@@ -3930,8 +3930,6 @@ static void apply_statements(struct json_node node) {
 
 	struct json_node *statements_array = node.array.values;
 
-	indentation++;
-
 	for (size_t i = 0; i < node.array.value_count; i++) {
 		grug_assert(statements_array[i].type == JSON_NODE_OBJECT, "input_json_path its statements are supposed to be an array of objects");
 
@@ -3950,9 +3948,6 @@ static void apply_statements(struct json_node node) {
 
 		apply_statement(type, field_count, statement);
 	}
-
-	assert(indentation > 0);
-	indentation--;
 }
 
 static void apply_comments(struct json_node node) {
@@ -3976,6 +3971,8 @@ static void apply_statement_groups(struct json_node node) {
 
 	struct json_node *groups_array = node.array.values;
 
+	indentation++;
+
 	for (size_t i = 0; i < node.array.value_count; i++) {
 		grug_assert(groups_array[i].type == JSON_NODE_OBJECT, "input_json_path its \"statement_groups\" values are supposed to be objects");
 
@@ -3990,10 +3987,7 @@ static void apply_statement_groups(struct json_node node) {
 		if (streq(group.fields[0].key, "comments")) {
 			grug_assert(group.field_count == 2, "input_json_path its \"comments\" field is supposed to have a \"statements\" field after it");
 
-			indentation++;
 			apply_comments(*group.fields[0].value);
-			assert(indentation > 0);
-			indentation--;
 
 			apply_statements(*group.fields[1].value);
 		} else if (streq(group.fields[0].key, "statements")) {
@@ -4004,6 +3998,9 @@ static void apply_statement_groups(struct json_node node) {
 			grug_error("input_json_path its \"statement_groups\" its first field is supposed to be either \"comments\" or \"statements\"");
 		}
 	}
+
+	assert(indentation > 0);
+	indentation--;
 }
 
 static void apply_arguments(struct json_node node) {
