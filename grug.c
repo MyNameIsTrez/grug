@@ -4091,14 +4091,10 @@ static void apply_on_fns(struct json_node node) {
 	}
 }
 
-static void apply_global_variables(struct json_node node) {
+static void apply_global_variable_group_statements(struct json_node node) {
 	grug_assert(node.type == JSON_NODE_ARRAY, "input_json_path its root.global_variables is supposed to be an array");
 
 	struct json_node *globals = node.array.values;
-
-	if (node.array.value_count > 0) {
-		apply("\n");
-	}
 
 	for (size_t i = 0; i < node.array.value_count; i++) {
 		grug_assert(globals[i].type == JSON_NODE_OBJECT, "input_json_path its root.global_variables[%zu] is supposed to be an object", i);
@@ -4115,18 +4111,57 @@ static void apply_global_variables(struct json_node node) {
 
 		apply("%s", name);
 
-		grug_assert(streq(global.fields[1].key, "type"), "input_json_path its root.global_variables[%zu] its second field is supposed to be \"type\"", i);
+		grug_assert(streq(global.fields[1].key, "variable_type"), "input_json_path its root.global_variables[%zu] its second field is supposed to be \"variable_type\"", i);
 
-		struct json_node *type = global.fields[1].value;
-		grug_assert(type->type == JSON_NODE_STRING, "input_json_path its root.global_variables[%zu].type is supposed to be a string", i);
-		grug_assert(strlen(type->string) > 0, "input_json_path its root.global_variables[%zu].type is not supposed to be an empty string", i);
+		struct json_node *variable_type = global.fields[1].value;
+		grug_assert(variable_type->type == JSON_NODE_STRING, "input_json_path its root.global_variables[%zu].variable_type is supposed to be a string", i);
+		grug_assert(strlen(variable_type->string) > 0, "input_json_path its root.global_variables[%zu].variable_type is not supposed to be an empty string", i);
 
-		apply(": %s = ", type->string);
+		apply(": %s = ", variable_type->string);
+
+		grug_assert(streq(global.fields[2].key, "assignment"), "input_json_path its root.global_variables[%zu] its third field is supposed to be \"assignment\"", i);
 
 		struct json_node assignment = *global.fields[2].value;
 		apply_expr(assignment);
 
 		apply("\n");
+	}
+}
+
+static void apply_global_variables(struct json_node node) {
+	grug_assert(node.type == JSON_NODE_ARRAY, "input_json_path its root.global_variables is supposed to be an array");
+
+	struct json_node *groups = node.array.values;
+
+	for (size_t i = 0; i < node.array.value_count; i++) {
+		grug_assert(groups[i].type == JSON_NODE_OBJECT, "input_json_path its root.global_variables[%zu] is supposed to be an object", i);
+
+		if (node.array.value_count > 0) {
+			apply("\n");
+		}
+
+		struct json_object group = groups[i].object;
+
+		size_t field_count = group.field_count;
+
+		grug_assert(field_count == 1 || field_count == 2, "input_json_path its root.global_variables[%zu] is supposed to have 1 or 2 fields", i);
+
+		if (streq(group.fields[0].key, "comments")) {
+			grug_assert(field_count == 2, "input_json_path its root.global_variables[%zu] its \"comments\" is supposed to have \"statements\" after it", i);
+
+			indentation = 0;
+			apply_comments(*group.fields[0].value);
+
+			grug_assert(streq(group.fields[1].key, "statements"), "input_json_path its root.global_variables[%zu] its \"comments\" is supposed to have \"statements\" after it", i);
+
+			apply_global_variable_group_statements(*group.fields[1].value);
+		} else if (streq(group.fields[0].key, "statements")) {
+			grug_assert(field_count == 1, "input_json_path its root.global_variables[%zu] its \"statements\" isn't supposed to have a field after it", i);
+
+			apply_global_variable_group_statements(*group.fields[0].value);
+		} else {
+			grug_error("input_json_path its root.global_variables[%zu] its first field is supposed to be either \"comments\" or \"statements\"", i);
+		}
 	}
 }
 
@@ -4232,6 +4267,47 @@ static void apply_entity(struct json_node node) {
 	apply("}\n");
 }
 
+static void apply_root(struct json_node node) {
+	grug_assert(node.type == JSON_NODE_OBJECT, "input_json_path its root is supposed to be an object");
+
+	size_t field_count = node.object.field_count;
+
+	grug_assert(field_count >= 1 && field_count <= 4, "input_json_path its root is supposed to have between 1 and 4 (inclusive) fields");
+
+	struct json_field *root_fields = node.object.fields;
+
+	grug_assert(streq(root_fields[0].key, "entity"), "input_json_path its first field is supposed to be \"entity\"");
+	apply_entity(*root_fields[0].value);
+
+	if (field_count > 1) {
+		if (streq(root_fields[1].key, "global_variables")) {
+			apply_global_variables(*root_fields[1].value);
+		} else if (streq(root_fields[1].key, "on_fns")) {
+			apply_on_fns(*root_fields[1].value);
+		} else if (streq(root_fields[1].key, "helper_fns")) {
+			apply_helper_fns(*root_fields[1].value);
+		} else {
+			grug_error("input_json_path its second field is supposed to be either \"global_variables\", \"on_fns\", or \"helper_fns\"");
+		}
+
+		if (field_count > 2) {
+			if (streq(root_fields[2].key, "on_fns")) {
+				apply_on_fns(*root_fields[2].value);
+			} else if (streq(root_fields[2].key, "helper_fns")) {
+				apply_helper_fns(*root_fields[2].value);
+			} else {
+				grug_error("input_json_path its third field is supposed to be either \"on_fns\" or \"helper_fns\"");
+			}
+
+			if (field_count > 3) {
+				grug_assert(streq(root_fields[3].key, "helper_fns"), "input_json_path its fourth field is supposed to be \"helper_fns\"");
+
+				apply_helper_fns(*root_fields[3].value);
+			}
+		}
+	}
+}
+
 bool grug_apply_file_ast(char *input_json_path, char *output_grug_path) {
 	static char mod_api_json_text[JSON_MAX_CHARACTERS];
 	static size_t mod_api_json_text_size;
@@ -4278,44 +4354,7 @@ bool grug_apply_file_ast(char *input_json_path, char *output_grug_path) {
 	applied_stream = fopen(output_grug_path, "w");
 	grug_assert(applied_stream, "fopen: %s", strerror(errno));
 
-	grug_assert(node.type == JSON_NODE_OBJECT, "input_json_path its root is supposed to be an object");
-
-	size_t field_count = node.object.field_count;
-
-	grug_assert(field_count >= 1 && field_count <= 4, "input_json_path its root is supposed to have between 1 and 4 (inclusive) fields");
-
-	struct json_field *root_fields = node.object.fields;
-
-	grug_assert(streq(root_fields[0].key, "entity"), "input_json_path its first field is supposed to be \"entity\"");
-	apply_entity(*root_fields[0].value);
-
-	if (field_count > 1) {
-		if (streq(root_fields[1].key, "global_variables")) {
-			apply_global_variables(*root_fields[1].value);
-		} else if (streq(root_fields[1].key, "on_fns")) {
-			apply_on_fns(*root_fields[1].value);
-		} else if (streq(root_fields[1].key, "helper_fns")) {
-			apply_helper_fns(*root_fields[1].value);
-		} else {
-			grug_error("input_json_path its second field is supposed to be either \"global_variables\", \"on_fns\", or \"helper_fns\"");
-		}
-
-		if (field_count > 2) {
-			if (streq(root_fields[2].key, "on_fns")) {
-				apply_on_fns(*root_fields[2].value);
-			} else if (streq(root_fields[2].key, "helper_fns")) {
-				apply_helper_fns(*root_fields[2].value);
-			} else {
-				grug_error("input_json_path its third field is supposed to be either \"on_fns\" or \"helper_fns\"");
-			}
-
-			if (field_count > 3) {
-				grug_assert(streq(root_fields[3].key, "helper_fns"), "input_json_path its fourth field is supposed to be \"helper_fns\"");
-
-				apply_helper_fns(*root_fields[3].value);
-			}
-		}
-	}
+	apply_root(node);
 
 	grug_assert(fclose(applied_stream) == 0, "fclose: %s", strerror(errno));
 
