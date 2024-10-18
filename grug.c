@@ -2051,6 +2051,8 @@ struct parsed_define_fn {
 static struct parsed_define_fn define_fn;
 
 struct on_fn {
+	char **comments;
+	size_t comment_count;
 	char *fn_name;
 	struct argument *arguments;
 	size_t argument_count;
@@ -2061,6 +2063,8 @@ static struct on_fn on_fns[MAX_ON_FNS];
 static size_t on_fns_size;
 
 struct helper_fn {
+	char **comments;
+	size_t comment_count;
 	char *fn_name;
 	struct argument *arguments;
 	size_t argument_count;
@@ -3000,7 +3004,11 @@ static void parse(void) {
 			newline_allowed = true;
 			just_seen_newline = false;
 
+			struct on_fn *fn = on_fns + on_fns_size - 1;
+
+			fn->comments = group_comments;
 			group_comments = NULL;
+			fn->comment_count = group_comment_count;
 			group_comment_count = 0;
 		} else if (type == WORD_TOKEN && starts_with(token.str, "helper_") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			parse_helper_fn(&i);
@@ -3008,7 +3016,11 @@ static void parse(void) {
 			newline_allowed = true;
 			just_seen_newline = false;
 
+			struct helper_fn *fn = helper_fns + helper_fns_size - 1;
+
+			fn->comments = group_comments;
 			group_comments = NULL;
+			fn->comment_count = group_comment_count;
 			group_comment_count = 0;
 		} else if (type == NEWLINE_TOKEN) {
 			grug_assert(newline_allowed, "Unexpected empty line, on line %zu", get_token_line_number(i));
@@ -3290,6 +3302,10 @@ static void dump_helper_fns(void) {
 
 		struct helper_fn fn = helper_fns[i];
 
+		if (fn.comment_count > 0) {
+			dump_comments(fn.comments, fn.comment_count);
+		}
+
 		dump("\"name\":\"%s\"", fn.fn_name);
 
 		dump_arguments(fn.arguments, fn.argument_count);
@@ -3324,6 +3340,10 @@ static void dump_on_fns(void) {
 		dump("{");
 
 		struct on_fn fn = on_fns[i];
+
+		if (fn.comment_count > 0) {
+			dump_comments(fn.comments, fn.comment_count);
+		}
 
 		dump("\"name\":\"%s\"", fn.fn_name);
 
@@ -3981,60 +4001,74 @@ static void apply_helper_fns(struct json_node node) {
 
 		size_t field_count = fn.field_count;
 
-		grug_assert(field_count >= 2 && field_count <= 4, "input_json_path its root.helper_fns[%zu] is supposed to have between 2 and 4 (inclusive) fields", i);
+		grug_assert(field_count >= 1 && field_count <= 5, "input_json_path its root.helper_fns[%zu] is supposed to have between 1 and 5 (inclusive) fields", i);
 
-		grug_assert(streq(fn.fields[0].key, "name"), "input_json_path its root.helper_fns[%zu] its first field is supposed to be \"name\"", i);
+		struct json_node *comments_node = NULL;
+		struct json_node *name_node = NULL;
+		struct json_node *arguments_node = NULL;
+		struct json_node *return_type_node = NULL;
+		struct json_node *statement_groups_node = NULL;
 
-		grug_assert(fn.fields[0].value->type == JSON_NODE_STRING, "input_json_path its root.helper_fns[%zu].name is supposed to be a string", i);
+		struct json_field *fields_ptr = fn.fields;
 
-		char *name = fn.fields[0].value->string;
-		grug_assert(strlen(name) > 0, "input_json_path its root.helper_fns[%zu].name is not supposed to be an empty string", i);
+		if (streq(fields_ptr->key, "comments")) {
+			comments_node = fields_ptr->value;
+			fields_ptr++;
+		}
 
-		apply("%s(", name);
+		if (streq(fields_ptr->key, "name")) {
+			name_node = fields_ptr->value;
+			fields_ptr++;
+		} else {
+			grug_error("input_json_path its root.helper_fns[%zu] its first or second field is supposed to be \"name\"", i);
+		}
+
+		if (streq(fields_ptr->key, "arguments")) {
+			arguments_node = fields_ptr->value;
+			fields_ptr++;
+		}
+
+		if (streq(fields_ptr->key, "return_type")) {
+			return_type_node = fields_ptr->value;
+			fields_ptr++;
+		}
+
+		if (streq(fields_ptr->key, "statement_groups")) {
+			statement_groups_node = fields_ptr->value;
+			fields_ptr++;
+		}
+
+		size_t recognized_count = fields_ptr - fn.fields;
+
+		grug_assert(recognized_count == field_count, "input_json_path its root.helper_fns[%zu] has %zu fields, but %zu of them are either not recognized, or are not in the right order. One of those fields is '%s'", i, field_count, field_count - recognized_count, fields_ptr->key);
+
+		if (comments_node) {
+			indentation = 0;
+			apply_comments(*comments_node);
+		}
+
+		grug_assert(name_node->type == JSON_NODE_STRING, "input_json_path its root.helper_fns[%zu].name is supposed to be a string", i);
+		grug_assert(strlen(name_node->string) > 0, "input_json_path its root.helper_fns[%zu].name is not supposed to be an empty string", i);
+
+		apply("%s(", name_node->string);
+
+		if (arguments_node) {
+			apply_arguments(*arguments_node);
+		}
 
 		apply(")");
 
-		if (streq(fn.fields[1].key, "arguments")) {
-			apply_arguments(*fn.fields[1].value);
-		} else if (streq(fn.fields[1].key, "return_type")) {
-			grug_assert(field_count == 3, "input_json_path its root.helper_fns[%zu] its \"return_type\" field is supposed to have a \"statement_groups\" field after it", i);
+		if (return_type_node) {
+			grug_assert(return_type_node->type == JSON_NODE_STRING, "input_json_path its root.helper_fns[%zu].return_type is supposed to be a string", i);
 
-			grug_assert(fn.fields[1].value->type == JSON_NODE_STRING, "input_json_path its root.helper_fns[%zu].return_type is supposed to be a string", i);
-
-			apply(" %s", fn.fields[1].value->string);
-		} else if (streq(fn.fields[1].key, "statement_groups")) {
-			grug_assert(field_count == 2, "input_json_path its root.helper_fns[%zu] its \"statement_groups\" field isn't supposed to have a field after it", i);
-
-			apply(" {\n");
-
-			indentation = 0;
-			apply_statement_groups(*fn.fields[1].value);
-		} else {
-			grug_error("input_json_path its root.helper_fns[%zu] its second field is supposed to be either \"arguments\", \"return_type\", or \"statement_groups\"", i);
+			apply(" %s", return_type_node->string);
 		}
 
-		if (field_count > 2) {
-			if (streq(fn.fields[2].key, "return_type")) {
-				grug_assert(field_count == 4, "input_json_path its root.helper_fns[%zu] its \"return_type\" field is supposed to have a \"statement_groups\" field after it", i);
+		apply(" {\n");
 
-				grug_assert(fn.fields[2].value->type == JSON_NODE_STRING, "input_json_path its root.helper_fns[%zu].return_type is supposed to be a string", i);
-
-				apply(" %s {\n", fn.fields[2].value->string);
-
-				grug_assert(streq(fn.fields[3].key, "statement_groups"), "input_json_path its root.helper_fns[%zu] its fourth field is supposed to be \"statement_groups\"", i);
-
-				indentation = 0;
-				apply_statement_groups(*fn.fields[3].value);
-			} else if (streq(fn.fields[2].key, "statement_groups")) {
-				grug_assert(field_count == 3, "input_json_path its root.helper_fns[%zu] its \"statement_groups\" field isn't supposed to have a field after it", i);
-
-				apply(" {\n");
-
-				indentation = 0;
-				apply_statement_groups(*fn.fields[2].value);
-			} else {
-				grug_error("input_json_path its root.helper_fns[%zu] its third field is supposed to be either \"return_type\" or \"statement_groups\"", i);
-			}
+		if (statement_groups_node) {
+			indentation = 0;
+			apply_statement_groups(*statement_groups_node);
 		}
 
 		apply("}\n");
@@ -4052,39 +4086,63 @@ static void apply_on_fns(struct json_node node) {
 		grug_assert(on_fns_objects[i].type == JSON_NODE_OBJECT, "input_json_path its root.on_fns[%zu] is supposed to be an object", i);
 
 		struct json_object fn = on_fns_objects[i].object;
-		grug_assert(fn.field_count == 2 || fn.field_count == 3, "input_json_path its root.on_fns[%zu] is supposed to have either 2 or 3 fields", i);
 
-		grug_assert(streq(fn.fields[0].key, "name"), "input_json_path its root.on_fns[%zu] its first field is supposed to be \"name\"", i);
+		size_t field_count = fn.field_count;
 
-		grug_assert(fn.fields[0].value->type == JSON_NODE_STRING, "input_json_path its root.on_fns[%zu].name is supposed to be a string", i);
+		grug_assert(field_count >= 1 && field_count <= 4, "input_json_path its root.on_fns[%zu] is supposed to have between 1 and 4 (inclusive) fields", i);
 
-		char *name = fn.fields[0].value->string;
-		grug_assert(strlen(name) > 0, "input_json_path its root.on_fns[%zu].name is not supposed to be an empty string", i);
+		struct json_node *comments_node = NULL;
+		struct json_node *name_node = NULL;
+		struct json_node *arguments_node = NULL;
+		struct json_node *statement_groups_node = NULL;
 
-		apply("%s(", name);
+		struct json_field *fields_ptr = fn.fields;
 
-		grug_assert(streq(fn.fields[1].key, "arguments") || streq(fn.fields[1].key, "statement_groups"), "input_json_path its root.on_fns[%zu] its second field is supposed to be either \"arguments\" or \"statement_groups\"", i);
+		if (streq(fields_ptr->key, "comments")) {
+			comments_node = fields_ptr->value;
+			fields_ptr++;
+		}
 
-		if (streq(fn.fields[1].key, "arguments")) {
-			grug_assert(fn.field_count == 3, "input_json_path its root.on_fns[%zu] its third field after \"arguments\" is supposed to be \"statement_groups\"", i);
-
-			apply_arguments(*fn.fields[1].value);
-
-			apply(") {\n");
-
-			grug_assert(streq(fn.fields[2].key, "statement_groups"), "input_json_path its root.on_fns[%zu] its third field is supposed to be \"statement_groups\"", i);
-
-			indentation = 0;
-			apply_statement_groups(*fn.fields[2].value);
-		} else if (streq(fn.fields[1].key, "statement_groups")) {
-			grug_assert(fn.field_count == 2, "input_json_path its root.on_fns[%zu] isn't supposed to have a field after \"statement_groups\"", i);
-
-			apply(") {\n");
-
-			indentation = 0;
-			apply_statement_groups(*fn.fields[1].value);
+		if (streq(fields_ptr->key, "name")) {
+			name_node = fields_ptr->value;
+			fields_ptr++;
 		} else {
-			grug_error("input_json_path its root.on_fns[%zu] its second field is supposed to be either \"arguments\" or \"statement_groups\"", i);
+			grug_error("input_json_path its root.on_fns[%zu] its first or second field is supposed to be \"name\"", i);
+		}
+
+		if (streq(fields_ptr->key, "arguments")) {
+			arguments_node = fields_ptr->value;
+			fields_ptr++;
+		}
+
+		if (streq(fields_ptr->key, "statement_groups")) {
+			statement_groups_node = fields_ptr->value;
+			fields_ptr++;
+		}
+
+		size_t recognized_count = fields_ptr - fn.fields;
+
+		grug_assert(recognized_count == field_count, "input_json_path its root.on_fns[%zu] has %zu fields, but %zu of them are either not recognized, or are not in the right order. One of those fields is '%s'", i, field_count, field_count - recognized_count, fields_ptr->key);
+
+		if (comments_node) {
+			indentation = 0;
+			apply_comments(*comments_node);
+		}
+
+		grug_assert(name_node->type == JSON_NODE_STRING, "input_json_path its root.on_fns[%zu].name is supposed to be a string", i);
+		grug_assert(strlen(name_node->string) > 0, "input_json_path its root.on_fns[%zu].name is not supposed to be an empty string", i);
+
+		apply("%s(", name_node->string);
+
+		if (arguments_node) {
+			apply_arguments(*arguments_node);
+		}
+
+		apply(") {\n");
+
+		if (statement_groups_node) {
+			indentation = 0;
+			apply_statement_groups(*statement_groups_node);
 		}
 
 		apply("}\n");
@@ -4225,7 +4283,7 @@ static void apply_entity(struct json_node node) {
 				}
 			}
 		} else {
-			grug_error("input_json_path its root.entity its field after \"comments\" is supposed to be \"name\"");
+			grug_error("input_json_path its root.entity its \"comments\" field is supposed to have \"name\" after it");
 		}
 	} else if (streq(entity_fields[0].key, "name")) {
 		grug_assert(field_count < 3, "input_json_path its root.entity its \"name\" is only supposed to (optionally) have \"fields\" after it");
