@@ -71,7 +71,7 @@
 #define MAX_ARGUMENTS 420420
 #define MAX_HELPER_FNS 420420
 #define MAX_ON_FNS 420420
-#define MAX_GLOBAL_VARIABLES 420420
+#define MAX_GLOBAL_STATEMENT_GROUPS 420420
 #define SPACES_PER_INDENT 4
 #define MAX_CALL_ARGUMENTS_PER_STACK_FRAME 69
 #define MAX_STATEMENTS_PER_GROUP 1337
@@ -1141,7 +1141,7 @@ static void push_grug_on_function(struct grug_on_function fn) {
 }
 
 static void push_grug_entity(struct grug_entity fn) {
-	grug_assert(grug_define_functions_size < MAX_GRUG_FUNCTIONS, "There are more than %d define_ functions in mod_api.json, exceeding MAX_GRUG_FUNCTIONS", MAX_GRUG_FUNCTIONS);
+	grug_assert(grug_define_functions_size < MAX_GRUG_FUNCTIONS, "There are more than %d define functions in mod_api.json, exceeding MAX_GRUG_FUNCTIONS", MAX_GRUG_FUNCTIONS);
 	grug_define_functions[grug_define_functions_size++] = fn;
 }
 
@@ -2073,13 +2073,8 @@ static size_t helper_fns_size;
 static u32 buckets_helper_fns[MAX_HELPER_FNS];
 static u32 chains_helper_fns[MAX_HELPER_FNS];
 
-struct global_variable_statement {
-	char *name;
-	enum type type;
-	struct expr assignment_expr;
-};
-static struct global_variable_statement global_variable_statements[MAX_GLOBAL_VARIABLES];
-static size_t global_variable_statements_size;
+static struct statement_group global_statement_groups[MAX_GLOBAL_STATEMENT_GROUPS];
+static size_t global_statement_groups_size;
 
 static size_t indentation;
 
@@ -2093,7 +2088,7 @@ static void reset_parsing(void) {
 	arguments_size = 0;
 	on_fns_size = 0;
 	helper_fns_size = 0;
-	global_variable_statements_size = 0;
+	global_statement_groups_size = 0;
 }
 
 static struct helper_fn *get_helper_fn(char *name) {
@@ -2148,9 +2143,9 @@ static struct statement *push_statement(struct statement statement) {
 	return statements + statements_size++;
 }
 
-static struct statement_group *push_statement_group(struct statement_group statement_group) {
+static struct statement_group *push_statement_group(struct statement_group group) {
 	grug_assert(statement_groups_size < MAX_STATEMENT_GROUPS, "There are more than %d statement groups in the grug file, exceeding MAX_STATEMENT_GROUPS", MAX_STATEMENT_GROUPS);
-	statement_groups[statement_groups_size] = statement_group;
+	statement_groups[statement_groups_size] = group;
 	return statement_groups + statement_groups_size++;
 }
 
@@ -2541,6 +2536,11 @@ static struct statement parse_if_statement(size_t *i) {
 	return statement;
 }
 
+static void push_global_statement_group(struct statement_group group) {
+	grug_assert(global_statement_groups_size < MAX_GLOBAL_STATEMENT_GROUPS, "There are more than %d global statement groups in the grug file, exceeding MAX_GLOBAL_STATEMENT_GROUPS", MAX_GLOBAL_STATEMENT_GROUPS);
+	global_statement_groups[global_statement_groups_size++] = group;
+}
+
 static struct variable_statement parse_variable_statement(size_t *i) {
 	struct variable_statement variable_statement = {0};
 
@@ -2556,8 +2556,8 @@ static struct variable_statement parse_variable_statement(size_t *i) {
 
 		variable_statement.has_type = true;
 		variable_statement.type = parse_type(type_token.str);
-		grug_assert(variable_statement.type != type_resource, "The local variable '%s' can't have 'resource' as its type", variable_statement.name);
-		grug_assert(variable_statement.type != type_entity, "The local variable '%s' can't have 'entity' as its type", variable_statement.name);
+		grug_assert(variable_statement.type != type_resource, "The variable '%s' can't have 'resource' as its type", variable_statement.name);
+		grug_assert(variable_statement.type != type_entity, "The variable '%s' can't have 'entity' as its type", variable_statement.name);
 	}
 
 	grug_assert(peek_token(*i).type == SPACE_TOKEN, "The variable '%s' was not assigned a value on line %zu", variable_statement.name, get_token_line_number(name_token_index));
@@ -2571,36 +2571,58 @@ static struct variable_statement parse_variable_statement(size_t *i) {
 	return variable_statement;
 }
 
-static void push_global_variable(struct global_variable_statement global_variable) {
-	grug_assert(global_variable_statements_size < MAX_GLOBAL_VARIABLES, "There are more than %d global variables in the grug file, exceeding MAX_GLOBAL_VARIABLES", MAX_GLOBAL_VARIABLES);
-	global_variable_statements[global_variable_statements_size++] = global_variable;
+static void push_comment(char *comment) {
+	grug_assert(comments_size < MAX_COMMENTS, "There are more than %d comments in the comments array, exceeding MAX_COMMENTS", MAX_COMMENTS);
+	comments[comments_size++] = comment_characters + comment_characters_size;
+
+	size_t length = strlen(comment);
+
+	grug_assert(comment_characters_size + length < MAX_COMMENT_CHARACTERS, "There are more than %d characters in the comment_characters array, exceeding MAX_COMMENT_CHARACTERS", MAX_COMMENT_CHARACTERS);
+
+	for (size_t i = 0; i < length; i++) {
+		comment_characters[comment_characters_size++] = comment[i];
+	}
+	comment_characters[comment_characters_size++] = '\0';
 }
 
-static void parse_global_variable(size_t *i) {
-	struct global_variable_statement global_variable = {0};
+static struct statement_group parse_global_variable_group(size_t *i) {
+	struct statement_group group = {0};
 
-	struct token name_token = consume_token(i);
-	global_variable.name = name_token.str;
+	group.statements = statements + statements_size;
 
-	assert_token_type(*i, COLON_TOKEN);
-	consume_token(i);
+	while (true) {
+		if (*i >= tokens_size || peek_token(*i).type == NEWLINE_TOKEN) {
+			break;
+		}
 
-	consume_space(i);
-	assert_token_type(*i, WORD_TOKEN);
-	struct token type_token = consume_token(i);
-	global_variable.type = parse_type(type_token.str);
+		if (peek_token(*i).type == COMMENT_TOKEN) {
+			if (!group.comments) {
+				group.comments = comments + comments_size;
+			}
 
-	grug_assert(global_variable.type != type_resource, "The global variable '%s' can't have 'resource' as its type", global_variable.name);
-	grug_assert(global_variable.type != type_entity, "The global variable '%s' can't have 'entity' as its type", global_variable.name);
+			do {
+				push_comment(consume_token(i).str);
+				group.comment_count++;
+			} while (peek_token(*i).type == COMMENT_TOKEN);
+		} else {
+			assert_token_type(*i, WORD_TOKEN);
+			struct variable_statement variable = parse_variable_statement(i);
 
-	consume_space(i);
-	assert_token_type(*i, ASSIGNMENT_TOKEN);
-	consume_token(i);
+			grug_assert(variable.has_type, "The global variable '%s' is missing a type, on line %zu", variable.name, get_token_line_number(*i));
 
-	consume_space(i);
-	global_variable.assignment_expr = parse_expression(i);
+			struct statement statement = {0};
 
-	push_global_variable(global_variable);
+			statement.type = VARIABLE_STATEMENT;
+			statement.variable_statement = variable;
+
+			push_statement(statement);
+			group.statement_count++;
+		}
+
+		consume_newline(i);
+	}
+
+	return group;
 }
 
 static struct statement parse_statement(size_t *i) {
@@ -2659,20 +2681,6 @@ static struct statement parse_statement(size_t *i) {
 	}
 
 	return statement;
-}
-
-static void push_comment(char *comment) {
-	grug_assert(comments_size < MAX_COMMENTS, "There are more than %d comments in the comments array, exceeding MAX_COMMENTS", MAX_COMMENTS);
-	comments[comments_size++] = comment_characters + comment_characters_size;
-
-	size_t length = strlen(comment);
-
-	grug_assert(comment_characters_size + length < MAX_COMMENT_CHARACTERS, "There are more than %d characters in the comment_characters array, exceeding MAX_COMMENT_CHARACTERS", MAX_COMMENT_CHARACTERS);
-
-	for (size_t i = 0; i < length; i++) {
-		comment_characters[comment_characters_size++] = comment[i];
-	}
-	comment_characters[comment_characters_size++] = '\0';
 }
 
 static struct statement_group parse_statement_group(size_t *i) {
@@ -2960,7 +2968,7 @@ static void parse(void) {
 		int type = token.type;
 
 		if (type == WORD_TOKEN && streq(token.str, "define") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
-			grug_assert(!seen_define_fn, "There can't be more than one define_ function in a grug file");
+			grug_assert(!seen_define_fn, "There can't be more than one define function in a grug file");
 			parse_define_fn(&i);
 
 			seen_define_fn = true;
@@ -2972,17 +2980,21 @@ static void parse(void) {
 			define_fn.comment_count = group_comment_count;
 			group_comment_count = 0;
 		} else if (type == WORD_TOKEN && i + 1 < tokens_size && peek_token(i + 1).type == COLON_TOKEN) {
-			grug_assert(seen_define_fn, "Move the global variable '%s' below the define_ function", token.str);
-			parse_global_variable(&i);
+			grug_assert(seen_define_fn, "Move the global variable '%s' below the define function", token.str);
+			struct statement_group group = parse_global_variable_group(&i);
 
 			newline_allowed = true;
 			just_seen_newline = false;
 			recently_pushed_global_variable = true;
 
+			group.comments = group_comments;
 			group_comments = NULL;
+			group.comment_count = group_comment_count;
 			group_comment_count = 0;
+
+			push_global_statement_group(group);
 		} else if (type == WORD_TOKEN && starts_with(token.str, "on_") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
-			grug_assert(seen_define_fn, "Move the on_ function '%s' below the define_ function", token.str);
+			grug_assert(seen_define_fn, "Move the on_ function '%s' below the define function", token.str);
 			parse_on_fn(&i);
 
 			newline_allowed = true;
@@ -3034,7 +3046,7 @@ static void parse(void) {
 		}
 	}
 
-	grug_assert(seen_define_fn, "Every grug file requires exactly one define_ function");
+	grug_assert(seen_define_fn, "Every grug file requires exactly one define function");
 
 	grug_assert(group_comment_count == 0, "There %s placed right above a function, nor global variable", (group_comment_count == 1 ? "is a comment that isn't" : "are some comments that aren't"));
 
@@ -3063,12 +3075,12 @@ static void dump_call_expr(struct call_expr call_expr) {
 	dump("\"name\":\"%s\",", call_expr.fn_name);
 
 	dump("\"arguments\":[");
-	for (size_t argument_index = 0; argument_index < call_expr.argument_count; argument_index++) {
-		if (argument_index > 0) {
+	for (size_t i = 0; i < call_expr.argument_count; i++) {
+		if (i > 0) {
 			dump(",");
 		}
 		dump("{");
-		dump_expr(call_expr.arguments[argument_index]);
+		dump_expr(call_expr.arguments[i]);
 		dump("}");
 	}
 	dump("]");
@@ -3095,20 +3107,16 @@ static void dump_expr(struct expr expr) {
 		case RESOURCE_EXPR:
 		case ENTITY_EXPR:
 		case IDENTIFIER_EXPR:
-			dump(",");
-			dump("\"str\":\"%s\"", expr.literal.string);
+			dump(",\"str\":\"%s\"", expr.literal.string);
 			break;
 		case I32_EXPR:
-			dump(",");
-			dump("\"value\":\"%d\"", expr.literal.i32);
+			dump(",\"value\":\"%d\"", expr.literal.i32);
 			break;
 		case F32_EXPR:
-			dump(",");
-			dump("\"value\":\"%f\"", expr.literal.f32);
+			dump(",\"value\":\"%f\"", expr.literal.f32);
 			break;
 		case UNARY_EXPR:
-			dump(",");
-			dump("\"operator\":\"%s\",", get_token_type_str[expr.unary.operator]);
+			dump(",\"operator\":\"%s\",", get_token_type_str[expr.unary.operator]);
 			dump("\"expr\":{");
 			dump_expr(*expr.unary.expr);
 			dump("}");
@@ -3131,7 +3139,7 @@ static void dump_expr(struct expr expr) {
 
 static void dump_statement_groups(struct statement_group *groups_offset, size_t group_count);
 
-static void dump_statements(struct statement *statements_offset, size_t statement_count) {
+static void dump_statements(struct statement *group_statements, size_t statement_count) {
 	for (size_t i = 0; i < statement_count; i++) {
 		if (i > 0) {
 			dump(",");
@@ -3139,20 +3147,19 @@ static void dump_statements(struct statement *statements_offset, size_t statemen
 
 		dump("{");
 
-		struct statement statement = statements_offset[i];
+		struct statement statement = group_statements[i];
 
 		dump("\"type\":\"%s\"", get_statement_type_str[statement.type]);
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
-				dump(",");
-				dump("\"name\":\"%s\",", statement.variable_statement.name);
+				dump(",\"name\":\"%s\"", statement.variable_statement.name);
 
 				if (statement.variable_statement.has_type) {
-					dump("\"variable_type\":\"%s\",", type_names[statement.variable_statement.type]);
+					dump(",\"variable_type\":\"%s\"", type_names[statement.variable_statement.type]);
 				}
 
-				dump("\"assignment\":{");
+				dump(",\"assignment\":{");
 				dump_expr(*statement.variable_statement.assignment_expr);
 				dump("}");
 
@@ -3162,19 +3169,16 @@ static void dump_statements(struct statement *statements_offset, size_t statemen
 				dump_call_expr(statement.call_statement.expr->call);
 				break;
 			case IF_STATEMENT:
-				dump(",");
-				dump("\"condition\":{");
+				dump(",\"condition\":{");
 				dump_expr(statement.if_statement.condition);
 				dump("}");
 
-				dump(",");
-				dump("\"if_statement_groups\":[");
+				dump(",\"if_statement_groups\":[");
 				dump_statement_groups(statement.if_statement.if_body_groups, statement.if_statement.if_body_group_count);
 				dump("]");
 
 				if (statement.if_statement.else_body_group_count > 0) {
-					dump(",");
-					dump("\"else_statement_groups\":[");
+					dump(",\"else_statement_groups\":[");
 					dump_statement_groups(statement.if_statement.else_body_groups, statement.if_statement.else_body_group_count);
 					dump("]");
 				}
@@ -3182,15 +3186,13 @@ static void dump_statements(struct statement *statements_offset, size_t statemen
 				break;
 			case RETURN_STATEMENT:
 				if (statement.return_statement.has_value) {
-					dump(",");
-					dump("\"expr\":{");
+					dump(",\"expr\":{");
 					dump_expr(*statement.return_statement.value);
 					dump("}");
 				}
 				break;
 			case WHILE_STATEMENT:
-				dump(",");
-				dump("\"condition\":{");
+				dump(",\"condition\":{");
 				dump_expr(statement.while_statement.condition);
 				dump("},");
 
@@ -3211,12 +3213,12 @@ static void dump_statements(struct statement *statements_offset, size_t statemen
 static void dump_comments(char **group_comments, size_t comment_count) {
 	dump("\"comments\":[");
 
-	for (size_t comment_index = 0; comment_index < comment_count; comment_index++) {
-		if (comment_index > 0) {
+	for (size_t i = 0; i < comment_count; i++) {
+		if (i > 0) {
 			dump(",");
 		}
 
-		char *comment = group_comments[comment_index];
+		char *comment = group_comments[i];
 		dump("\"%s\"", comment);
 	}
 
@@ -3254,14 +3256,14 @@ static void dump_arguments(struct argument *arguments_offset, size_t argument_co
 
 	dump(",\"arguments\":[");
 
-	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
-		if (argument_index > 0) {
+	for (size_t i = 0; i < argument_count; i++) {
+		if (i > 0) {
 			dump(",");
 		}
 
 		dump("{");
 
-		struct argument arg = arguments_offset[argument_index];
+		struct argument arg = arguments_offset[i];
 
 		dump("\"name\":\"%s\",", arg.name);
 		dump("\"type\":\"%s\"", type_names[arg.type]);
@@ -3279,14 +3281,14 @@ static void dump_helper_fns(void) {
 
 	dump(",\"helper_fns\":[");
 
-	for (size_t fn_index = 0; fn_index < helper_fns_size; fn_index++) {
-		if (fn_index > 0) {
+	for (size_t i = 0; i < helper_fns_size; i++) {
+		if (i > 0) {
 			dump(",");
 		}
 
 		dump("{");
 
-		struct helper_fn fn = helper_fns[fn_index];
+		struct helper_fn fn = helper_fns[i];
 
 		dump("\"name\":\"%s\"", fn.fn_name);
 
@@ -3314,21 +3316,20 @@ static void dump_on_fns(void) {
 
 	dump(",\"on_fns\":[");
 
-	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
-		if (fn_index > 0) {
+	for (size_t i = 0; i < on_fns_size; i++) {
+		if (i > 0) {
 			dump(",");
 		}
 
 		dump("{");
 
-		struct on_fn fn = on_fns[fn_index];
+		struct on_fn fn = on_fns[i];
 
 		dump("\"name\":\"%s\"", fn.fn_name);
 
 		dump_arguments(fn.arguments, fn.argument_count);
 
-		dump(",");
-		dump("\"statement_groups\":[");
+		dump(",\"statement_groups\":[");
 		dump_statement_groups(fn.body_groups, fn.body_group_count);
 		dump("]");
 
@@ -3338,29 +3339,53 @@ static void dump_on_fns(void) {
 	dump("]");
 }
 
-static void dump_global_variables(void) {
-	if (global_variable_statements_size == 0) {
-		return;
-	}
-
-	dump(",\"global_variables\":[");
-
-	for (size_t global_variable_index = 0; global_variable_index < global_variable_statements_size; global_variable_index++) {
-		if (global_variable_index > 0) {
+static void dump_global_variable_statements(struct statement *group_statements, size_t statement_count) {
+	for (size_t i = 0; i < statement_count; i++) {
+		if (i > 0) {
 			dump(",");
 		}
 
 		dump("{");
 
-		struct global_variable_statement global_variable = global_variable_statements[global_variable_index];
+		struct statement statement = group_statements[i];
 
-		dump("\"name\":\"%s\",", global_variable.name);
+		dump("\"name\":\"%s\"", statement.variable_statement.name);
 
-		dump("\"type\":\"%s\",", type_names[global_variable.type]);
+		dump(",\"variable_type\":\"%s\"", type_names[statement.variable_statement.type]);
 
-		dump("\"assignment\":{");
-		dump_expr(global_variable.assignment_expr);
+		dump(",\"assignment\":{");
+		dump_expr(*statement.variable_statement.assignment_expr);
 		dump("}");
+
+		dump("}");
+	}
+}
+
+static void dump_global_variables(void) {
+	if (global_statement_groups_size == 0) {
+		return;
+	}
+
+	dump(",\"global_variables\":[");
+
+	for (size_t i = 0; i < global_statement_groups_size; i++) {
+		if (i > 0) {
+			dump(",");
+		}
+
+		dump("{");
+
+		struct statement_group group = global_statement_groups[i];
+
+		if (group.comment_count > 0) {
+			dump_comments(group.comments, group.comment_count);
+		}
+
+		dump("\"statements\":[");
+
+		dump_global_variable_statements(group.statements, group.statement_count);
+
+		dump("]");
 
 		dump("}");
 	}
@@ -3375,14 +3400,14 @@ static void dump_fields(struct compound_literal compound_literal) {
 
 	dump(",\"fields\":[");
 
-	for (size_t field_index = 0; field_index < compound_literal.field_count; field_index++) {
-		if (field_index > 0) {
+	for (size_t i = 0; i < compound_literal.field_count; i++) {
+		if (i > 0) {
 			dump(",");
 		}
 
 		dump("{");
 
-		struct field field = compound_literal.fields[field_index];
+		struct field field = compound_literal.fields[i];
 
 		dump("\"name\":\"%s\",", field.key);
 
@@ -4315,6 +4340,7 @@ bool grug_apply_file_ast(char *input_json_path, char *output_grug_path) {
 #define MAX_ENTITY_DEPENDENCY_NAME_LENGTH 420
 #define MAX_ENTITY_DEPENDENCIES 420420
 #define MAX_DATA_STRINGS 420420
+#define MAX_GLOBAL_VARIABLES 420420
 
 #define GLOBAL_OFFSET_TABLE_POINTER_SIZE sizeof(void *)
 #define GLOBAL_VARIABLES_POINTER_SIZE sizeof(void *)
@@ -4778,9 +4804,9 @@ static void add_local_variable(char *name, enum type type) {
 
 static void fill_statement_groups(struct statement_group *groups_offset, size_t group_count);
 
-static void fill_statements(struct statement *statements_offset, size_t statement_count) {
+static void fill_statements(struct statement *group_statements, size_t statement_count) {
 	for (size_t i = 0; i < statement_count; i++) {
-		struct statement statement = statements_offset[i];
+		struct statement statement = group_statements[i];
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
@@ -4989,17 +5015,26 @@ static void check_global_expr(struct expr *expr, char *global_name) {
 	}
 }
 
+static void fill_global_variable_group(struct statement_group group) {
+	for (size_t i = 0; i < group.statement_count; i++) {
+		struct statement statement = group.statements[i];
+
+		struct variable_statement var = statement.variable_statement;
+
+		check_global_expr(var.assignment_expr, var.name);
+
+		fill_expr(var.assignment_expr);
+
+		grug_assert(var.type == var.assignment_expr->result_type, "Can't assign %s to '%s', which has type %s", type_names[var.assignment_expr->result_type], var.name, type_names[var.type]);
+
+		add_global_variable(var.name, var.type);
+	}
+}
+
 static void fill_global_variables(void) {
-	for (size_t i = 0; i < global_variable_statements_size; i++) {
-		struct global_variable_statement *global = &global_variable_statements[i];
-
-		check_global_expr(&global->assignment_expr, global->name);
-
-		fill_expr(&global->assignment_expr);
-
-		grug_assert(global->type == global->assignment_expr.result_type, "Can't assign %s to '%s', which has type %s", type_names[global->assignment_expr.result_type], global->name, type_names[global->type]);
-
-		add_global_variable(global->name, global->type);
+	for (size_t i = 0; i < global_statement_groups_size; i++) {
+		struct statement_group group = global_statement_groups[i];
+		fill_global_variable_group(group);
 	}
 }
 
@@ -6281,9 +6316,9 @@ static void compile_variable_statement(struct variable_statement variable_statem
 	}
 }
 
-static void compile_statements(struct statement *statements_offset, size_t statement_count) {
+static void compile_statements(struct statement *group_statements, size_t statement_count) {
 	for (size_t i = 0; i < statement_count; i++) {
-		struct statement statement = statements_offset[i];
+		struct statement statement = group_statements[i];
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
@@ -6347,9 +6382,9 @@ static void compile_statement_groups(struct statement_group *groups_offset, size
 
 static void add_variables_in_statement_groups(struct statement_group *groups_offset, size_t group_count);
 
-static void add_variables_in_statements(struct statement *statements_offset, size_t statement_count) {
+static void add_variables_in_statements(struct statement *group_statements, size_t statement_count) {
 	for (size_t i = 0; i < statement_count; i++) {
-		struct statement statement = statements_offset[i];
+		struct statement statement = group_statements[i];
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
@@ -6560,35 +6595,44 @@ static void compile_helper_fn(struct helper_fn fn) {
 	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_groups, fn.body_group_count, false, NULL);
 }
 
-static void compile_init_globals_fn(void) {
-	size_t ptr_offset = 0;
+static void compile_init_globals_fn_group(struct statement_group group, size_t *ptr_offset) {
+	for (size_t i = 0; i < group.statement_count; i++) {
+		struct statement statement = group.statements[i];
 
-	for (size_t global_variable_index = 0; global_variable_index < global_variable_statements_size; global_variable_index++) {
-		struct global_variable_statement global_variable = global_variable_statements[global_variable_index];
+		struct variable_statement var = statement.variable_statement;
 
-		compile_expr(global_variable.assignment_expr);
+		compile_expr(*var.assignment_expr);
 
-		if (ptr_offset < 0x80) { // an i8 with the value 0x80 is negative in two's complement
-			if (global_variable.assignment_expr.result_type == type_string) {
+		if (*ptr_offset < 0x80) { // an i8 with the value 0x80 is negative in two's complement
+			if (var.assignment_expr->result_type == type_string) {
 				compile_unpadded(MOV_RAX_TO_DEREF_RDI_8_BIT_OFFSET);
 			} else {
 				compile_unpadded(MOV_EAX_TO_DEREF_RDI_8_BIT_OFFSET);
 			}
-			compile_byte(ptr_offset);
+			compile_byte(*ptr_offset);
 		} else {
-			if (global_variable.assignment_expr.result_type == type_string) {
+			if (var.assignment_expr->result_type == type_string) {
 				compile_unpadded(MOV_RAX_TO_DEREF_RDI_32_BIT_OFFSET);
 			} else {
 				compile_unpadded(MOV_EAX_TO_DEREF_RDI_32_BIT_OFFSET);
 			}
-			compile_32(ptr_offset);
+			compile_32(*ptr_offset);
 		}
 
-		if (global_variable.type == type_string) {
-			ptr_offset += sizeof(char *);
+		if (var.type == type_string) {
+			*ptr_offset += sizeof(char *);
 		} else {
-			ptr_offset += sizeof(u32);
+			*ptr_offset += sizeof(u32);
 		}
+	}
+}
+
+static void compile_init_globals_fn(void) {
+	size_t ptr_offset = 0;
+
+	for (size_t i = 0; i < global_statement_groups_size; i++) {
+		struct statement_group group = global_statement_groups[i];
+		compile_init_globals_fn_group(group, &ptr_offset);
 	}
 
 	compile_byte(RET);
