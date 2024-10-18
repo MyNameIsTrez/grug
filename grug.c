@@ -65,6 +65,7 @@
 #define MAX_FIELDS 420420
 #define MAX_EXPRS 420420
 #define MAX_STATEMENTS 420420
+#define MAX_COMMENT_CHARACTERS 420420
 #define MAX_COMMENTS 420420
 #define MAX_STATEMENT_GROUPS 420420
 #define MAX_ARGUMENTS 420420
@@ -2026,20 +2027,24 @@ static struct statement statements[MAX_STATEMENTS];
 static size_t statements_size;
 
 struct statement_group {
-	char *comments;
+	char **comments;
 	size_t comment_count;
 	struct statement *statements;
 	size_t statement_count;
 };
 static struct statement_group statement_groups[MAX_STATEMENT_GROUPS];
 static size_t statement_groups_size;
-// static char *comments[MAX_COMMENTS];
+static char comment_characters[MAX_COMMENT_CHARACTERS];
+static size_t comment_characters_size;
+static char *comments[MAX_COMMENTS];
 static size_t comments_size;
 
 static struct argument arguments[MAX_ARGUMENTS];
 static size_t arguments_size;
 
 struct parsed_define_fn {
+	char **comments;
+	size_t comment_count;
 	char *return_type;
 	struct compound_literal returned_compound_literal;
 };
@@ -2083,6 +2088,7 @@ static void reset_parsing(void) {
 	fields_size = 0;
 	statements_size = 0;
 	statement_groups_size = 0;
+	comment_characters_size = 0;
 	comments_size = 0;
 	arguments_size = 0;
 	on_fns_size = 0;
@@ -2648,14 +2654,6 @@ static struct statement parse_statement(size_t *i) {
 			(*i)++;
 			statement.type = CONTINUE_STATEMENT;
 			break;
-		case NEWLINE_TOKEN:
-			(*i)++;
-			assert(false);
-			break;
-		case COMMENT_TOKEN:
-			(*i)++;
-			assert(false);
-			break;
 		default:
 			grug_error("Expected a statement token, but got token type %s on line %zu", get_token_type_str[switch_token.type], get_token_line_number(*i - 1));
 	}
@@ -2663,10 +2661,26 @@ static struct statement parse_statement(size_t *i) {
 	return statement;
 }
 
-static struct statement *parse_statements(size_t *i, size_t *statement_count) {
+static void push_comment(char *comment) {
+	grug_assert(comments_size < MAX_COMMENTS, "There are more than %d comments in the comments array, exceeding MAX_COMMENTS", MAX_COMMENTS);
+	comments[comments_size++] = comment_characters + comment_characters_size;
+
+	size_t length = strlen(comment);
+
+	grug_assert(comment_characters_size + length < MAX_COMMENT_CHARACTERS, "There are more than %d characters in the comment_characters array, exceeding MAX_COMMENT_CHARACTERS", MAX_COMMENT_CHARACTERS);
+
+	for (size_t i = 0; i < length; i++) {
+		comment_characters[comment_characters_size++] = comment[i];
+	}
+	comment_characters[comment_characters_size++] = '\0';
+}
+
+static struct statement_group parse_statement_group(size_t *i) {
+	struct statement_group group = {0};
+
 	// This local array is necessary, cause an IF substatement can contain its own statements
 	struct statement local_statements[MAX_STATEMENTS_PER_GROUP];
-	*statement_count = 0;
+	group.statement_count = 0;
 
 	while (true) {
 		if (is_end_of_block(i) || peek_token(*i).type == NEWLINE_TOKEN) {
@@ -2675,20 +2689,31 @@ static struct statement *parse_statements(size_t *i, size_t *statement_count) {
 
 		consume_indentation(i);
 
-		struct statement statement = parse_statement(i);
+		if (peek_token(*i).type == COMMENT_TOKEN) {
+			if (!group.comments) {
+				group.comments = comments + comments_size;
+			}
 
-		grug_assert(*statement_count < MAX_STATEMENTS_PER_GROUP, "There are more than %d statements in one of the grug file's statement groups, exceeding MAX_STATEMENTS_PER_GROUP", MAX_STATEMENTS_PER_GROUP);
-		local_statements[(*statement_count)++] = statement;
+			do {
+				push_comment(consume_token(i).str);
+				group.comment_count++;
+			} while (peek_token(*i).type == COMMENT_TOKEN);
+		} else {
+			struct statement statement = parse_statement(i);
+
+			grug_assert(group.statement_count < MAX_STATEMENTS_PER_GROUP, "There are more than %d statements in one of the grug file's statement groups, exceeding MAX_STATEMENTS_PER_GROUP", MAX_STATEMENTS_PER_GROUP);
+			local_statements[group.statement_count++] = statement;
+		}
 
 		consume_newline(i);
 	}
 
-	struct statement *first_statement = statements + statements_size;
-	for (size_t statement_index = 0; statement_index < *statement_count; statement_index++) {
+	group.statements = statements + statements_size;
+	for (size_t statement_index = 0; statement_index < group.statement_count; statement_index++) {
 		push_statement(local_statements[statement_index]);
 	}
 
-	return first_statement;
+	return group;
 }
 
 static struct statement_group *parse_statement_groups(size_t *i, size_t *group_count) {
@@ -2714,9 +2739,7 @@ static struct statement_group *parse_statement_groups(size_t *i, size_t *group_c
 			consume_newline(i);
 		}
 
-		struct statement_group group = {0};
-
-		group.statements = parse_statements(i, &group.statement_count);
+		struct statement_group group = parse_statement_group(i);
 		grug_assert(group.statement_count > 0, "Expected a statement on line %zu", get_token_line_number(*i));
 
 		grug_assert(*group_count < MAX_STATEMENT_GROUPS_PER_BLOCK, "There are more than %d statement groups in one of the grug file's scopes, exceeding MAX_STATEMENT_GROUPS_PER_BLOCK", MAX_STATEMENT_GROUPS_PER_BLOCK);
@@ -2928,6 +2951,9 @@ static void parse(void) {
 	bool recently_pushed_global_variable = false;
 	size_t empty_line_after_global_variables = 0;
 
+	char **group_comments = NULL;
+	size_t group_comment_count = 0;
+
 	size_t i = 0;
 	while (i < tokens_size) {
 		struct token token = peek_token(i);
@@ -2936,24 +2962,42 @@ static void parse(void) {
 		if (type == WORD_TOKEN && streq(token.str, "define") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			grug_assert(!seen_define_fn, "There can't be more than one define_ function in a grug file");
 			parse_define_fn(&i);
+
 			seen_define_fn = true;
 			newline_allowed = true;
 			just_seen_newline = false;
+
+			define_fn.comments = group_comments;
+			group_comments = NULL;
+			define_fn.comment_count = group_comment_count;
+			group_comment_count = 0;
 		} else if (type == WORD_TOKEN && i + 1 < tokens_size && peek_token(i + 1).type == COLON_TOKEN) {
 			grug_assert(seen_define_fn, "Move the global variable '%s' below the define_ function", token.str);
 			parse_global_variable(&i);
+
 			newline_allowed = true;
 			just_seen_newline = false;
 			recently_pushed_global_variable = true;
+
+			group_comments = NULL;
+			group_comment_count = 0;
 		} else if (type == WORD_TOKEN && starts_with(token.str, "on_") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			grug_assert(seen_define_fn, "Move the on_ function '%s' below the define_ function", token.str);
 			parse_on_fn(&i);
+
 			newline_allowed = true;
 			just_seen_newline = false;
+
+			group_comments = NULL;
+			group_comment_count = 0;
 		} else if (type == WORD_TOKEN && starts_with(token.str, "helper_") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			parse_helper_fn(&i);
+
 			newline_allowed = true;
 			just_seen_newline = false;
+
+			group_comments = NULL;
+			group_comment_count = 0;
 		} else if (type == NEWLINE_TOKEN) {
 			grug_assert(newline_allowed, "Unexpected empty line, on line %zu", get_token_line_number(i));
 
@@ -2963,21 +3007,36 @@ static void parse(void) {
 				empty_line_after_global_variables = get_token_line_number(i);
 			}
 
-			// Disallows "\n\n\n"
+			// If this is an empty line, so if we've now seen "\n\n"
 			if (just_seen_newline) {
+				// Disallows "\n\n\n"
 				newline_allowed = false;
 			}
 			just_seen_newline = true;
 
 			i++;
 		} else if (type == COMMENT_TOKEN) {
-			grug_error("Comments can only be put inside on_ functions and helper functions, but encountered the comment '%s' on line %zu", token.str, get_token_line_number(i));
+			if (!group_comments) {
+				group_comments = comments + comments_size;
+				group_comment_count++;
+			}
+
+			push_comment(token.str);
+
+			newline_allowed = true;
+
+			// Prevents an empty line after a comment
+			just_seen_newline = true;
+
+			i++;
 		} else {
 			grug_error("Unexpected token '%s' on line %zu", token.str, get_token_line_number(i));
 		}
 	}
 
 	grug_assert(seen_define_fn, "Every grug file requires exactly one define_ function");
+
+	grug_assert(group_comment_count == 0, "There %s placed right above a function, nor global variable", (group_comment_count == 1 ? "is a comment that isn't" : "are some comments that aren't"));
 
 	hash_helper_fns();
 }
@@ -3149,6 +3208,21 @@ static void dump_statements(struct statement *statements_offset, size_t statemen
 	}
 }
 
+static void dump_comments(char **group_comments, size_t comment_count) {
+	dump("\"comments\":[");
+
+	for (size_t comment_index = 0; comment_index < comment_count; comment_index++) {
+		if (comment_index > 0) {
+			dump(",");
+		}
+
+		char *comment = group_comments[comment_index];
+		dump("\"%s\"", comment);
+	}
+
+	dump("],");
+}
+
 static void dump_statement_groups(struct statement_group *groups_offset, size_t group_count) {
 	for (size_t i = 0; i < group_count; i++) {
 		if (i > 0) {
@@ -3157,9 +3231,14 @@ static void dump_statement_groups(struct statement_group *groups_offset, size_t 
 
 		dump("{");
 
+		struct statement_group group = groups_offset[i];
+
+		if (group.comment_count > 0) {
+			dump_comments(group.comments, group.comment_count);
+		}
+
 		dump("\"statements\":[");
 
-		struct statement_group group = groups_offset[i];
 		dump_statements(group.statements, group.statement_count);
 
 		dump("]");
@@ -3169,7 +3248,11 @@ static void dump_statement_groups(struct statement_group *groups_offset, size_t 
 }
 
 static void dump_arguments(struct argument *arguments_offset, size_t argument_count) {
-	dump("\"arguments\":[");
+	if (argument_count == 0) {
+		return;
+	}
+
+	dump(",\"arguments\":[");
 
 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
 		if (argument_index > 0) {
@@ -3190,7 +3273,11 @@ static void dump_arguments(struct argument *arguments_offset, size_t argument_co
 }
 
 static void dump_helper_fns(void) {
-	dump("\"helper_fns\":[");
+	if (helper_fns_size == 0) {
+		return;
+	}
+
+	dump(",\"helper_fns\":[");
 
 	for (size_t fn_index = 0; fn_index < helper_fns_size; fn_index++) {
 		if (fn_index > 0) {
@@ -3201,7 +3288,7 @@ static void dump_helper_fns(void) {
 
 		struct helper_fn fn = helper_fns[fn_index];
 
-		dump("\"name\":\"%s\",", fn.fn_name);
+		dump("\"name\":\"%s\"", fn.fn_name);
 
 		dump_arguments(fn.arguments, fn.argument_count);
 
@@ -3221,7 +3308,11 @@ static void dump_helper_fns(void) {
 }
 
 static void dump_on_fns(void) {
-	dump("\"on_fns\":[");
+	if (on_fns_size == 0) {
+		return;
+	}
+
+	dump(",\"on_fns\":[");
 
 	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
 		if (fn_index > 0) {
@@ -3232,7 +3323,7 @@ static void dump_on_fns(void) {
 
 		struct on_fn fn = on_fns[fn_index];
 
-		dump("\"name\":\"%s\",", fn.fn_name);
+		dump("\"name\":\"%s\"", fn.fn_name);
 
 		dump_arguments(fn.arguments, fn.argument_count);
 
@@ -3248,7 +3339,11 @@ static void dump_on_fns(void) {
 }
 
 static void dump_global_variables(void) {
-	dump("\"global_variables\":[");
+	if (global_variable_statements_size == 0) {
+		return;
+	}
+
+	dump(",\"global_variables\":[");
 
 	for (size_t global_variable_index = 0; global_variable_index < global_variable_statements_size; global_variable_index++) {
 		if (global_variable_index > 0) {
@@ -3274,7 +3369,11 @@ static void dump_global_variables(void) {
 }
 
 static void dump_fields(struct compound_literal compound_literal) {
-	dump("\"fields\":[");
+	if (compound_literal.field_count == 0) {
+		return;
+	}
+
+	dump(",\"fields\":[");
 
 	for (size_t field_index = 0; field_index < compound_literal.field_count; field_index++) {
 		if (field_index > 0) {
@@ -3300,7 +3399,11 @@ static void dump_fields(struct compound_literal compound_literal) {
 static void dump_define_fn(void) {
 	dump("\"entity\":{");
 
-	dump("\"name\":\"%s\",", define_fn.return_type);
+	if (define_fn.comment_count > 0) {
+		dump_comments(define_fn.comments, define_fn.comment_count);
+	}
+
+	dump("\"name\":\"%s\"", define_fn.return_type);
 
 	dump_fields(define_fn.returned_compound_literal);
 
@@ -3325,11 +3428,8 @@ bool grug_dump_file_ast(char *input_grug_path, char *output_json_path) {
 
 	dump("{");
 	dump_define_fn();
-	dump(",");
 	dump_global_variables();
-	dump(",");
 	dump_on_fns();
-	dump(",");
 	dump_helper_fns();
 	dump("}\n");
 
@@ -3628,7 +3728,7 @@ static void apply_expr(struct json_node expr) {
 	}
 }
 
-static void apply_consume_indentation(void) {
+static void apply_indentation(void) {
 	for (size_t i = 0; i < indentation; i++) {
 		apply("    ");
 	}
@@ -3716,7 +3816,7 @@ static void apply_statement(char *type, size_t field_count, struct json_field *s
 
 			apply_statement_groups(*statement[2].value);
 
-			apply_consume_indentation();
+			apply_indentation();
 			apply("}\n");
 
 			break;
@@ -3750,13 +3850,29 @@ static void apply_statements(struct json_node node) {
 
 		char *type = statement[0].value->string;
 
-		apply_consume_indentation();
+		apply_indentation();
 
 		apply_statement(type, field_count, statement);
 	}
 
 	assert(indentation > 0);
 	indentation--;
+}
+
+static void apply_comments(struct json_node node) {
+	grug_assert(node.type == JSON_NODE_ARRAY, "input_json_path its \"comments\" is supposed to be an array");
+
+	struct json_node *comments_array = node.array.values;
+
+	for (size_t i = 0; i < node.array.value_count; i++) {
+		grug_assert(comments_array[i].type == JSON_NODE_STRING, "input_json_path its \"comments\" values are supposed to be strings");
+
+		apply_indentation();
+
+		char *comment = comments_array[i].string;
+
+		apply("# %s\n", comment);
+	}
 }
 
 static void apply_statement_groups(struct json_node node) {
@@ -3772,7 +3888,14 @@ static void apply_statement_groups(struct json_node node) {
 		grug_assert(group.field_count == 1 || group.field_count == 2, "input_json_path its \"statement_groups\" is supposed to have either 1 or 2 fields");
 
 		if (streq(group.fields[0].key, "comments")) {
-			assert(false); // TODO: IMPLEMENT
+			grug_assert(group.field_count == 2, "input_json_path its \"comments\" field is supposed to have a \"statements\" field after it");
+
+			indentation++;
+			apply_comments(*group.fields[0].value);
+			assert(indentation > 0);
+			indentation--;
+
+			apply_statements(*group.fields[1].value);
 		} else if (streq(group.fields[0].key, "statements")) {
 			grug_assert(group.field_count == 1, "input_json_path its \"statements\" isn't supposed to have a field after it");
 
@@ -3830,7 +3953,10 @@ static void apply_helper_fns(struct json_node node) {
 		grug_assert(helper_fns_objects[i].type == JSON_NODE_OBJECT, "input_json_path its root.helper_fns[%zu] is supposed to be an object", i);
 
 		struct json_object fn = helper_fns_objects[i].object;
-		grug_assert(fn.field_count == 3 || fn.field_count == 4, "input_json_path its root.helper_fns[%zu] is supposed to have exactly 3 or 4 fields", i);
+
+		size_t field_count = fn.field_count;
+
+		grug_assert(field_count >= 2 && field_count <= 4, "input_json_path its root.helper_fns[%zu] is supposed to have between 2 and 4 (inclusive) fields", i);
 
 		grug_assert(streq(fn.fields[0].key, "name"), "input_json_path its root.helper_fns[%zu] its first field is supposed to be \"name\"", i);
 
@@ -3841,32 +3967,49 @@ static void apply_helper_fns(struct json_node node) {
 
 		apply("%s(", name);
 
-		grug_assert(streq(fn.fields[1].key, "arguments"), "input_json_path its root.helper_fns[%zu] its second field is supposed to be \"arguments\"", i);
-
-		apply_arguments(*fn.fields[1].value);
-
 		apply(")");
 
-		if (streq(fn.fields[2].key, "return_type")) {
-			grug_assert(fn.field_count == 4, "input_json_path its root.helper_fns[%zu] its \"return_type\" field is supposed to have a \"statement_groups\" field after it", i);
+		if (streq(fn.fields[1].key, "arguments")) {
+			apply_arguments(*fn.fields[1].value);
+		} else if (streq(fn.fields[1].key, "return_type")) {
+			grug_assert(field_count == 3, "input_json_path its root.helper_fns[%zu] its \"return_type\" field is supposed to have a \"statement_groups\" field after it", i);
 
-			grug_assert(fn.fields[2].value->type == JSON_NODE_STRING, "input_json_path its root.helper_fns[%zu].return_type is supposed to be a string", i);
+			grug_assert(fn.fields[1].value->type == JSON_NODE_STRING, "input_json_path its root.helper_fns[%zu].return_type is supposed to be a string", i);
 
-			apply(" %s {\n", fn.fields[2].value->string);
-
-			grug_assert(streq(fn.fields[3].key, "statement_groups"), "input_json_path its root.helper_fns[%zu] its fourth field is supposed to be \"statement_groups\"", i);
-
-			indentation = 0;
-			apply_statement_groups(*fn.fields[3].value);
-		} else if (streq(fn.fields[2].key, "statement_groups")) {
-			grug_assert(fn.field_count == 3, "input_json_path its root.helper_fns[%zu] its \"statement_groups\" field isn't supposed to have a field after it", i);
+			apply(" %s", fn.fields[1].value->string);
+		} else if (streq(fn.fields[1].key, "statement_groups")) {
+			grug_assert(field_count == 2, "input_json_path its root.helper_fns[%zu] its \"statement_groups\" field isn't supposed to have a field after it", i);
 
 			apply(" {\n");
 
 			indentation = 0;
-			apply_statement_groups(*fn.fields[2].value);
+			apply_statement_groups(*fn.fields[1].value);
 		} else {
-			grug_error("input_json_path its root.helper_fns[%zu] its third field is supposed to be either \"return_type\" or \"statement_groups\"", i);
+			grug_error("input_json_path its root.helper_fns[%zu] its second field is supposed to be either \"arguments\", \"return_type\", or \"statement_groups\"", i);
+		}
+
+		if (field_count > 2) {
+			if (streq(fn.fields[2].key, "return_type")) {
+				grug_assert(field_count == 4, "input_json_path its root.helper_fns[%zu] its \"return_type\" field is supposed to have a \"statement_groups\" field after it", i);
+
+				grug_assert(fn.fields[2].value->type == JSON_NODE_STRING, "input_json_path its root.helper_fns[%zu].return_type is supposed to be a string", i);
+
+				apply(" %s {\n", fn.fields[2].value->string);
+
+				grug_assert(streq(fn.fields[3].key, "statement_groups"), "input_json_path its root.helper_fns[%zu] its fourth field is supposed to be \"statement_groups\"", i);
+
+				indentation = 0;
+				apply_statement_groups(*fn.fields[3].value);
+			} else if (streq(fn.fields[2].key, "statement_groups")) {
+				grug_assert(field_count == 3, "input_json_path its root.helper_fns[%zu] its \"statement_groups\" field isn't supposed to have a field after it", i);
+
+				apply(" {\n");
+
+				indentation = 0;
+				apply_statement_groups(*fn.fields[2].value);
+			} else {
+				grug_error("input_json_path its root.helper_fns[%zu] its third field is supposed to be either \"return_type\" or \"statement_groups\"", i);
+			}
 		}
 
 		apply("}\n");
@@ -3884,7 +4027,7 @@ static void apply_on_fns(struct json_node node) {
 		grug_assert(on_fns_objects[i].type == JSON_NODE_OBJECT, "input_json_path its root.on_fns[%zu] is supposed to be an object", i);
 
 		struct json_object fn = on_fns_objects[i].object;
-		grug_assert(fn.field_count == 3, "input_json_path its root.on_fns[%zu] is supposed to have exactly 3 fields", i);
+		grug_assert(fn.field_count == 2 || fn.field_count == 3, "input_json_path its root.on_fns[%zu] is supposed to have either 2 or 3 fields", i);
 
 		grug_assert(streq(fn.fields[0].key, "name"), "input_json_path its root.on_fns[%zu] its first field is supposed to be \"name\"", i);
 
@@ -3895,16 +4038,29 @@ static void apply_on_fns(struct json_node node) {
 
 		apply("%s(", name);
 
-		grug_assert(streq(fn.fields[1].key, "arguments"), "input_json_path its root.on_fns[%zu] its second field is supposed to be \"arguments\"", i);
+		grug_assert(streq(fn.fields[1].key, "arguments") || streq(fn.fields[1].key, "statement_groups"), "input_json_path its root.on_fns[%zu] its second field is supposed to be either \"arguments\" or \"statement_groups\"", i);
 
-		apply_arguments(*fn.fields[1].value);
+		if (streq(fn.fields[1].key, "arguments")) {
+			grug_assert(fn.field_count == 3, "input_json_path its root.on_fns[%zu] its third field after \"arguments\" is supposed to be \"statement_groups\"", i);
 
-		apply(") {\n");
+			apply_arguments(*fn.fields[1].value);
 
-		grug_assert(streq(fn.fields[2].key, "statement_groups"), "input_json_path its root.on_fns[%zu] its third field is supposed to be \"statement_groups\"", i);
+			apply(") {\n");
 
-		indentation = 0;
-		apply_statement_groups(*fn.fields[2].value);
+			grug_assert(streq(fn.fields[2].key, "statement_groups"), "input_json_path its root.on_fns[%zu] its third field is supposed to be \"statement_groups\"", i);
+
+			indentation = 0;
+			apply_statement_groups(*fn.fields[2].value);
+		} else if (streq(fn.fields[1].key, "statement_groups")) {
+			grug_assert(fn.field_count == 2, "input_json_path its root.on_fns[%zu] isn't supposed to have a field after \"statement_groups\"", i);
+
+			apply(") {\n");
+
+			indentation = 0;
+			apply_statement_groups(*fn.fields[1].value);
+		} else {
+			grug_error("input_json_path its root.on_fns[%zu] its second field is supposed to either be \"arguments\" or \"statement_groups\"", i);
+		}
 
 		apply("}\n");
 	}
@@ -3968,7 +4124,7 @@ static void apply_compound_literal(struct json_node *entity_fields_array) {
 
 		grug_assert(streq(value.object.fields[1].key, "value"), "input_json_path its root.entity.fields[%zu] its second field is supposed to be \"value\"", i);
 
-		apply_consume_indentation();
+		apply_indentation();
 		apply(".%s = ", field_name->string);
 
 		apply_expr(*value.object.fields[1].value);
@@ -3978,14 +4134,14 @@ static void apply_compound_literal(struct json_node *entity_fields_array) {
 
 	assert(indentation > 0);
 	indentation--;
-
-	apply_consume_indentation();
-	apply("}\n");
 }
 
 static void apply_entity(struct json_node node) {
 	grug_assert(node.type == JSON_NODE_OBJECT, "input_json_path its root.entity is supposed to be an object");
-	grug_assert(node.object.field_count == 2, "input_json_path its root.entity is supposed to have exactly 2 fields");
+
+	size_t field_count = node.object.field_count;
+
+	grug_assert(field_count == 1 || field_count == 2, "input_json_path its root.entity is supposed to have either 1 or 2 fields");
 
 	struct json_field *entity_fields = node.object.fields;
 
@@ -3999,12 +4155,23 @@ static void apply_entity(struct json_node node) {
 
 	indentation = 1;
 
-	apply_consume_indentation();
+	apply_indentation();
 	apply("return {\n");
 
-	grug_assert(streq(entity_fields[1].key, "fields"), "input_json_path its root.entity its second field is supposed to be \"fields\"");
+	if (streq(entity_fields[1].key, "comments")) {
+		grug_assert(field_count == 2, "input_json_path its root.entity its \"comments\" field is supposed to have a \"fields\" field after it");
 
-	apply_compound_literal(entity_fields[1].value);
+		apply_comments(*entity_fields[1].value);
+
+		apply_compound_literal(entity_fields[2].value);
+	} else if (streq(entity_fields[1].key, "fields")) {
+		grug_assert(field_count == 1, "input_json_path its root.entity its \"fields\" field isn't supposed to have a field after it");
+
+		apply_compound_literal(entity_fields[1].value);
+	}
+
+	apply_indentation();
+	apply("}\n");
 
 	apply("}\n");
 }
@@ -4056,21 +4223,43 @@ bool grug_apply_file_ast(char *input_json_path, char *output_grug_path) {
 	grug_assert(applied_stream, "fopen: %s", strerror(errno));
 
 	grug_assert(node.type == JSON_NODE_OBJECT, "input_json_path its root is supposed to be an object");
-	grug_assert(node.object.field_count == 4, "input_json_path its root is supposed to have exactly 4 fields");
+
+	size_t field_count = node.object.field_count;
+
+	grug_assert(field_count >= 1 && field_count <= 4, "input_json_path its root is supposed to have between 1 and 4 (inclusive) fields");
 
 	struct json_field *root_fields = node.object.fields;
 
 	grug_assert(streq(root_fields[0].key, "entity"), "input_json_path its first field is supposed to be \"entity\"");
 	apply_entity(*root_fields[0].value);
 
-	grug_assert(streq(root_fields[1].key, "global_variables"), "input_json_path its second field is supposed to be \"global_variables\"");
-	apply_global_variables(*root_fields[1].value);
+	if (field_count > 1) {
+		if (streq(root_fields[1].key, "global_variables")) {
+			apply_global_variables(*root_fields[1].value);
+		} else if (streq(root_fields[1].key, "on_fns")) {
+			apply_on_fns(*root_fields[1].value);
+		} else if (streq(root_fields[1].key, "helper_fns")) {
+			apply_helper_fns(*root_fields[1].value);
+		} else {
+			grug_error("input_json_path its second field is supposed to be either \"global_variables\", \"on_fns\", or \"helper_fns\"");
+		}
 
-	grug_assert(streq(root_fields[2].key, "on_fns"), "input_json_path its third field is supposed to be \"on_fns\"");
-	apply_on_fns(*root_fields[2].value);
+		if (field_count > 2) {
+			if (streq(root_fields[2].key, "on_fns")) {
+				apply_on_fns(*root_fields[2].value);
+			} else if (streq(root_fields[2].key, "helper_fns")) {
+				apply_helper_fns(*root_fields[2].value);
+			} else {
+				grug_error("input_json_path its third field is supposed to be either \"on_fns\" or \"helper_fns\"");
+			}
 
-	grug_assert(streq(root_fields[3].key, "helper_fns"), "input_json_path its fourth field is supposed to be \"helper_fns\"");
-	apply_helper_fns(*root_fields[3].value);
+			if (field_count > 3) {
+				grug_assert(streq(root_fields[3].key, "helper_fns"), "input_json_path its fourth field is supposed to be \"helper_fns\"");
+
+				apply_helper_fns(*root_fields[3].value);
+			}
+		}
+	}
 
 	grug_assert(fclose(applied_stream) == 0, "fclose: %s", strerror(errno));
 
@@ -4653,7 +4842,7 @@ static void fill_helper_fns(void) {
 
 		// Unlike fill_statements() its RETURN_STATEMENT case,
 		// this checks whether a return statement *is missing* at the end of the function
-		if (fn_return_type != type_void) {
+		if (fn.return_type != type_void) {
 			grug_assert(fn.body_group_count > 0, "Function '%s' was supposed to return %s", filled_fn_name, type_names[fn_return_type]);
 
 			struct statement_group last_group = fn.body_groups[fn.body_group_count - 1];
