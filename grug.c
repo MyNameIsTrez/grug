@@ -1888,7 +1888,10 @@ struct literal_expr {
 	union {
 		char *string;
 		i32 i32;
-		f32 f32;
+		struct {
+			f32 value;
+			char *string;
+		} f32;
 	};
 };
 
@@ -2311,7 +2314,8 @@ static struct expr parse_primary(size_t *i) {
 		case F32_TOKEN:
 			(*i)++;
 			expr.type = F32_EXPR;
-			expr.literal.f32 = str_to_f32(token.str);
+			expr.literal.f32.value = str_to_f32(token.str);
+			expr.literal.f32.string = token.str;
 			return expr;
 		default:
 			grug_error("Expected a primary expression token, but got token type %s on line %zu", get_token_type_str[token.type], get_token_line_number(*i));
@@ -2530,6 +2534,7 @@ static struct statement parse_if_statement(size_t *i) {
 
 			struct statement_group else_if_group = {
 				.statements = push_statement(parse_if_statement(i)),
+				.statement_count = 1,
 			};
 			statement.if_statement.else_body_groups = push_statement_group(else_if_group);
 		} else {
@@ -2604,10 +2609,8 @@ static struct statement_group parse_global_variable_group(size_t *i) {
 				group.comments = comments + comments_size;
 			}
 
-			do {
-				push_comment(consume_token(i).str);
-				group.comment_count++;
-			} while (peek_token(*i).type == COMMENT_TOKEN);
+			push_comment(consume_token(i).str);
+			group.comment_count++;
 		} else {
 			assert_token_type(*i, WORD_TOKEN);
 			struct variable_statement variable = parse_variable_statement(i);
@@ -2692,7 +2695,6 @@ static struct statement_group parse_statement_group(size_t *i) {
 
 	// This local array is necessary, cause an IF substatement can contain its own statements
 	struct statement local_statements[MAX_STATEMENTS_PER_GROUP];
-	group.statement_count = 0;
 
 	while (true) {
 		if (is_end_of_block(i) || peek_token(*i).type == NEWLINE_TOKEN) {
@@ -2706,10 +2708,8 @@ static struct statement_group parse_statement_group(size_t *i) {
 				group.comments = comments + comments_size;
 			}
 
-			do {
-				push_comment(consume_token(i).str);
-				group.comment_count++;
-			} while (peek_token(*i).type == COMMENT_TOKEN);
+			push_comment(consume_token(i).str);
+			group.comment_count++;
 		} else {
 			struct statement statement = parse_statement(i);
 
@@ -3084,18 +3084,20 @@ static void dump_parenthesized_expr(struct expr *parenthesized_expr) {
 }
 
 static void dump_call_expr(struct call_expr call_expr) {
-	dump("\"name\":\"%s\",", call_expr.fn_name);
+	dump("\"name\":\"%s\"", call_expr.fn_name);
 
-	dump("\"arguments\":[");
-	for (size_t i = 0; i < call_expr.argument_count; i++) {
-		if (i > 0) {
-			dump(",");
+	if (call_expr.argument_count > 0) {
+		dump(",\"arguments\":[");
+		for (size_t i = 0; i < call_expr.argument_count; i++) {
+			if (i > 0) {
+				dump(",");
+			}
+			dump("{");
+			dump_expr(call_expr.arguments[i]);
+			dump("}");
 		}
-		dump("{");
-		dump_expr(call_expr.arguments[i]);
-		dump("}");
+		dump("]");
 	}
-	dump("]");
 }
 
 static void dump_binary_expr(struct binary_expr binary_expr) {
@@ -3125,7 +3127,7 @@ static void dump_expr(struct expr expr) {
 			dump(",\"value\":\"%d\"", expr.literal.i32);
 			break;
 		case F32_EXPR:
-			dump(",\"value\":\"%f\"", expr.literal.f32);
+			dump(",\"value\":\"%s\"", expr.literal.f32.string);
 			break;
 		case UNARY_EXPR:
 			dump(",\"operator\":\"%s\",", get_token_type_str[expr.unary.operator]);
@@ -3185,9 +3187,11 @@ static void dump_statements(struct statement *group_statements, size_t statement
 				dump_expr(statement.if_statement.condition);
 				dump("}");
 
-				dump(",\"if_statement_groups\":[");
-				dump_statement_groups(statement.if_statement.if_body_groups, statement.if_statement.if_body_group_count);
-				dump("]");
+				if (statement.if_statement.if_body_group_count > 0) {
+					dump(",\"if_statement_groups\":[");
+					dump_statement_groups(statement.if_statement.if_body_groups, statement.if_statement.if_body_group_count);
+					dump("]");
+				}
 
 				if (statement.if_statement.else_body_group_count > 0) {
 					dump(",\"else_statement_groups\":[");
@@ -3590,24 +3594,6 @@ static enum expr_type get_expr_type_from_str(char *token) {
 
 static void apply_expr(struct json_node expr);
 
-static void apply_call_expr(char *name, struct json_node expr) {
-	grug_assert(expr.type == JSON_NODE_ARRAY, "input_json_path its call expr arguments are supposed to be an array");
-
-	apply("%s(", name);
-
-	struct json_node *args = expr.array.values;
-
-	for (size_t i = 0; i < expr.array.value_count; i++) {
-		if (i > 0) {
-			apply(", ");
-		}
-
-		apply_expr(args[i]);
-	}
-
-	apply(")");
-}
-
 static void apply_expr(struct json_node expr) {
 	grug_assert(expr.type == JSON_NODE_OBJECT, "input_json_path its exprs are supposed to be an object");
 
@@ -3636,7 +3622,7 @@ static void apply_expr(struct json_node expr) {
 
 			grug_assert(expr.object.fields[1].value->type == JSON_NODE_STRING, "input_json_path its STRING_EXPRs are supposed to have a \"str\" with type string");
 
-			apply("%s", expr.object.fields[1].value->string);
+			apply("\"%s\"", expr.object.fields[1].value->string);
 
 			break;
 		case RESOURCE_EXPR:
@@ -3742,7 +3728,7 @@ static void apply_expr(struct json_node expr) {
 
 			break;
 		case CALL_EXPR: {
-			grug_assert(field_count == 3, "input_json_path its CALL_EXPRs are supposed to have exactly 3 fields");
+			grug_assert(field_count == 2 || field_count == 3, "input_json_path its CALL_EXPRs are supposed to have 2 or 3 fields");
 
 			grug_assert(streq(expr.object.fields[1].key, "name"), "input_json_path its CALL_EXPRs are supposed to have \"name\" as their second field");
 
@@ -3750,11 +3736,27 @@ static void apply_expr(struct json_node expr) {
 
 			char *name = expr.object.fields[1].value->string;
 
-			grug_assert(streq(expr.object.fields[2].key, "arguments"), "input_json_path its CALL_EXPRs are supposed to have \"arguments\" as their third field");
+			apply("%s(", name);
 
-			struct json_node args = *expr.object.fields[2].value;
+			if (field_count == 3) {
+				grug_assert(streq(expr.object.fields[2].key, "arguments"), "input_json_path its CALL_EXPRs are supposed to have \"arguments\" as their third field");
 
-			apply_call_expr(name, args);
+				struct json_node args_node = *expr.object.fields[2].value;
+
+				grug_assert(args_node.type == JSON_NODE_ARRAY, "input_json_path its call expr arguments are supposed to be an array");
+
+				struct json_node *args = args_node.array.values;
+
+				for (size_t i = 0; i < args_node.array.value_count; i++) {
+					if (i > 0) {
+						apply(", ");
+					}
+
+					apply_expr(args[i]);
+				}
+			}
+
+			apply(")");
 
 			break;
 		}
@@ -3822,7 +3824,7 @@ static void apply_statement(char *type, size_t field_count, struct json_field *s
 			break;
 		}
 		case CALL_STATEMENT: {
-			grug_assert(field_count == 3, "input_json_path its CALL_STATEMENTs are supposed to have exactly 3 fields");
+			grug_assert(field_count == 2 || field_count == 3, "input_json_path its CALL_STATEMENTs are supposed to have either 2 or 3 fields");
 
 			grug_assert(streq(statement[1].key, "name"), "input_json_path its CALL_STATEMENTs are supposed to have \"name\" as their second field");
 
@@ -3830,18 +3832,67 @@ static void apply_statement(char *type, size_t field_count, struct json_field *s
 
 			char *name = statement[1].value->string;
 
-			grug_assert(streq(statement[2].key, "arguments"), "input_json_path its CALL_STATEMENTs are supposed to have \"arguments\" as their third field");
+			apply("%s(", name);
 
-			struct json_node args = *statement[2].value;
+			if (field_count == 3) {
+				grug_assert(streq(statement[2].key, "arguments"), "input_json_path its CALL_STATEMENTs are supposed to have \"arguments\" as their third field");
 
-			apply_call_expr(name, args);
+				struct json_node args_node = *statement[2].value;
 
-			apply("\n");
+				grug_assert(args_node.type == JSON_NODE_ARRAY, "input_json_path its call expr arguments are supposed to be an array");
+
+				struct json_node *args = args_node.array.values;
+
+				for (size_t i = 0; i < args_node.array.value_count; i++) {
+					if (i > 0) {
+						apply(", ");
+					}
+
+					apply_expr(args[i]);
+				}
+			}
+
+			apply(")\n");
 
 			break;
 		}
 		case IF_STATEMENT:
-			assert(false);
+			grug_assert(field_count >= 2 && field_count <= 4, "input_json_path its IF_STATEMENTs are supposed to have between 2 and 4 fields");
+
+			apply("if ");
+
+			grug_assert(streq(statement[1].key, "condition"), "input_json_path its IF_STATEMENTs are supposed to have \"condition\" as their second field");
+
+			apply_expr(*statement[1].value);
+
+			apply(" {\n");
+
+			if (field_count > 2) {
+				if (streq(statement[2].key, "if_statement_groups")) {
+					apply_statement_groups(*statement[2].value);
+
+					if (field_count > 3) {
+						grug_assert(streq(statement[3].key, "else_statement_groups"), "input_json_path its WHILE_STATEMENTs are supposed to have \"else_statement_groups\" as their fourth field");
+
+						apply_indentation();
+						apply("} else {\n");
+
+						apply_statement_groups(*statement[3].value);
+					}
+				} else if (streq(statement[2].key, "else_statement_groups")) {
+					apply_indentation();
+					// TODO: Printing "} else if {\n" will need to be done specially somehow
+					apply("} else {\n");
+
+					apply_statement_groups(*statement[2].value);
+				} else {
+					grug_error("input_json_path its IF_STATEMENTs its third fields are supposed to be either \"if_statement_groups\" or \"else_statement_groups\"");
+				}
+			}
+
+			apply_indentation();
+			apply("}\n");
+
 			break;
 		case RETURN_STATEMENT:
 			assert(false);
@@ -3928,9 +3979,13 @@ static void apply_statement_groups(struct json_node node) {
 	for (size_t i = 0; i < node.array.value_count; i++) {
 		grug_assert(groups_array[i].type == JSON_NODE_OBJECT, "input_json_path its \"statement_groups\" values are supposed to be objects");
 
+		if (i > 0) {
+			apply("\n");
+		}
+
 		struct json_object group = groups_array[i].object;
 
-		grug_assert(group.field_count == 1 || group.field_count == 2, "input_json_path its \"statement_groups\" is supposed to have either 1 or 2 fields");
+		grug_assert(group.field_count == 1 || group.field_count == 2, "input_json_path its \"statement_groups\" values are supposed to have either 1 or 2 fields");
 
 		if (streq(group.fields[0].key, "comments")) {
 			grug_assert(group.field_count == 2, "input_json_path its \"comments\" field is supposed to have a \"statements\" field after it");
@@ -6341,7 +6396,7 @@ static void compile_expr(struct expr expr) {
 		}
 		case F32_EXPR:
 			compile_unpadded(MOV_TO_EAX);
-			unsigned char *bytes = (unsigned char *)&expr.literal.f32;
+			unsigned char *bytes = (unsigned char *)&expr.literal.f32.value;
 			for (size_t i = 0; i < sizeof(float); i++) {
 				compile_byte(*bytes); // Little-endian
 				bytes++;
@@ -8627,9 +8682,6 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 	parse();
 	fill_result_types();
 	grug_log("\n# AST (throw this into a JSON formatter)\n");
-#ifdef LOGGING
-	dump_ast();
-#endif
 
 	compile(grug_path);
 
