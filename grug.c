@@ -3018,8 +3018,8 @@ static void parse(void) {
 		} else if (type == COMMENT_TOKEN) {
 			if (!group_comments) {
 				group_comments = comments + comments_size;
-				group_comment_count++;
 			}
+			group_comment_count++;
 
 			push_comment(token.str);
 
@@ -4059,7 +4059,7 @@ static void apply_on_fns(struct json_node node) {
 			indentation = 0;
 			apply_statement_groups(*fn.fields[1].value);
 		} else {
-			grug_error("input_json_path its root.on_fns[%zu] its second field is supposed to either be \"arguments\" or \"statement_groups\"", i);
+			grug_error("input_json_path its root.on_fns[%zu] its second field is supposed to be either \"arguments\" or \"statement_groups\"", i);
 		}
 
 		apply("}\n");
@@ -4141,33 +4141,64 @@ static void apply_entity(struct json_node node) {
 
 	size_t field_count = node.object.field_count;
 
-	grug_assert(field_count == 1 || field_count == 2, "input_json_path its root.entity is supposed to have either 1 or 2 fields");
+	grug_assert(field_count >= 1 && field_count <= 3, "input_json_path its root.entity is supposed to have between 1 and 3 (inclusive) fields");
 
 	struct json_field *entity_fields = node.object.fields;
 
-	grug_assert(streq(entity_fields[0].key, "name"), "input_json_path its root.entity its first field is supposed to be \"name\"");
+	struct json_node *comments_node = NULL;
+	struct json_node *name_node = NULL;
+	struct json_node *fields_node = NULL;
 
-	struct json_node *name = entity_fields[0].value;
-	grug_assert(name->type == JSON_NODE_STRING, "input_json_path its root.entity.name is supposed to be a string");
-	grug_assert(strlen(name->string) > 0, "input_json_path its root.entity.name is not supposed to be an empty string");
+	if (streq(entity_fields[0].key, "comments")) {
+		grug_assert(field_count > 1, "input_json_path its root.entity its \"comments\" is supposed to have \"name\" after it");
 
-	apply("define() %s {\n", name->string);
+		comments_node = entity_fields[0].value;
+
+		if (streq(entity_fields[1].key, "name")) {
+			name_node = entity_fields[1].value;
+
+			if (field_count > 2) {
+				if (streq(entity_fields[2].key, "fields")) {
+					fields_node = entity_fields[2].value;
+				} else {
+					grug_error("input_json_path its root.entity its third (optional) field is supposed to be \"fields\"");
+				}
+			}
+		} else {
+			grug_error("input_json_path its root.entity its field after \"comments\" is supposed to be \"name\"");
+		}
+	} else if (streq(entity_fields[0].key, "name")) {
+		grug_assert(field_count < 3, "input_json_path its root.entity its \"name\" is only supposed to (optionally) have \"fields\" after it");
+
+		name_node = entity_fields[0].value;
+
+		if (field_count == 2) {
+			if (streq(entity_fields[1].key, "fields")) {
+				fields_node = entity_fields[1].value;
+			} else {
+				grug_error("input_json_path its root.entity its second (optional) field is supposed to be \"fields\"");
+			}
+		}
+	} else {
+		grug_error("input_json_path its root.entity its first field is supposed to be either \"comments\" or \"name\"");
+	}
+
+	if (comments_node) {
+		indentation = 0;
+		apply_comments(*comments_node);
+	}
+
+	grug_assert(name_node->type == JSON_NODE_STRING, "input_json_path its root.entity.name is supposed to be a string");
+	grug_assert(strlen(name_node->string) > 0, "input_json_path its root.entity.name is not supposed to be an empty string");
+
+	apply("define() %s {\n", name_node->string);
 
 	indentation = 1;
-
 	apply_indentation();
 	apply("return {\n");
 
-	if (streq(entity_fields[1].key, "comments")) {
-		grug_assert(field_count == 2, "input_json_path its root.entity its \"comments\" field is supposed to have a \"fields\" field after it");
-
-		apply_comments(*entity_fields[1].value);
-
-		apply_compound_literal(entity_fields[2].value);
-	} else if (streq(entity_fields[1].key, "fields")) {
-		grug_assert(field_count == 1, "input_json_path its root.entity its \"fields\" field isn't supposed to have a field after it");
-
-		apply_compound_literal(entity_fields[1].value);
+	if (fields_node) {
+		apply_compound_literal(fields_node);
 	}
 
 	apply_indentation();
