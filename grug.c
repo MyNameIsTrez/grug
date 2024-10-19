@@ -29,7 +29,8 @@
 //
 // ## Small example programs
 //
-// - [terminal fighting game](https://github.com/MyNameIsTrez/grug-terminal-fighting-game)
+// - [Box2D and raylib game](https://github.com/MyNameIsTrez/grug-box2d-and-raylib-game)
+// - [terminal game: C/C++](https://github.com/MyNameIsTrez/grug-terminal-game-c-cpp)
 // - [grug benchmarks](https://github.com/MyNameIsTrez/grug-benchmarks)
 //
 // ## Options
@@ -3629,12 +3630,6 @@ static void apply_expr(struct json_node expr) {
 			apply("\"%s\"", expr.object.fields[1].value->string);
 
 			break;
-		case RESOURCE_EXPR:
-			assert(false); // TODO: Implement!
-			break;
-		case ENTITY_EXPR:
-			assert(false); // TODO: Implement!
-			break;
 		case IDENTIFIER_EXPR:
 			grug_assert(field_count == 2, "input_json_path its IDENTIFIER_EXPRs are supposed to have exactly 2 fields");
 
@@ -3776,6 +3771,9 @@ static void apply_expr(struct json_node expr) {
 			apply(")");
 
 			break;
+		case RESOURCE_EXPR:
+		case ENTITY_EXPR:
+			grug_unreachable();
 	}
 }
 
@@ -3883,7 +3881,7 @@ static void apply_if_statement(size_t field_count, struct json_field *statement)
 static void apply_statement(char *type, size_t field_count, struct json_field *statement) {
 	switch (get_statement_type_from_str(type)) {
 		case VARIABLE_STATEMENT: {
-			grug_assert(field_count == 3 || field_count == 4, "input_json_path its VARIABLE_STATEMENTs are supposed to have exactly 3 or 4 fields");
+			grug_assert(field_count == 3 || field_count == 4, "input_json_path its VARIABLE_STATEMENTs are supposed to have 3 or 4 fields");
 
 			grug_assert(streq(statement[1].key, "name"), "input_json_path its VARIABLE_STATEMENTs are supposed to have \"name\" as their second field");
 
@@ -3957,7 +3955,20 @@ static void apply_statement(char *type, size_t field_count, struct json_field *s
 			apply_if_statement(field_count, statement);
 			break;
 		case RETURN_STATEMENT:
-			assert(false);
+			grug_assert(field_count == 1 || field_count == 2, "input_json_path its RETURN_STATEMENTs are supposed to have 1 or 2 fields");
+
+			apply("return");
+
+			if (field_count == 2) {
+				apply(" ");
+
+				grug_assert(streq(statement[1].key, "expr"), "input_json_path its RETURN_STATEMENTs are supposed to have \"expr\" as their second field");
+
+				apply_expr(*statement[1].value);
+			}
+
+			apply("\n");
+
 			break;
 		case WHILE_STATEMENT:
 			grug_assert(field_count == 3, "input_json_path its WHILE_STATEMENTs are supposed to have exactly 3 fields");
