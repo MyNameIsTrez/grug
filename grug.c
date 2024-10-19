@@ -3650,10 +3650,10 @@ static void apply_expr(struct json_node expr) {
 
 			grug_assert(expr.object.fields[1].value->type == JSON_NODE_STRING, "input_json_path its I32_EXPRs are supposed to have a \"value\" with type string");
 
-			char *i32 = expr.object.fields[1].value->string;
-			grug_assert(strlen(i32) > 0, "input_json_path its I32_EXPRs are not supposed to have an empty \"value\" string");
+			char *i32_string = expr.object.fields[1].value->string;
+			grug_assert(strlen(i32_string) > 0, "input_json_path its I32_EXPRs are not supposed to have an empty \"value\" string");
 
-			apply("%s", i32);
+			apply("%s", i32_string);
 
 			break;
 		}
@@ -3664,10 +3664,10 @@ static void apply_expr(struct json_node expr) {
 
 			grug_assert(expr.object.fields[1].value->type == JSON_NODE_STRING, "input_json_path its F32_EXPRs are supposed to have a \"value\" with type string");
 
-			char *f32 = expr.object.fields[1].value->string;
-			grug_assert(strlen(f32) > 0, "input_json_path its F32_EXPRs are not supposed to have an empty \"value\" string");
+			char *f32_string = expr.object.fields[1].value->string;
+			grug_assert(strlen(f32_string) > 0, "input_json_path its F32_EXPRs are not supposed to have an empty \"value\" string");
 
-			apply("%s", f32);
+			apply("%s", f32_string);
 
 			break;
 		case UNARY_EXPR:
