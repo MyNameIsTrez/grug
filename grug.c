@@ -2600,31 +2600,25 @@ static struct statement_group parse_global_variable_group(size_t *i) {
 	group.statements = statements + statements_size;
 
 	while (true) {
+		// The `*i >= tokens_size` could be removed if grug were to throw an error on unused globals
 		if (*i >= tokens_size || peek_token(*i).type == NEWLINE_TOKEN) {
 			break;
 		}
 
-		if (peek_token(*i).type == COMMENT_TOKEN) {
-			if (!group.comments) {
-				group.comments = comments + comments_size;
-			}
+		grug_assert(peek_token(*i).type != COMMENT_TOKEN, "There is an unexpected comment after a global variable, on line %zu", get_token_line_number(*i));
 
-			push_comment(consume_token(i).str);
-			group.comment_count++;
-		} else {
-			assert_token_type(*i, WORD_TOKEN);
-			struct variable_statement variable = parse_variable_statement(i);
+		assert_token_type(*i, WORD_TOKEN);
+		struct variable_statement variable = parse_variable_statement(i);
 
-			grug_assert(variable.has_type, "The global variable '%s' is missing a type, on line %zu", variable.name, get_token_line_number(*i));
+		grug_assert(variable.has_type, "The global variable '%s' is missing a type, on line %zu", variable.name, get_token_line_number(*i));
 
-			struct statement statement = {0};
+		struct statement statement = {0};
 
-			statement.type = VARIABLE_STATEMENT;
-			statement.variable_statement = variable;
+		statement.type = VARIABLE_STATEMENT;
+		statement.variable_statement = variable;
 
-			push_statement(statement);
-			group.statement_count++;
-		}
+		push_statement(statement);
+		group.statement_count++;
 
 		consume_newline(i);
 	}
@@ -2693,6 +2687,19 @@ static struct statement parse_statement(size_t *i) {
 static struct statement_group parse_statement_group(size_t *i) {
 	struct statement_group group = {0};
 
+	while (peek_token(*i).type == INDENTATION_TOKEN && peek_token(*i + 1).type == COMMENT_TOKEN) {
+		(*i)++;
+
+		if (!group.comments) {
+			group.comments = comments + comments_size;
+		}
+
+		push_comment(consume_token(i).str);
+		group.comment_count++;
+
+		consume_token_type(i, NEWLINE_TOKEN);
+	}
+
 	// This local array is necessary, cause an IF substatement can contain its own statements
 	struct statement local_statements[MAX_STATEMENTS_PER_GROUP];
 
@@ -2703,19 +2710,12 @@ static struct statement_group parse_statement_group(size_t *i) {
 
 		consume_indentation(i);
 
-		if (peek_token(*i).type == COMMENT_TOKEN) {
-			if (!group.comments) {
-				group.comments = comments + comments_size;
-			}
+		grug_assert(peek_token(*i).type != COMMENT_TOKEN, "There is an unexpected comment after a statement, on line %zu", get_token_line_number(*i));
 
-			push_comment(consume_token(i).str);
-			group.comment_count++;
-		} else {
-			struct statement statement = parse_statement(i);
+		struct statement statement = parse_statement(i);
 
-			grug_assert(group.statement_count < MAX_STATEMENTS_PER_GROUP, "There are more than %d statements in one of the grug file's statement groups, exceeding MAX_STATEMENTS_PER_GROUP", MAX_STATEMENTS_PER_GROUP);
-			local_statements[group.statement_count++] = statement;
-		}
+		grug_assert(group.statement_count < MAX_STATEMENTS_PER_GROUP, "There are more than %d statements in one of the grug file's statement groups, exceeding MAX_STATEMENTS_PER_GROUP", MAX_STATEMENTS_PER_GROUP);
+		local_statements[group.statement_count++] = statement;
 
 		consume_newline(i);
 	}
@@ -2958,10 +2958,10 @@ static void parse(void) {
 	reset_parsing();
 
 	bool seen_define_fn = false;
+
+	bool comment_allowed = true;
 	bool newline_allowed = false;
 	bool just_seen_newline = false;
-	bool recently_pushed_global_variable = false;
-	size_t empty_line_after_global_variables = 0;
 
 	char **group_comments = NULL;
 	size_t group_comment_count = 0;
@@ -2976,6 +2976,8 @@ static void parse(void) {
 			parse_define_fn(&i);
 
 			seen_define_fn = true;
+
+			comment_allowed = false;
 			newline_allowed = true;
 			just_seen_newline = false;
 
@@ -2987,9 +2989,11 @@ static void parse(void) {
 			grug_assert(seen_define_fn, "Move the global variable '%s' below the define function", token.str);
 			struct statement_group group = parse_global_variable_group(&i);
 
+			comment_allowed = false;
 			newline_allowed = true;
-			just_seen_newline = false;
-			recently_pushed_global_variable = true;
+
+			// We can only have returned from parse_global_variable_group() by seeing a newline
+			just_seen_newline = true;
 
 			group.comments = group_comments;
 			group_comments = NULL;
@@ -3001,6 +3005,7 @@ static void parse(void) {
 			grug_assert(seen_define_fn, "Move the on_ function '%s' below the define function", token.str);
 			parse_on_fn(&i);
 
+			comment_allowed = false;
 			newline_allowed = true;
 			just_seen_newline = false;
 
@@ -3013,6 +3018,7 @@ static void parse(void) {
 		} else if (type == WORD_TOKEN && starts_with(token.str, "helper_") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			parse_helper_fn(&i);
 
+			comment_allowed = false;
 			newline_allowed = true;
 			just_seen_newline = false;
 
@@ -3025,14 +3031,10 @@ static void parse(void) {
 		} else if (type == NEWLINE_TOKEN) {
 			grug_assert(newline_allowed, "Unexpected empty line, on line %zu", get_token_line_number(i));
 
-			if (just_seen_newline && recently_pushed_global_variable) {
-				grug_assert(empty_line_after_global_variables == 0, "Unexpected empty line between global variables on line %zu", empty_line_after_global_variables);
-				recently_pushed_global_variable = false;
-				empty_line_after_global_variables = get_token_line_number(i);
-			}
-
 			// If this is an empty line, so if we've now seen "\n\n"
 			if (just_seen_newline) {
+				comment_allowed = true;
+
 				// Disallows "\n\n\n"
 				newline_allowed = false;
 			}
@@ -3040,6 +3042,8 @@ static void parse(void) {
 
 			i++;
 		} else if (type == COMMENT_TOKEN) {
+			grug_assert(comment_allowed, "Unexpected comment, on line %zu", get_token_line_number(i));
+
 			if (!group_comments) {
 				group_comments = comments + comments_size;
 			}
@@ -3860,31 +3864,13 @@ static void apply_if_statement(size_t field_count, struct json_field *statement)
 
 		struct json_node *else_if_node = try_get_else_if(*else_statement_groups_node);
 
+		apply("} else ");
+
 		if (else_if_node) {
-			apply("} else if ");
-
-			grug_assert(streq(else_if_node->object.fields[1].key, "condition"), "input_json_path its IF_STATEMENT object is supposed to contain \"condition\" as the second field");
-
-			apply_expr(*else_if_node->object.fields[1].value);
-
-			apply(" {\n");
-
-			// TODO: This needs to add the if-case and elif-case
-			if (else_if_node->object.field_count > 2) {
-				// We can't use apply_statement_groups(), since it calls apply_statements(),
-				// which adds indentation before the if-statement
-				//
-				// We also can't call ourselves recursively, since it'll add the condition a second time
-				// TODO: REPLACE WITH ADDING THE IF AND ELSE SIDES MANUALLY!
-				apply_if_statement(else_if_node->object.field_count, else_if_node->object.fields);
-			} else {
-				apply_indentation();
-				apply("}\n");
-			}
+			apply_if_statement(else_if_node->object.field_count, else_if_node->object.fields);
 		} else {
-			apply("} else {\n");
+			apply("{\n");
 			apply_statement_groups(*else_statement_groups_node);
-
 			apply_indentation();
 			apply("}\n");
 		}
