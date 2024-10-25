@@ -62,26 +62,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#define MAX_TOKENS 420420
-#define MAX_FIELDS 420420
-#define MAX_EXPRS 420420
-#define MAX_STATEMENTS 420420
-#define MAX_COMMENT_CHARACTERS 420420
-#define MAX_COMMENTS 420420
-#define MAX_STATEMENT_GROUPS 420420
-#define MAX_ARGUMENTS 420420
-#define MAX_HELPER_FNS 420420
-#define MAX_ON_FNS 420420
-#define MAX_GLOBAL_STATEMENT_GROUPS 420420
-#define SPACES_PER_INDENT 4
-#define MAX_CALL_ARGUMENTS_PER_STACK_FRAME 69
-#define MAX_STATEMENTS_PER_GROUP 1337
-#define MAX_STATEMENT_GROUPS_PER_BLOCK 1337
-#define MAX_SERIALIZED_TO_C_CHARS 420420
-#define DLL_DIR_PATH "mod_dlls"
-#define MOD_API_JSON_PATH "mod_api.json"
-#define GRUG_ON_FN_TIME_LIMIT_MS 1000
-
 // The only reason this define is surrounded by an ifndef,
 // is so that tests.c can override it with "-Dtests" at compile time
 // If you're a game developer however, you should instead just manually change the below "mods" string
@@ -403,6 +383,8 @@ timer_settime(timer_t tim, int flags,
 #endif
 
 //// RUNTIME ERROR HANDLING
+
+#define GRUG_ON_FN_TIME_LIMIT_MS 1000
 
 volatile sig_atomic_t grug_runtime_error;
 jmp_buf grug_runtime_error_jmp_buffer;
@@ -1065,6 +1047,7 @@ void json(char *json_file_path, struct json_node *returned) {
 
 #define MAX_GRUG_FUNCTIONS 420420
 #define MAX_GRUG_ARGUMENTS 420420
+#define MOD_API_JSON_PATH "mod_api.json"
 
 enum type {
 	type_void,
@@ -1496,6 +1479,9 @@ static void read_file(char *path) {
 
 //// TOKENIZATION
 
+#define MAX_TOKENS 420420
+#define SPACES_PER_INDENT 4
+
 enum token_type {
 	OPEN_PARENTHESIS_TOKEN,
 	CLOSE_PARENTHESIS_TOKEN,
@@ -1885,6 +1871,17 @@ static void tokenize(void) {
 
 //// PARSING
 
+#define MAX_EXPRS 420420
+#define MAX_FIELDS 420420
+#define MAX_STATEMENTS 420420
+#define MAX_GLOBAL_STATEMENTS 420420
+#define MAX_ARGUMENTS 420420
+#define MAX_ON_FNS 420420
+#define MAX_HELPER_FNS 420420
+#define MAX_GLOBAL_VARIABLES 420420
+#define MAX_CALL_ARGUMENTS_PER_STACK_FRAME 69
+#define MAX_STATEMENTS_PER_SCOPE 1337
+
 struct literal_expr {
 	union {
 		char *string;
@@ -1982,10 +1979,10 @@ struct call_statement {
 
 struct if_statement {
 	struct expr condition;
-	struct statement_group *if_body_groups;
-	size_t if_body_group_count;
-	struct statement_group *else_body_groups;
-	size_t else_body_group_count;
+	struct statement *if_body_statements;
+	size_t if_body_statement_count;
+	struct statement *else_body_statements;
+	size_t else_body_statement_count;
 };
 
 struct return_statement {
@@ -1995,8 +1992,8 @@ struct return_statement {
 
 struct while_statement {
 	struct expr condition;
-	struct statement_group *body_groups;
-	size_t body_group_count;
+	struct statement *body_statements;
+	size_t body_statement_count;
 };
 
 enum statement_type {
@@ -2007,6 +2004,8 @@ enum statement_type {
 	WHILE_STATEMENT,
 	BREAK_STATEMENT,
 	CONTINUE_STATEMENT,
+	EMPTY_LINE_STATEMENT,
+	COMMENT_STATEMENT,
 };
 struct statement {
 	enum statement_type type;
@@ -2016,6 +2015,7 @@ struct statement {
 		struct if_statement if_statement;
 		struct return_statement return_statement;
 		struct while_statement while_statement;
+		char *comment;
 	};
 };
 static char *get_statement_type_str[] = {
@@ -2026,63 +2026,79 @@ static char *get_statement_type_str[] = {
 	[WHILE_STATEMENT] = "WHILE_STATEMENT",
 	[BREAK_STATEMENT] = "BREAK_STATEMENT",
 	[CONTINUE_STATEMENT] = "CONTINUE_STATEMENT",
+	[EMPTY_LINE_STATEMENT] = "EMPTY_LINE_STATEMENT",
+	[COMMENT_STATEMENT] = "COMMENT_STATEMENT",
 };
 static struct statement statements[MAX_STATEMENTS];
 static size_t statements_size;
 
-struct statement_group {
-	char **comments;
-	size_t comment_count;
-	struct statement *statements;
-	size_t statement_count;
+enum global_statement_type {
+	GLOBAL_DEFINE_FN,
+	GLOBAL_VARIABLE,
+	GLOBAL_ON_FN,
+	GLOBAL_HELPER_FN,
+	GLOBAL_EMPTY_LINE,
+	GLOBAL_COMMENT,
 };
-static struct statement_group statement_groups[MAX_STATEMENT_GROUPS];
-static size_t statement_groups_size;
-static char comment_characters[MAX_COMMENT_CHARACTERS];
-static size_t comment_characters_size;
-static char *comments[MAX_COMMENTS];
-static size_t comments_size;
+struct global_statement {
+	enum global_statement_type type;
+	union {
+		struct global_variable_statement *global_variable;
+		struct on_fn *on_fn;
+		struct helper_fn *helper_fn;
+		char *comment;
+	};
+};
+static char *get_global_statement_type_str[] = {
+	[GLOBAL_DEFINE_FN] = "GLOBAL_DEFINE_FN",
+	[GLOBAL_VARIABLE] = "GLOBAL_VARIABLE",
+	[GLOBAL_ON_FN] = "GLOBAL_ON_FN",
+	[GLOBAL_HELPER_FN] = "GLOBAL_HELPER_FN",
+	[GLOBAL_EMPTY_LINE] = "GLOBAL_EMPTY_LINE",
+	[GLOBAL_COMMENT] = "GLOBAL_COMMENT",
+};
+static struct global_statement global_statements[MAX_GLOBAL_STATEMENTS];
+static size_t global_statements_size;
 
 static struct argument arguments[MAX_ARGUMENTS];
 static size_t arguments_size;
 
 struct parsed_define_fn {
-	char **comments;
-	size_t comment_count;
 	char *return_type;
 	struct compound_literal returned_compound_literal;
 };
 static struct parsed_define_fn define_fn;
 
 struct on_fn {
-	char **comments;
-	size_t comment_count;
 	char *fn_name;
 	struct argument *arguments;
 	size_t argument_count;
-	struct statement_group *body_groups;
-	size_t body_group_count;
+	struct statement *body_statements;
+	size_t body_statement_count;
 };
 static struct on_fn on_fns[MAX_ON_FNS];
 static size_t on_fns_size;
 
 struct helper_fn {
-	char **comments;
-	size_t comment_count;
 	char *fn_name;
 	struct argument *arguments;
 	size_t argument_count;
 	enum type return_type;
-	struct statement_group *body_groups;
-	size_t body_group_count;
+	struct statement *body_statements;
+	size_t body_statement_count;
 };
 static struct helper_fn helper_fns[MAX_HELPER_FNS];
 static size_t helper_fns_size;
 static u32 buckets_helper_fns[MAX_HELPER_FNS];
 static u32 chains_helper_fns[MAX_HELPER_FNS];
 
-static struct statement_group global_statement_groups[MAX_GLOBAL_STATEMENT_GROUPS];
-static size_t global_statement_groups_size;
+struct global_variable_statement {
+	char *name;
+	enum type type;
+	struct expr assignment_expr;
+};
+static struct global_variable_statement global_variable_statements[MAX_GLOBAL_VARIABLES];
+static size_t global_variable_statements_size;
 
 static size_t indentation;
 
@@ -2090,13 +2106,11 @@ static void reset_parsing(void) {
 	exprs_size = 0;
 	fields_size = 0;
 	statements_size = 0;
-	statement_groups_size = 0;
-	comment_characters_size = 0;
-	comments_size = 0;
+	global_statements_size = 0;
 	arguments_size = 0;
 	on_fns_size = 0;
 	helper_fns_size = 0;
-	global_statement_groups_size = 0;
+	global_variable_statements_size = 0;
 }
 
 static struct helper_fn *get_helper_fn(char *name) {
@@ -2135,26 +2149,22 @@ static void hash_helper_fns(void) {
 	}
 }
 
-static void push_helper_fn(struct helper_fn helper_fn) {
+static struct helper_fn *push_helper_fn(struct helper_fn helper_fn) {
 	grug_assert(helper_fns_size < MAX_HELPER_FNS, "There are more than %d helper_fns in the grug file, exceeding MAX_HELPER_FNS", MAX_HELPER_FNS);
-	helper_fns[helper_fns_size++] = helper_fn;
+	helper_fns[helper_fns_size] = helper_fn;
+	return helper_fns + helper_fns_size++;
 }
 
-static void push_on_fn(struct on_fn on_fn) {
+static struct on_fn *push_on_fn(struct on_fn on_fn) {
 	grug_assert(on_fns_size < MAX_ON_FNS, "There are more than %d on_fns in the grug file, exceeding MAX_ON_FNS", MAX_ON_FNS);
-	on_fns[on_fns_size++] = on_fn;
+	on_fns[on_fns_size] = on_fn;
+	return on_fns + on_fns_size++;
 }
 
 static struct statement *push_statement(struct statement statement) {
 	grug_assert(statements_size < MAX_STATEMENTS, "There are more than %d statements in the grug file, exceeding MAX_STATEMENTS", MAX_STATEMENTS);
 	statements[statements_size] = statement;
 	return statements + statements_size++;
-}
-
-static struct statement_group *push_statement_group(struct statement_group group) {
-	grug_assert(statement_groups_size < MAX_STATEMENT_GROUPS, "There are more than %d statement groups in the grug file, exceeding MAX_STATEMENT_GROUPS", MAX_STATEMENT_GROUPS);
-	statement_groups[statement_groups_size] = group;
-	return statement_groups + statement_groups_size++;
 }
 
 static struct expr *push_expr(struct expr expr) {
@@ -2500,7 +2510,7 @@ static struct expr parse_expression(size_t *i) {
 	return parse_or(i);
 }
 
-static struct statement_group *parse_statement_groups(size_t *i, size_t *group_count);
+static struct statement *parse_statements(size_t *i, size_t *body_statement_count);
 
 static struct statement parse_while_statement(size_t *i) {
 	struct statement statement = {0};
@@ -2509,7 +2519,7 @@ static struct statement parse_while_statement(size_t *i) {
 	consume_space(i);
 	statement.while_statement.condition = parse_expression(i);
 
-	statement.while_statement.body_groups = parse_statement_groups(i, &statement.while_statement.body_group_count);
+	statement.while_statement.body_statements = parse_statements(i, &statement.while_statement.body_statement_count);
 
 	return statement;
 }
@@ -2521,7 +2531,7 @@ static struct statement parse_if_statement(size_t *i) {
 	consume_space(i);
 	statement.if_statement.condition = parse_expression(i);
 
-	statement.if_statement.if_body_groups = parse_statement_groups(i, &statement.if_statement.if_body_group_count);
+	statement.if_statement.if_body_statements = parse_statements(i, &statement.if_statement.if_body_statement_count);
 
 	if (peek_token(*i).type == SPACE_TOKEN) {
 		(*i)++;
@@ -2531,27 +2541,18 @@ static struct statement parse_if_statement(size_t *i) {
 		if (peek_token(*i).type == SPACE_TOKEN && peek_token(*i + 1).type == IF_TOKEN) {
 			(*i) += 2;
 
-			statement.if_statement.else_body_group_count = 1;
+			statement.if_statement.else_body_statement_count = 1;
 
-			struct statement_group else_if_group = {
-				.statements = push_statement(parse_if_statement(i)),
-				.statement_count = 1,
-			};
-			statement.if_statement.else_body_groups = push_statement_group(else_if_group);
+			statement.if_statement.else_body_statements = push_statement(parse_if_statement(i));
 		} else {
-			statement.if_statement.else_body_groups = parse_statement_groups(i, &statement.if_statement.else_body_group_count);
+			statement.if_statement.else_body_statements = parse_statements(i, &statement.if_statement.else_body_statement_count);
 		}
 	}
 
 	return statement;
 }
 
-static void push_global_statement_group(struct statement_group group) {
-	grug_assert(global_statement_groups_size < MAX_GLOBAL_STATEMENT_GROUPS, "There are more than %d global statement groups in the grug file, exceeding MAX_GLOBAL_STATEMENT_GROUPS", MAX_GLOBAL_STATEMENT_GROUPS);
-	global_statement_groups[global_statement_groups_size++] = group;
-}
-
-static struct variable_statement parse_variable_statement(size_t *i) {
+static struct variable_statement parse_local_variable(size_t *i) {
 	struct variable_statement variable_statement = {0};
 
 	size_t name_token_index = *i;
@@ -2581,50 +2582,37 @@ static struct variable_statement parse_variable_statement(size_t *i) {
 	return variable_statement;
 }
 
-static void push_comment(char *comment) {
-	grug_assert(comments_size < MAX_COMMENTS, "There are more than %d comments in the comments array, exceeding MAX_COMMENTS", MAX_COMMENTS);
-	comments[comments_size++] = comment_characters + comment_characters_size;
-
-	size_t length = strlen(comment);
-
-	grug_assert(comment_characters_size + length < MAX_COMMENT_CHARACTERS, "There are more than %d characters in the comment_characters array, exceeding MAX_COMMENT_CHARACTERS", MAX_COMMENT_CHARACTERS);
-
-	for (size_t i = 0; i < length; i++) {
-		comment_characters[comment_characters_size++] = comment[i];
-	}
-	comment_characters[comment_characters_size++] = '\0';
+static struct global_variable_statement *push_global_variable(struct global_variable_statement global_variable) {
+	grug_assert(global_variable_statements_size < MAX_GLOBAL_VARIABLES, "There are more than %d global variables in the grug file, exceeding MAX_GLOBAL_VARIABLES", MAX_GLOBAL_VARIABLES);
+	global_variable_statements[global_variable_statements_size] = global_variable;
+	return global_variable_statements + global_variable_statements_size++;
 }
 
-static struct statement_group parse_global_variable_group(size_t *i) {
-	struct statement_group group = {0};
+static struct global_variable_statement parse_global_variable(size_t *i) {
+	struct global_variable_statement global = {0};
 
-	group.statements = statements + statements_size;
+	struct token name_token = consume_token(i);
+	global.name = name_token.str;
 
-	while (true) {
-		// The `*i >= tokens_size` could be removed if grug were to throw an error on unused globals
-		if (*i >= tokens_size || peek_token(*i).type == NEWLINE_TOKEN) {
-			break;
-		}
+	assert_token_type(*i, COLON_TOKEN);
+	consume_token(i);
 
-		grug_assert(peek_token(*i).type != COMMENT_TOKEN, "There is an unexpected comment after a global variable, on line %zu", get_token_line_number(*i));
+	consume_space(i);
+	assert_token_type(*i, WORD_TOKEN);
+	struct token type_token = consume_token(i);
+	global.type = parse_type(type_token.str);
 
-		assert_token_type(*i, WORD_TOKEN);
-		struct variable_statement variable = parse_variable_statement(i);
+	grug_assert(global.type != type_resource, "The global variable '%s' can't have 'resource' as its type", global.name);
+	grug_assert(global.type != type_entity, "The global variable '%s' can't have 'entity' as its type", global.name);
 
-		grug_assert(variable.has_type, "The global variable '%s' is missing a type, on line %zu", variable.name, get_token_line_number(*i));
+	consume_space(i);
+	assert_token_type(*i, ASSIGNMENT_TOKEN);
+	consume_token(i);
 
-		struct statement statement = {0};
+	consume_space(i);
+	global.assignment_expr = parse_expression(i);
 
-		statement.type = VARIABLE_STATEMENT;
-		statement.variable_statement = variable;
-
-		push_statement(statement);
-		group.statement_count++;
-
-		consume_newline(i);
-	}
-
-	return group;
+	return global;
 }
 
 static struct statement parse_statement(size_t *i) {
@@ -2640,7 +2628,7 @@ static struct statement parse_statement(size_t *i) {
 				statement.call_statement.expr = push_expr(expr);
 			} else if (token.type == COLON_TOKEN || token.type == SPACE_TOKEN) {
 				statement.type = VARIABLE_STATEMENT;
-				statement.variable_statement = parse_variable_statement(i);
+				statement.variable_statement = parse_local_variable(i);
 			} else {
 				grug_error("Expected '(', or ':', or ' =' after the word '%s' on line %zu", switch_token.str, get_token_line_number(*i));
 			}
@@ -2678,6 +2666,15 @@ static struct statement parse_statement(size_t *i) {
 			(*i)++;
 			statement.type = CONTINUE_STATEMENT;
 			break;
+		case NEWLINE_TOKEN:
+			(*i)++;
+			statement.type = EMPTY_LINE_STATEMENT;
+			break;
+		case COMMENT_TOKEN:
+			(*i)++;
+			statement.type = COMMENT_STATEMENT;
+			statement.comment = switch_token.str;
+			break;
 		default:
 			grug_error("Expected a statement token, but got token type %s on line %zu", get_token_type_str[switch_token.type], get_token_line_number(*i - 1));
 	}
@@ -2685,59 +2682,15 @@ static struct statement parse_statement(size_t *i) {
 	return statement;
 }
 
-static struct statement_group parse_statement_group(size_t *i) {
-	struct statement_group group = {0};
-
-	while (peek_token(*i).type == INDENTATION_TOKEN && peek_token(*i + 1).type == COMMENT_TOKEN) {
-		(*i)++;
-
-		if (!group.comments) {
-			group.comments = comments + comments_size;
-		}
-
-		push_comment(consume_token(i).str);
-		group.comment_count++;
-
-		consume_token_type(i, NEWLINE_TOKEN);
-	}
-
-	// This local array is necessary, cause an IF substatement can contain its own statements
-	struct statement local_statements[MAX_STATEMENTS_PER_GROUP];
-
-	while (true) {
-		if (is_end_of_block(i) || peek_token(*i).type == NEWLINE_TOKEN) {
-			break;
-		}
-
-		consume_indentation(i);
-
-		grug_assert(peek_token(*i).type != COMMENT_TOKEN, "There is an unexpected comment after a statement, on line %zu", get_token_line_number(*i));
-
-		struct statement statement = parse_statement(i);
-
-		grug_assert(group.statement_count < MAX_STATEMENTS_PER_GROUP, "There are more than %d statements in one of the grug file's statement groups, exceeding MAX_STATEMENTS_PER_GROUP", MAX_STATEMENTS_PER_GROUP);
-		local_statements[group.statement_count++] = statement;
-
-		consume_newline(i);
-	}
-
-	group.statements = statements + statements_size;
-	for (size_t statement_index = 0; statement_index < group.statement_count; statement_index++) {
-		push_statement(local_statements[statement_index]);
-	}
-
-	return group;
-}
-
-static struct statement_group *parse_statement_groups(size_t *i, size_t *group_count) {
+static struct statement *parse_statements(size_t *i, size_t *body_statement_count) {
 	consume_space(i);
 	consume_token_type(i, OPEN_BRACE_TOKEN);
 
 	consume_newline(i);
 
-	// This local array is necessary, cause an IF substatement can contain its own statement groups
-	struct statement_group local_groups[MAX_STATEMENT_GROUPS_PER_BLOCK];
-	*group_count = 0;
+	// This local array is necessary, cause an IF statement can contain its own statements
+	struct statement local_statements[MAX_STATEMENTS_PER_SCOPE];
+	*body_statement_count = 0;
 
 	indentation++;
 
@@ -2746,25 +2699,28 @@ static struct statement_group *parse_statement_groups(size_t *i, size_t *group_c
 			break;
 		}
 
-		// Consumes the empty line between groups
-		// The `*group_count > 0` check is necessary to pass tests/err/empty_line_before_group
-		if (*group_count > 0 && peek_token(*i).type == NEWLINE_TOKEN) {
-			consume_newline(i);
+		// Skip empty lines
+		if (peek_token(*i).type == NEWLINE_TOKEN) {
+			(*i)++;
+			continue;
 		}
 
-		struct statement_group group = parse_statement_group(i);
-		grug_assert(group.statement_count > 0, "Expected a statement on line %zu", get_token_line_number(*i));
+		consume_indentation(i);
 
-		grug_assert(*group_count < MAX_STATEMENT_GROUPS_PER_BLOCK, "There are more than %d statement groups in one of the grug file's scopes, exceeding MAX_STATEMENT_GROUPS_PER_BLOCK", MAX_STATEMENT_GROUPS_PER_BLOCK);
-		local_groups[(*group_count)++] = group;
+		struct statement statement = parse_statement(i);
+
+		grug_assert(*body_statement_count < MAX_STATEMENTS_PER_SCOPE, "There are more than %d statements in one of the grug file's scopes, exceeding MAX_STATEMENTS_PER_SCOPE", MAX_STATEMENTS_PER_SCOPE);
+		local_statements[(*body_statement_count)++] = statement;
+
+		consume_token_type(i, NEWLINE_TOKEN);
 	}
 
 	assert(indentation > 0);
 	indentation--;
 
-	struct statement_group *first_group = statement_groups + statement_groups_size;
-	for (size_t group_index = 0; group_index < *group_count; group_index++) {
-		push_statement_group(local_groups[group_index]);
+	struct statement *first_statement = statements + statements_size;
+	for (size_t statement_index = 0; statement_index < *body_statement_count; statement_index++) {
+		push_statement(local_statements[statement_index]);
 	}
 
 	if (indentation > 0) {
@@ -2772,7 +2728,7 @@ static struct statement_group *parse_statement_groups(size_t *i, size_t *group_c
 	}
 	consume_token_type(i, CLOSE_BRACE_TOKEN);
 
-	return first_group;
+	return first_statement;
 }
 
 static struct argument *push_argument(struct argument argument) {
@@ -2822,7 +2778,7 @@ static struct argument *parse_arguments(size_t *i, size_t *argument_count) {
 	return first_argument;
 }
 
-static void parse_helper_fn(size_t *i) {
+static struct helper_fn parse_helper_fn(size_t *i) {
 	struct helper_fn fn = {0};
 
 	struct token token = consume_token(i);
@@ -2847,12 +2803,12 @@ static void parse_helper_fn(size_t *i) {
 	}
 
 	indentation = 0;
-	fn.body_groups = parse_statement_groups(i, &fn.body_group_count);
+	fn.body_statements = parse_statements(i, &fn.body_statement_count);
 
-	push_helper_fn(fn);
+	return fn;
 }
 
-static void parse_on_fn(size_t *i) {
+static struct on_fn parse_on_fn(size_t *i) {
 	struct on_fn fn = {0};
 
 	struct token token = consume_token(i);
@@ -2868,9 +2824,9 @@ static void parse_on_fn(size_t *i) {
 	consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
 
 	indentation = 0;
-	fn.body_groups = parse_statement_groups(i, &fn.body_group_count);
+	fn.body_statements = parse_statements(i, &fn.body_statement_count);
 
-	push_on_fn(fn);
+	return fn;
 }
 
 static void push_field(struct field field) {
@@ -2955,6 +2911,11 @@ static void parse_define_fn(size_t *i) {
 	consume_token_type(i, CLOSE_BRACE_TOKEN);
 }
 
+static void push_global_statement(struct global_statement global) {
+	grug_assert(global_statements_size < MAX_GLOBAL_STATEMENTS, "There are more than %d global statements in the grug file, exceeding MAX_GLOBAL_STATEMENTS", MAX_GLOBAL_STATEMENTS);
+	global_statements[global_statements_size++] = global;
+}
+
 static void parse(void) {
 	reset_parsing();
 
@@ -2964,9 +2925,6 @@ static void parse(void) {
 	bool newline_allowed = false;
 	bool just_seen_newline = false;
 
-	char **group_comments = NULL;
-	size_t group_comment_count = 0;
-
 	size_t i = 0;
 	while (i < tokens_size) {
 		struct token token = peek_token(i);
@@ -2974,6 +2932,7 @@ static void parse(void) {
 
 		if (type == WORD_TOKEN && streq(token.str, "define") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			grug_assert(!seen_define_fn, "There can't be more than one define function in a grug file");
+
 			parse_define_fn(&i);
 
 			seen_define_fn = true;
@@ -2982,53 +2941,50 @@ static void parse(void) {
 			newline_allowed = true;
 			just_seen_newline = false;
 
-			define_fn.comments = group_comments;
-			group_comments = NULL;
-			define_fn.comment_count = group_comment_count;
-			group_comment_count = 0;
+			struct global_statement global = {
+				.type = GLOBAL_DEFINE_FN,
+			};
+			push_global_statement(global);
 		} else if (type == WORD_TOKEN && i + 1 < tokens_size && peek_token(i + 1).type == COLON_TOKEN) {
 			grug_assert(seen_define_fn, "Move the global variable '%s' below the define function", token.str);
-			struct statement_group group = parse_global_variable_group(&i);
+
+			struct global_variable_statement variable = parse_global_variable(&i);
 
 			comment_allowed = false;
 			newline_allowed = true;
+			just_seen_newline = false;
 
-			// We can only have returned from parse_global_variable_group() by seeing a newline
-			just_seen_newline = true;
-
-			group.comments = group_comments;
-			group_comments = NULL;
-			group.comment_count = group_comment_count;
-			group_comment_count = 0;
-
-			push_global_statement_group(group);
+			struct global_statement global = {
+				.type = GLOBAL_VARIABLE,
+				.global_variable = push_global_variable(variable),
+			};
+			push_global_statement(global);
 		} else if (type == WORD_TOKEN && starts_with(token.str, "on_") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			grug_assert(seen_define_fn, "Move the on_ function '%s' below the define function", token.str);
-			parse_on_fn(&i);
+
+			struct on_fn fn = parse_on_fn(&i);
 
 			comment_allowed = false;
 			newline_allowed = true;
 			just_seen_newline = false;
 
-			struct on_fn *fn = on_fns + on_fns_size - 1;
-
-			fn->comments = group_comments;
-			group_comments = NULL;
-			fn->comment_count = group_comment_count;
-			group_comment_count = 0;
+			struct global_statement global = {
+				.type = GLOBAL_ON_FN,
+				.on_fn = push_on_fn(fn),
+			};
+			push_global_statement(global);
 		} else if (type == WORD_TOKEN && starts_with(token.str, "helper_") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
-			parse_helper_fn(&i);
+			struct helper_fn fn = parse_helper_fn(&i);
 
 			comment_allowed = false;
 			newline_allowed = true;
 			just_seen_newline = false;
 
-			struct helper_fn *fn = helper_fns + helper_fns_size - 1;
-
-			fn->comments = group_comments;
-			group_comments = NULL;
-			fn->comment_count = group_comment_count;
-			group_comment_count = 0;
+			struct global_statement global = {
+				.type = GLOBAL_HELPER_FN,
+				.helper_fn = push_helper_fn(fn),
+			};
+			push_global_statement(global);
 		} else if (type == NEWLINE_TOKEN) {
 			grug_assert(newline_allowed, "Unexpected empty line, on line %zu", get_token_line_number(i));
 
@@ -3038,6 +2994,11 @@ static void parse(void) {
 
 				// Disallows "\n\n\n"
 				newline_allowed = false;
+
+				struct global_statement global = {
+					.type = GLOBAL_EMPTY_LINE,
+				};
+				push_global_statement(global);
 			}
 			just_seen_newline = true;
 
@@ -3045,17 +3006,14 @@ static void parse(void) {
 		} else if (type == COMMENT_TOKEN) {
 			grug_assert(comment_allowed, "Unexpected comment, on line %zu", get_token_line_number(i));
 
-			if (!group_comments) {
-				group_comments = comments + comments_size;
-			}
-			group_comment_count++;
-
-			push_comment(token.str);
-
 			newline_allowed = true;
+			just_seen_newline = false;
 
-			// Prevents an empty line after a comment
-			just_seen_newline = true;
+			struct global_statement global = {
+				.type = GLOBAL_COMMENT,
+				.comment = token.str,
+			};
+			push_global_statement(global);
 
 			i++;
 		} else {
@@ -3064,8 +3022,6 @@ static void parse(void) {
 	}
 
 	grug_assert(seen_define_fn, "Every grug file requires exactly one define function");
-
-	grug_assert(group_comment_count == 0, "There %s placed right above a function, nor global variable", (group_comment_count == 1 ? "is a comment that isn't" : "are some comments that aren't"));
 
 	hash_helper_fns();
 }
@@ -3156,8 +3112,6 @@ static void dump_expr(struct expr expr) {
 	}
 }
 
-static void dump_statement_groups(struct statement_group *groups_offset, size_t group_count);
-
 static void dump_statements(struct statement *group_statements, size_t statement_count) {
 	for (size_t i = 0; i < statement_count; i++) {
 		if (i > 0) {
@@ -3192,15 +3146,15 @@ static void dump_statements(struct statement *group_statements, size_t statement
 				dump_expr(statement.if_statement.condition);
 				dump("}");
 
-				if (statement.if_statement.if_body_group_count > 0) {
-					dump(",\"if_statement_groups\":[");
-					dump_statement_groups(statement.if_statement.if_body_groups, statement.if_statement.if_body_group_count);
+				if (statement.if_statement.if_body_statement_count > 0) {
+					dump(",\"if_statements\":[");
+					dump_statements(statement.if_statement.if_body_statements, statement.if_statement.if_body_statement_count);
 					dump("]");
 				}
 
-				if (statement.if_statement.else_body_group_count > 0) {
-					dump(",\"else_statement_groups\":[");
-					dump_statement_groups(statement.if_statement.else_body_groups, statement.if_statement.else_body_group_count);
+				if (statement.if_statement.else_body_statement_count > 0) {
+					dump(",\"else_statements\":[");
+					dump_statements(statement.if_statement.else_body_statements, statement.if_statement.else_body_statement_count);
 					dump("]");
 				}
 
@@ -3217,54 +3171,20 @@ static void dump_statements(struct statement *group_statements, size_t statement
 				dump_expr(statement.while_statement.condition);
 				dump("},");
 
-				dump("\"statement_groups\":[");
-				dump_statement_groups(statement.while_statement.body_groups, statement.while_statement.body_group_count);
+				dump("\"statements\":[");
+				dump_statements(statement.while_statement.body_statements, statement.while_statement.body_statement_count);
 				dump("]");
 
 				break;
+			case COMMENT_STATEMENT:
+				dump(",");
+				dump("\"comment\":\"%s\"", statement.comment);
+				break;
 			case BREAK_STATEMENT:
 			case CONTINUE_STATEMENT:
+			case EMPTY_LINE_STATEMENT:
 				break;
 		}
-
-		dump("}");
-	}
-}
-
-static void dump_comments(char **group_comments, size_t comment_count) {
-	dump("\"comments\":[");
-
-	for (size_t i = 0; i < comment_count; i++) {
-		if (i > 0) {
-			dump(",");
-		}
-
-		char *comment = group_comments[i];
-		dump("\"%s\"", comment);
-	}
-
-	dump("],");
-}
-
-static void dump_statement_groups(struct statement_group *groups_offset, size_t group_count) {
-	for (size_t i = 0; i < group_count; i++) {
-		if (i > 0) {
-			dump(",");
-		}
-
-		dump("{");
-
-		struct statement_group group = groups_offset[i];
-
-		if (group.comment_count > 0) {
-			dump_comments(group.comments, group.comment_count);
-		}
-
-		dump("\"statements\":[");
-
-		dump_statements(group.statements, group.statement_count);
-
-		dump("]");
 
 		dump("}");
 	}
@@ -3288,133 +3208,6 @@ static void dump_arguments(struct argument *arguments_offset, size_t argument_co
 
 		dump("\"name\":\"%s\",", arg.name);
 		dump("\"type\":\"%s\"", type_names[arg.type]);
-
-		dump("}");
-	}
-
-	dump("]");
-}
-
-static void dump_helper_fns(void) {
-	if (helper_fns_size == 0) {
-		return;
-	}
-
-	dump(",\"helper_fns\":[");
-
-	for (size_t i = 0; i < helper_fns_size; i++) {
-		if (i > 0) {
-			dump(",");
-		}
-
-		dump("{");
-
-		struct helper_fn fn = helper_fns[i];
-
-		if (fn.comment_count > 0) {
-			dump_comments(fn.comments, fn.comment_count);
-		}
-
-		dump("\"name\":\"%s\"", fn.fn_name);
-
-		dump_arguments(fn.arguments, fn.argument_count);
-
-		dump(",");
-		if (fn.return_type) {
-			dump("\"return_type\":\"%s\",", type_names[fn.return_type]);
-		}
-
-		dump("\"statement_groups\":[");
-		dump_statement_groups(fn.body_groups, fn.body_group_count);
-		dump("]");
-
-		dump("}");
-	}
-
-	dump("]");
-}
-
-static void dump_on_fns(void) {
-	if (on_fns_size == 0) {
-		return;
-	}
-
-	dump(",\"on_fns\":[");
-
-	for (size_t i = 0; i < on_fns_size; i++) {
-		if (i > 0) {
-			dump(",");
-		}
-
-		dump("{");
-
-		struct on_fn fn = on_fns[i];
-
-		if (fn.comment_count > 0) {
-			dump_comments(fn.comments, fn.comment_count);
-		}
-
-		dump("\"name\":\"%s\"", fn.fn_name);
-
-		dump_arguments(fn.arguments, fn.argument_count);
-
-		dump(",\"statement_groups\":[");
-		dump_statement_groups(fn.body_groups, fn.body_group_count);
-		dump("]");
-
-		dump("}");
-	}
-
-	dump("]");
-}
-
-static void dump_global_variable_statements(struct statement *group_statements, size_t statement_count) {
-	for (size_t i = 0; i < statement_count; i++) {
-		if (i > 0) {
-			dump(",");
-		}
-
-		dump("{");
-
-		struct statement statement = group_statements[i];
-
-		dump("\"name\":\"%s\"", statement.variable_statement.name);
-
-		dump(",\"variable_type\":\"%s\"", type_names[statement.variable_statement.type]);
-
-		dump(",\"assignment\":{");
-		dump_expr(*statement.variable_statement.assignment_expr);
-		dump("}");
-
-		dump("}");
-	}
-}
-
-static void dump_global_variables(void) {
-	if (global_statement_groups_size == 0) {
-		return;
-	}
-
-	dump(",\"global_variables\":[");
-
-	for (size_t i = 0; i < global_statement_groups_size; i++) {
-		if (i > 0) {
-			dump(",");
-		}
-
-		dump("{");
-
-		struct statement_group group = global_statement_groups[i];
-
-		if (group.comment_count > 0) {
-			dump_comments(group.comments, group.comment_count);
-		}
-
-		dump("\"statements\":[");
-
-		dump_global_variable_statements(group.statements, group.statement_count);
-
-		dump("]");
 
 		dump("}");
 	}
@@ -3450,21 +3243,71 @@ static void dump_fields(struct compound_literal compound_literal) {
 	dump("]");
 }
 
-static void dump_define_fn(void) {
-	dump("\"entity\":{");
+static void dump_global_statement(struct global_statement global) {
+	dump("{");
 
-	if (define_fn.comment_count > 0) {
-		dump_comments(define_fn.comments, define_fn.comment_count);
+	dump("\"type\":\"%s\",", get_global_statement_type_str[global.type]);
+
+	switch (global.type) {
+		case GLOBAL_DEFINE_FN:
+			dump("\"name\":\"%s\"", define_fn.return_type);
+			dump_fields(define_fn.returned_compound_literal);
+			break;
+		case GLOBAL_VARIABLE: {
+			struct global_variable_statement global_variable = *global.global_variable;
+
+			dump("\"name\":\"%s\",", global_variable.name);
+
+			dump("\"variable_type\":\"%s\",", type_names[global_variable.type]);
+
+			dump("\"assignment\":{");
+			dump_expr(global_variable.assignment_expr);
+			dump("}");
+
+			break;
+		}
+		case GLOBAL_ON_FN: {
+			struct on_fn fn = *global.on_fn;
+
+			dump("\"name\":\"%s\"", fn.fn_name);
+
+			dump_arguments(fn.arguments, fn.argument_count);
+
+			dump(",\"statements\":[");
+			dump_statements(fn.body_statements, fn.body_statement_count);
+			dump("]");
+
+			break;
+		}
+		case GLOBAL_HELPER_FN: {
+			struct helper_fn fn = *global.helper_fn;
+
+			dump("\"name\":\"%s\"", fn.fn_name);
+
+			dump_arguments(fn.arguments, fn.argument_count);
+
+			dump(",");
+			if (fn.return_type) {
+				dump("\"return_type\":\"%s\",", type_names[fn.return_type]);
+			}
+
+			dump("\"statements\":[");
+			dump_statements(fn.body_statements, fn.body_statement_count);
+			dump("]");
+
+			break;
+		}
+		case GLOBAL_EMPTY_LINE:
+			break;
+		case GLOBAL_COMMENT:
+			dump("\"comment\":\"%s\"", global.comment);
+			break;
 	}
-
-	dump("\"name\":\"%s\"", define_fn.return_type);
-
-	dump_fields(define_fn.returned_compound_literal);
 
 	dump("}");
 }
 
-bool grug_dump_file_ast(char *input_grug_path, char *output_json_path) {
+bool grug_dump_file_to_json(char *input_grug_path, char *output_json_path) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
@@ -3480,12 +3323,17 @@ bool grug_dump_file_ast(char *input_grug_path, char *output_json_path) {
 	dumped_stream = fopen(output_json_path, "w");
 	grug_assert(dumped_stream, "fopen: %s", strerror(errno));
 
-	dump("{");
-	dump_define_fn();
-	dump_global_variables();
-	dump_on_fns();
-	dump_helper_fns();
-	dump("}\n");
+	dump("[");
+
+	for (size_t i = 0; i < global_statements_size; i++) {
+		if (i > 0) {
+			dump(",");
+		}
+
+		dump_global_statement(global_statements[i]);
+	}
+
+	dump("]\n");
 
 	grug_assert(fclose(dumped_stream) == 0, "fclose: %s", strerror(errno));
 
@@ -3517,6 +3365,10 @@ static enum statement_type get_statement_type_from_str(char *token) {
 		return BREAK_STATEMENT;
 	} else if (streq(token, "CONTINUE_STATEMENT")) {
 		return CONTINUE_STATEMENT;
+	} else if (streq(token, "EMPTY_LINE_STATEMENT")) {
+		return EMPTY_LINE_STATEMENT;
+	} else if (streq(token, "COMMENT_STATEMENT")) {
+		return COMMENT_STATEMENT;
 	}
 	grug_error("get_statement_type_from_str() was passed the token \"%s\", which isn't a statement_type", token);
 }
@@ -3783,44 +3635,48 @@ static void apply_indentation(void) {
 	}
 }
 
-static void apply_statement_groups(struct json_node node);
-
 static struct json_node *try_get_else_if(struct json_node node) {
-	grug_assert(node.type == JSON_NODE_ARRAY, "input_json_path its \"else_statement_groups\" is supposed to be an array");
+	// TODO: Fix
+	(void)node;
+	assert(false);
 
-	grug_assert(node.array.value_count > 0, "input_json_path its \"else_statement_groups\" is supposed to contain at least one value");
+	// grug_assert(node.type == JSON_NODE_ARRAY, "input_json_path its \"else_statement_groups\" is supposed to be an array");
 
-	grug_assert(node.array.values[0].type == JSON_NODE_OBJECT, "input_json_path its \"else_statement_groups\" is supposed to only contain objects");
+	// grug_assert(node.array.value_count > 0, "input_json_path its \"else_statement_groups\" is supposed to contain at least one value");
 
-	grug_assert(node.array.values[0].object.field_count > 0, "input_json_path its \"else_statement_groups\" its object is supposed to contain at least one field");
+	// grug_assert(node.array.values[0].type == JSON_NODE_OBJECT, "input_json_path its \"else_statement_groups\" is supposed to only contain objects");
 
-	// This uses the fact that there is no way for an else or else-if to have a comment
-	if (!streq(node.array.values[0].object.fields[0].key, "statements")) {
-		return NULL;
-	}
+	// grug_assert(node.array.values[0].object.field_count > 0, "input_json_path its \"else_statement_groups\" its object is supposed to contain at least one field");
 
-	grug_assert(node.array.values[0].object.fields[0].value->type == JSON_NODE_ARRAY,  "input_json_path its \"statements\" is supposed to be an array");
+	// // This uses the fact that there is no way for an else or else-if to have a comment
+	// if (!streq(node.array.values[0].object.fields[0].key, "statements")) {
+	// 	return NULL;
+	// }
 
-	struct json_array statements_array = node.array.values[0].object.fields[0].value->array;
+	// grug_assert(node.array.values[0].object.fields[0].value->type == JSON_NODE_ARRAY,  "input_json_path its \"statements\" is supposed to be an array");
 
-	grug_assert(statements_array.value_count > 0, "input_json_path its \"statements\" is supposed to contain at least one value");
+	// struct json_array statements_array = node.array.values[0].object.fields[0].value->array;
 
-	grug_assert(statements_array.values[0].type == JSON_NODE_OBJECT, "input_json_path its \"statements\" is supposed to only contain object");
+	// grug_assert(statements_array.value_count > 0, "input_json_path its \"statements\" is supposed to contain at least one value");
 
-	grug_assert(statements_array.values[0].object.field_count > 1, "input_json_path its \"statements\" its object is supposed to contain a \"type\" and \"condition\" field");
+	// grug_assert(statements_array.values[0].type == JSON_NODE_OBJECT, "input_json_path its \"statements\" is supposed to only contain object");
 
-	grug_assert(streq(statements_array.values[0].object.fields[0].key, "type"), "input_json_path its \"statements\" its object is supposed to contain \"type\" as the first field");
+	// grug_assert(statements_array.values[0].object.field_count > 1, "input_json_path its \"statements\" its object is supposed to contain a \"type\" and \"condition\" field");
 
-	grug_assert(statements_array.values[0].object.fields[0].value->type == JSON_NODE_STRING, "input_json_path its \"type\" is supposed to be a string");
+	// grug_assert(streq(statements_array.values[0].object.fields[0].key, "type"), "input_json_path its \"statements\" its object is supposed to contain \"type\" as the first field");
 
-	if (streq(statements_array.values[0].object.fields[0].value->string, "IF_STATEMENT")) {
-		return &statements_array.values[0];
-	}
+	// grug_assert(statements_array.values[0].object.fields[0].value->type == JSON_NODE_STRING, "input_json_path its \"type\" is supposed to be a string");
+
+	// if (streq(statements_array.values[0].object.fields[0].value->string, "IF_STATEMENT")) {
+	// 	return &statements_array.values[0];
+	// }
 
 	return NULL;
 }
 
-static void apply_if_statement(size_t field_count, struct json_field *statement) {
+static void apply_statements(struct json_node node);
+
+static void apply_if_statement(struct json_field *statement, size_t field_count) {
 	grug_assert(field_count >= 2 && field_count <= 4, "input_json_path its IF_STATEMENTs are supposed to have between 2 and 4 fields");
 
 	apply("if ");
@@ -3831,19 +3687,19 @@ static void apply_if_statement(size_t field_count, struct json_field *statement)
 
 	apply(" {\n");
 
-	struct json_node *if_statement_groups_node = NULL;
-	struct json_node *else_statement_groups_node = NULL;
+	struct json_node *if_statements_node = NULL;
+	struct json_node *else_statements_node = NULL;
 
 	// `+ 2`, due to the "type" and "condition" fields not being included
 	struct json_field *fields_ptr = statement + 2;
 
-	if (streq(fields_ptr->key, "if_statement_groups")) {
-		if_statement_groups_node = fields_ptr->value;
+	if (streq(fields_ptr->key, "if_statements")) {
+		if_statements_node = fields_ptr->value;
 		fields_ptr++;
 	}
 
-	if (streq(fields_ptr->key, "else_statement_groups")) {
-		else_statement_groups_node = fields_ptr->value;
+	if (streq(fields_ptr->key, "else_statements")) {
+		else_statements_node = fields_ptr->value;
 		fields_ptr++;
 	}
 
@@ -3853,22 +3709,22 @@ static void apply_if_statement(size_t field_count, struct json_field *statement)
 
 	grug_assert(recognized_count == relevant_count, "input_json_path its IF_STATEMENT has %zu fields, but %zu of them are either not recognized, or are not in the right order. One of those fields is '%s'", field_count, relevant_count - recognized_count, fields_ptr->key);
 
-	if (if_statement_groups_node) {
-		apply_statement_groups(*if_statement_groups_node);
+	if (if_statements_node) {
+		apply_statements(*if_statements_node);
 	}
 
-	if (else_statement_groups_node) {
+	if (else_statements_node) {
 		apply_indentation();
-
-		struct json_node *else_if_node = try_get_else_if(*else_statement_groups_node);
 
 		apply("} else ");
 
+		struct json_node *else_if_node = try_get_else_if(*else_statements_node);
+
 		if (else_if_node) {
-			apply_if_statement(else_if_node->object.field_count, else_if_node->object.fields);
+			apply_if_statement(else_if_node->object.fields, else_if_node->object.field_count);
 		} else {
 			apply("{\n");
-			apply_statement_groups(*else_statement_groups_node);
+			apply_statements(*else_statements_node);
 			apply_indentation();
 			apply("}\n");
 		}
@@ -3952,7 +3808,7 @@ static void apply_statement(char *type, size_t field_count, struct json_field *s
 			break;
 		}
 		case IF_STATEMENT:
-			apply_if_statement(field_count, statement);
+			apply_if_statement(statement, field_count);
 			break;
 		case RETURN_STATEMENT:
 			grug_assert(field_count == 1 || field_count == 2, "input_json_path its RETURN_STATEMENTs are supposed to have 1 or 2 fields");
@@ -3981,9 +3837,9 @@ static void apply_statement(char *type, size_t field_count, struct json_field *s
 
 			apply(" {\n");
 
-			grug_assert(streq(statement[2].key, "statement_groups"), "input_json_path its WHILE_STATEMENTs are supposed to have \"statement_groups\" as their third field");
+			grug_assert(streq(statement[2].key, "statements"), "input_json_path its WHILE_STATEMENTs are supposed to have \"statements\" as their third field");
 
-			apply_statement_groups(*statement[2].value);
+			apply_statements(*statement[2].value);
 
 			apply_indentation();
 			apply("}\n");
@@ -3994,6 +3850,12 @@ static void apply_statement(char *type, size_t field_count, struct json_field *s
 			break;
 		case CONTINUE_STATEMENT:
 			apply("continue\n");
+			break;
+		case EMPTY_LINE_STATEMENT:
+			assert(false); // TODO: Implement
+			break;
+		case COMMENT_STATEMENT:
+			assert(false); // TODO: Implement
 			break;
 	}
 }
@@ -4037,43 +3899,6 @@ static void apply_comments(struct json_node node) {
 
 		apply("# %s\n", comment);
 	}
-}
-
-static void apply_statement_groups(struct json_node node) {
-	grug_assert(node.type == JSON_NODE_ARRAY, "input_json_path its \"statement_groups\" and \"else_statement_groups\" is supposed to be an array");
-
-	struct json_node *groups_array = node.array.values;
-
-	indentation++;
-
-	for (size_t i = 0; i < node.array.value_count; i++) {
-		grug_assert(groups_array[i].type == JSON_NODE_OBJECT, "input_json_path its \"statement_groups\" values are supposed to be objects");
-
-		if (i > 0) {
-			apply("\n");
-		}
-
-		struct json_object group = groups_array[i].object;
-
-		grug_assert(group.field_count == 1 || group.field_count == 2, "input_json_path its \"statement_groups\" values are supposed to have either 1 or 2 fields");
-
-		if (streq(group.fields[0].key, "comments")) {
-			grug_assert(group.field_count == 2, "input_json_path its \"comments\" field is supposed to have a \"statements\" field after it");
-
-			apply_comments(*group.fields[0].value);
-
-			apply_statements(*group.fields[1].value);
-		} else if (streq(group.fields[0].key, "statements")) {
-			grug_assert(group.field_count == 1, "input_json_path its \"statements\" isn't supposed to have a field after it");
-
-			apply_statements(*group.fields[0].value);
-		} else {
-			grug_error("input_json_path its \"statement_groups\" its first field is supposed to be either \"comments\" or \"statements\"");
-		}
-	}
-
-	assert(indentation > 0);
-	indentation--;
 }
 
 static void apply_arguments(struct json_node node) {
@@ -4132,7 +3957,7 @@ static void apply_helper_fns(struct json_node node) {
 		struct json_node *name_node = NULL;
 		struct json_node *arguments_node = NULL;
 		struct json_node *return_type_node = NULL;
-		struct json_node *statement_groups_node = NULL;
+		struct json_node *statements_node = NULL;
 
 		struct json_field *fields_ptr = fn.fields;
 
@@ -4158,8 +3983,8 @@ static void apply_helper_fns(struct json_node node) {
 			fields_ptr++;
 		}
 
-		if (streq(fields_ptr->key, "statement_groups")) {
-			statement_groups_node = fields_ptr->value;
+		if (streq(fields_ptr->key, "statements")) {
+			statements_node = fields_ptr->value;
 			fields_ptr++;
 		}
 
@@ -4191,9 +4016,9 @@ static void apply_helper_fns(struct json_node node) {
 
 		apply(" {\n");
 
-		if (statement_groups_node) {
+		if (statements_node) {
 			indentation = 0;
-			apply_statement_groups(*statement_groups_node);
+			apply_statements(*statements_node);
 		}
 
 		apply("}\n");
@@ -4219,7 +4044,7 @@ static void apply_on_fns(struct json_node node) {
 		struct json_node *comments_node = NULL;
 		struct json_node *name_node = NULL;
 		struct json_node *arguments_node = NULL;
-		struct json_node *statement_groups_node = NULL;
+		struct json_node *statements_node = NULL;
 
 		struct json_field *fields_ptr = fn.fields;
 
@@ -4240,8 +4065,8 @@ static void apply_on_fns(struct json_node node) {
 			fields_ptr++;
 		}
 
-		if (streq(fields_ptr->key, "statement_groups")) {
-			statement_groups_node = fields_ptr->value;
+		if (streq(fields_ptr->key, "statements")) {
+			statements_node = fields_ptr->value;
 			fields_ptr++;
 		}
 
@@ -4265,9 +4090,9 @@ static void apply_on_fns(struct json_node node) {
 
 		apply(") {\n");
 
-		if (statement_groups_node) {
+		if (statements_node) {
 			indentation = 0;
-			apply_statement_groups(*statement_groups_node);
+			apply_statements(*statements_node);
 		}
 
 		apply("}\n");
@@ -4491,7 +4316,7 @@ static void apply_root(struct json_node node) {
 	}
 }
 
-bool grug_apply_file_ast(char *input_json_path, char *output_grug_path) {
+bool grug_generate_file_from_json(char *input_json_path, char *output_grug_path) {
 	static char mod_api_json_text[JSON_MAX_CHARACTERS];
 	static size_t mod_api_json_text_size;
 	static struct json_token mod_api_json_tokens[JSON_MAX_TOKENS];
@@ -4562,7 +4387,6 @@ bool grug_apply_file_ast(char *input_json_path, char *output_grug_path) {
 #define MAX_ENTITY_DEPENDENCY_NAME_LENGTH 420
 #define MAX_ENTITY_DEPENDENCIES 420420
 #define MAX_DATA_STRINGS 420420
-#define MAX_GLOBAL_VARIABLES 420420
 
 #define GLOBAL_OFFSET_TABLE_POINTER_SIZE sizeof(void *)
 #define GLOBAL_VARIABLES_POINTER_SIZE sizeof(void *)
@@ -5024,8 +4848,6 @@ static void add_local_variable(char *name, enum type type) {
 	buckets_variables[bucket_index] = variables_size++;
 }
 
-static void fill_statement_groups(struct statement_group *groups_offset, size_t group_count);
-
 static void fill_statements(struct statement *group_statements, size_t statement_count) {
 	for (size_t i = 0; i < statement_count; i++) {
 		struct statement statement = group_statements[i];
@@ -5057,10 +4879,10 @@ static void fill_statements(struct statement *group_statements, size_t statement
 			case IF_STATEMENT:
 				fill_expr(&statement.if_statement.condition);
 
-				fill_statement_groups(statement.if_statement.if_body_groups, statement.if_statement.if_body_group_count);
+				fill_statements(statement.if_statement.if_body_statements, statement.if_statement.if_body_statement_count);
 
-				if (statement.if_statement.else_body_group_count > 0) {
-					fill_statement_groups(statement.if_statement.else_body_groups, statement.if_statement.else_body_group_count);
+				if (statement.if_statement.else_body_statement_count > 0) {
+					fill_statements(statement.if_statement.else_body_statements, statement.if_statement.else_body_statement_count);
 				}
 
 				break;
@@ -5077,21 +4899,15 @@ static void fill_statements(struct statement *group_statements, size_t statement
 			case WHILE_STATEMENT:
 				fill_expr(&statement.while_statement.condition);
 
-				fill_statement_groups(statement.while_statement.body_groups, statement.while_statement.body_group_count);
+				fill_statements(statement.while_statement.body_statements, statement.while_statement.body_statement_count);
 
 				break;
 			case BREAK_STATEMENT:
 			case CONTINUE_STATEMENT:
+			case EMPTY_LINE_STATEMENT:
+			case COMMENT_STATEMENT:
 				break;
 		}
-	}
-}
-
-static void fill_statement_groups(struct statement_group *groups_offset, size_t group_count) {
-	for (size_t i = 0; i < group_count; i++) {
-		struct statement_group group = groups_offset[i];
-
-		fill_statements(group.statements, group.statement_count);
 	}
 }
 
@@ -5117,17 +4933,14 @@ static void fill_helper_fns(void) {
 
 		init_argument_variables(fn.arguments, fn.argument_count);
 
-		fill_statement_groups(fn.body_groups, fn.body_group_count);
+		fill_statements(fn.body_statements, fn.body_statement_count);
 
 		// Unlike fill_statements() its RETURN_STATEMENT case,
 		// this checks whether a return statement *is missing* at the end of the function
 		if (fn.return_type != type_void) {
-			grug_assert(fn.body_group_count > 0, "Function '%s' was supposed to return %s", filled_fn_name, type_names[fn_return_type]);
+			grug_assert(fn.body_statement_count > 0, "Function '%s' was supposed to return %s", filled_fn_name, type_names[fn_return_type]);
 
-			struct statement_group last_group = fn.body_groups[fn.body_group_count - 1];
-
-			assert(last_group.statement_count > 0);
-			struct statement last_statement = last_group.statements[last_group.statement_count - 1];
+			struct statement last_statement = fn.body_statements[fn.body_statement_count - 1];
 
 			grug_assert(last_statement.type == RETURN_STATEMENT, "Function '%s' was supposed to return %s", filled_fn_name, type_names[fn_return_type]);
 		}
@@ -5202,7 +5015,7 @@ static void fill_on_fns(void) {
 
 		init_argument_variables(args, arg_count);
 
-		fill_statement_groups(fn.body_groups, fn.body_group_count);
+		fill_statements(fn.body_statements, fn.body_statement_count);
 	}
 }
 
@@ -5237,27 +5050,14 @@ static void check_global_expr(struct expr *expr, char *global_name) {
 	}
 }
 
-static void fill_global_variable_group(struct statement_group group) {
-	for (size_t i = 0; i < group.statement_count; i++) {
-		struct statement statement = group.statements[i];
+static void fill_global_variable(struct variable_statement var) {
+	check_global_expr(var.assignment_expr, var.name);
 
-		struct variable_statement var = statement.variable_statement;
+	fill_expr(var.assignment_expr);
 
-		check_global_expr(var.assignment_expr, var.name);
+	grug_assert(var.type == var.assignment_expr->result_type, "Can't assign %s to '%s', which has type %s", type_names[var.assignment_expr->result_type], var.name, type_names[var.type]);
 
-		fill_expr(var.assignment_expr);
-
-		grug_assert(var.type == var.assignment_expr->result_type, "Can't assign %s to '%s', which has type %s", type_names[var.assignment_expr->result_type], var.name, type_names[var.type]);
-
-		add_global_variable(var.name, var.type);
-	}
-}
-
-static void fill_global_variables(void) {
-	for (size_t i = 0; i < global_statement_groups_size; i++) {
-		struct statement_group group = global_statement_groups[i];
-		fill_global_variable_group(group);
-	}
+	add_global_variable(var.name, var.type);
 }
 
 static void check_define_fn_field_doesnt_contain_call_nor_identifier(struct expr *expr) {
@@ -5575,14 +5375,12 @@ static u32 chains_helper_fn_offsets[MAX_HELPER_FN_OFFSETS];
 static size_t stack_size;
 
 static size_t start_of_loop_jump_offsets[MAX_LOOP_DEPTH];
-static size_t start_of_loop_jump_offsets_size;
-
 struct loop_break_statements {
 	size_t break_statements[MAX_BREAK_STATEMENTS_PER_LOOP];
 	size_t break_statements_size;
 };
 static struct loop_break_statements loop_break_statements_stack[MAX_LOOP_DEPTH];
-static size_t loop_break_statements_stack_size;
+static size_t loop_depth;
 
 static size_t got_accesses[MAX_GOT_ACCESSES];
 static size_t got_accesses_size;
@@ -5608,8 +5406,7 @@ static void reset_compiling(void) {
 	used_extern_fn_symbols_size = 0;
 	helper_fn_offsets_size = 0;
 	stack_size = 0;
-	start_of_loop_jump_offsets_size = 0;
-	loop_break_statements_stack_size = 0;
+	loop_depth = 0;
 	got_accesses_size = 0;
 	in_on_fn = false;
 	calling_game_fn = false;
@@ -5876,36 +5673,26 @@ static void stack_push_rax(void) {
 }
 
 static void push_break_statement_jump_address_offset(size_t offset) {
-	grug_assert(loop_break_statements_stack_size > 0, "One of the break statements isn't inside of a while loop");
+	grug_assert(loop_depth > 0, "One of the break statements isn't inside of a while loop");
 
-	struct loop_break_statements *loop_break_statements = &loop_break_statements_stack[loop_break_statements_stack_size - 1];
+	struct loop_break_statements *loop_break_statements = &loop_break_statements_stack[loop_depth - 1];
 
 	grug_assert(loop_break_statements->break_statements_size < MAX_BREAK_STATEMENTS_PER_LOOP, "There are more than %d break statements in one of the while loops, exceeding MAX_BREAK_STATEMENTS_PER_LOOP", MAX_BREAK_STATEMENTS_PER_LOOP);
 
 	loop_break_statements->break_statements[loop_break_statements->break_statements_size++] = offset;
 }
 
-static void push_loop_break_statements(void) {
-	grug_assert(loop_break_statements_stack_size < MAX_LOOP_DEPTH, "There are more than %d loops nested inside each other, exceeding MAX_LOOP_DEPTH", MAX_LOOP_DEPTH);
-
-	loop_break_statements_stack[loop_break_statements_stack_size++].break_statements_size = 0;
-}
-
-static void push_start_of_loop_jump_offset(size_t offset) {
-	grug_assert(start_of_loop_jump_offsets_size < MAX_LOOP_DEPTH, "There are more than %d offsets in start_of_loop_jump_offsets[], exceeding MAX_LOOP_DEPTH", MAX_LOOP_DEPTH);
-
-	start_of_loop_jump_offsets[start_of_loop_jump_offsets_size++] = offset;
-}
-
 static void compile_expr(struct expr expr);
 
-static void compile_statement_groups(struct statement_group *groups_offset, size_t group_count);
+static void compile_statements(struct statement *statements_offset, size_t statement_count);
 
 static void compile_while_statement(struct while_statement while_statement) {
 	size_t start_of_loop_jump_offset = codes_size;
 
-	push_start_of_loop_jump_offset(start_of_loop_jump_offset);
-	push_loop_break_statements();
+	grug_assert(loop_depth < MAX_LOOP_DEPTH, "There are more than %d while loops nested inside each other, exceeding MAX_LOOP_DEPTH", MAX_LOOP_DEPTH);
+	start_of_loop_jump_offsets[loop_depth] = start_of_loop_jump_offset;
+	loop_break_statements_stack[loop_depth].break_statements_size = 0;
+	loop_depth++;
 
 	compile_expr(while_statement.condition);
 	compile_unpadded(TEST_EAX_IS_ZERO);
@@ -5913,14 +5700,14 @@ static void compile_while_statement(struct while_statement while_statement) {
 	size_t end_jump_offset = codes_size;
 	compile_unpadded(PLACEHOLDER_32);
 
-	compile_statement_groups(while_statement.body_groups, while_statement.body_group_count);
+	compile_statements(while_statement.body_statements, while_statement.body_statement_count);
 
 	compile_unpadded(JMP_32_BIT_OFFSET);
 	compile_32(start_of_loop_jump_offset - (codes_size + NEXT_INSTRUCTION_OFFSET));
 
 	overwrite_jmp_address(end_jump_offset, codes_size);
 
-	struct loop_break_statements *loop_break_statements = &loop_break_statements_stack[loop_break_statements_stack_size - 1];
+	struct loop_break_statements *loop_break_statements = &loop_break_statements_stack[loop_depth - 1];
 
 	for (size_t i = 0; i < loop_break_statements->break_statements_size; i++) {
 		size_t break_statement_codes_offset = loop_break_statements->break_statements[i];
@@ -5928,8 +5715,7 @@ static void compile_while_statement(struct while_statement while_statement) {
 		overwrite_jmp_address(break_statement_codes_offset, codes_size);
 	}
 
-	start_of_loop_jump_offsets_size--;
-	loop_break_statements_stack_size--;
+	loop_depth--;
 }
 
 static void compile_if_statement(struct if_statement if_statement) {
@@ -5938,16 +5724,16 @@ static void compile_if_statement(struct if_statement if_statement) {
 	compile_unpadded(JE_32_BIT_OFFSET);
 	size_t else_or_end_jump_offset = codes_size;
 	compile_unpadded(PLACEHOLDER_32);
-	compile_statement_groups(if_statement.if_body_groups, if_statement.if_body_group_count);
+	compile_statements(if_statement.if_body_statements, if_statement.if_body_statement_count);
 
-	if (if_statement.else_body_group_count > 0) {
+	if (if_statement.else_body_statement_count > 0) {
 		compile_unpadded(JMP_32_BIT_OFFSET);
 		size_t skip_else_jump_offset = codes_size;
 		compile_unpadded(PLACEHOLDER_32);
 
 		overwrite_jmp_address(else_or_end_jump_offset, codes_size);
 
-		compile_statement_groups(if_statement.else_body_groups, if_statement.else_body_group_count);
+		compile_statements(if_statement.else_body_statements, if_statement.else_body_statement_count);
 
 		overwrite_jmp_address(skip_else_jump_offset, codes_size);
 	} else {
@@ -6587,22 +6373,17 @@ static void compile_statements(struct statement *group_statements, size_t statem
 				break;
 			case CONTINUE_STATEMENT:
 				compile_unpadded(JMP_32_BIT_OFFSET);
-				size_t start_of_loop_jump_offset = start_of_loop_jump_offsets[start_of_loop_jump_offsets_size - 1];
+				size_t start_of_loop_jump_offset = start_of_loop_jump_offsets[loop_depth - 1];
 				compile_32(start_of_loop_jump_offset - (codes_size + NEXT_INSTRUCTION_OFFSET));
+				break;
+			case EMPTY_LINE_STATEMENT:
+			case COMMENT_STATEMENT:
 				break;
 		}
 	}
 }
 
-static void compile_statement_groups(struct statement_group *groups_offset, size_t group_count) {
-	for (size_t i = 0; i < group_count; i++) {
-		struct statement_group group = groups_offset[i];
-
-		compile_statements(group.statements, group.statement_count);
-	}
-}
-
-static void add_variables_in_statement_groups(struct statement_group *groups_offset, size_t group_count);
+static void add_variables_in_statements(struct statement *statements_offset, size_t statement_count);
 
 static void add_variables_in_statements(struct statement *group_statements, size_t statement_count) {
 	for (size_t i = 0; i < statement_count; i++) {
@@ -6615,30 +6396,24 @@ static void add_variables_in_statements(struct statement *group_statements, size
 				}
 				break;
 			case IF_STATEMENT:
-				add_variables_in_statement_groups(statement.if_statement.if_body_groups, statement.if_statement.if_body_group_count);
+				add_variables_in_statements(statement.if_statement.if_body_statements, statement.if_statement.if_body_statement_count);
 
-				if (statement.if_statement.else_body_group_count > 0) {
-					add_variables_in_statement_groups(statement.if_statement.else_body_groups, statement.if_statement.else_body_group_count);
+				if (statement.if_statement.else_body_statement_count > 0) {
+					add_variables_in_statements(statement.if_statement.else_body_statements, statement.if_statement.else_body_statement_count);
 				}
 
 				break;
 			case WHILE_STATEMENT:
-				add_variables_in_statement_groups(statement.while_statement.body_groups, statement.while_statement.body_group_count);
+				add_variables_in_statements(statement.while_statement.body_statements, statement.while_statement.body_statement_count);
 				break;
 			case CALL_STATEMENT:
 			case RETURN_STATEMENT:
 			case BREAK_STATEMENT:
 			case CONTINUE_STATEMENT:
+			case EMPTY_LINE_STATEMENT:
+			case COMMENT_STATEMENT:
 				break;
 		}
-	}
-}
-
-static void add_variables_in_statement_groups(struct statement_group *groups_offset, size_t group_count) {
-	for (size_t i = 0; i < group_count; i++) {
-		struct statement_group group = groups_offset[i];
-
-		add_variables_in_statements(group.statements, group.statement_count);
 	}
 }
 
@@ -6656,10 +6431,10 @@ static size_t round_to_power_of_2(size_t n, size_t multiple) {
 	return (n + multiple - 1) & -multiple;
 }
 
-static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement_group *body_groups, size_t body_group_count, bool is_on_fn, char *grug_path) {
+static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, bool is_on_fn, char *grug_path) {
 	init_argument_variables(fn_arguments, argument_count);
 
-	add_variables_in_statement_groups(body_groups, body_group_count);
+	add_variables_in_statements(body_statements, body_statement_count);
 
 	// Function prologue
 	compile_byte(PUSH_RBP);
@@ -6789,7 +6564,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		in_on_fn = true;
 	}
 
-	compile_statement_groups(body_groups, body_group_count);
+	compile_statements(body_statements, body_statement_count);
 
 	if (is_on_fn) {
 		in_on_fn = false;
@@ -6810,51 +6585,42 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 }
 
 static void compile_on_fn(struct on_fn fn, char *grug_path) {
-	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_groups, fn.body_group_count, true, grug_path);
+	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, true, grug_path);
 }
 
 static void compile_helper_fn(struct helper_fn fn) {
-	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_groups, fn.body_group_count, false, NULL);
-}
-
-static void compile_init_globals_fn_group(struct statement_group group, size_t *ptr_offset) {
-	for (size_t i = 0; i < group.statement_count; i++) {
-		struct statement statement = group.statements[i];
-
-		struct variable_statement var = statement.variable_statement;
-
-		compile_expr(*var.assignment_expr);
-
-		if (*ptr_offset < 0x80) { // an i8 with the value 0x80 is negative in two's complement
-			if (var.assignment_expr->result_type == type_string) {
-				compile_unpadded(MOV_RAX_TO_DEREF_RDI_8_BIT_OFFSET);
-			} else {
-				compile_unpadded(MOV_EAX_TO_DEREF_RDI_8_BIT_OFFSET);
-			}
-			compile_byte(*ptr_offset);
-		} else {
-			if (var.assignment_expr->result_type == type_string) {
-				compile_unpadded(MOV_RAX_TO_DEREF_RDI_32_BIT_OFFSET);
-			} else {
-				compile_unpadded(MOV_EAX_TO_DEREF_RDI_32_BIT_OFFSET);
-			}
-			compile_32(*ptr_offset);
-		}
-
-		if (var.type == type_string) {
-			*ptr_offset += sizeof(char *);
-		} else {
-			*ptr_offset += sizeof(u32);
-		}
-	}
+	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, false, NULL);
 }
 
 static void compile_init_globals_fn(void) {
 	size_t ptr_offset = 0;
 
-	for (size_t i = 0; i < global_statement_groups_size; i++) {
-		struct statement_group group = global_statement_groups[i];
-		compile_init_globals_fn_group(group, &ptr_offset);
+	for (size_t i = 0; i < global_variable_statements_size; i++) {
+		struct global_variable_statement global = global_variable_statements[i];
+
+		compile_expr(global.assignment_expr);
+
+		if (ptr_offset < 0x80) { // an i8 with the value 0x80 is negative in two's complement
+			if (global.assignment_expr.result_type == type_string) {
+				compile_unpadded(MOV_RAX_TO_DEREF_RDI_8_BIT_OFFSET);
+			} else {
+				compile_unpadded(MOV_EAX_TO_DEREF_RDI_8_BIT_OFFSET);
+			}
+			compile_byte(ptr_offset);
+		} else {
+			if (global.assignment_expr.result_type == type_string) {
+				compile_unpadded(MOV_RAX_TO_DEREF_RDI_32_BIT_OFFSET);
+			} else {
+				compile_unpadded(MOV_EAX_TO_DEREF_RDI_32_BIT_OFFSET);
+			}
+			compile_32(ptr_offset);
+		}
+
+		if (global.type == type_string) {
+			ptr_offset += sizeof(char *);
+		} else {
+			ptr_offset += sizeof(u32);
+		}
 	}
 
 	compile_byte(RET);
@@ -8642,6 +8408,7 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 #define MAX_ENTITIES 420420
 #define MAX_ENTITY_STRINGS_CHARACTERS 420420
 #define MAX_ENTITY_NAME_LENGTH 420
+#define DLL_DIR_PATH "mod_dlls"
 
 char *grug_on_fn_name;
 char *grug_on_fn_path;

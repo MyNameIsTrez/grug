@@ -38,10 +38,12 @@ void grug_free_mods(void);
 // but an external tool has the advantage that it isn't tied to the game's release cycle
 //
 // Returns whether an error occurred
-bool grug_dump_file_ast(char *input_grug_path, char *output_json_path);
-bool grug_apply_file_ast(char *input_json_path, char *output_grug_path);
-// bool grug_dump_mods_ast(char *output_json_path);
-// bool grug_apply_mods_ast(char *input_json_path);
+bool grug_dump_file_to_json(char *input_grug_path, char *output_json_path);
+bool grug_generate_file_from_json(char *input_json_path, char *output_grug_path);
+
+// TODO: Write these
+// bool grug_dump_mods_to_json(char *output_json_path);
+// bool grug_generate_mods_from_json(char *input_json_path);
 
 //// Defines
 
