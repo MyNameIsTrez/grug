@@ -2934,9 +2934,12 @@ static void parse(void) {
 	reset_parsing();
 
 	bool seen_define_fn = false;
-
 	bool seen_newline = false;
+
 	bool newline_allowed = false;
+	bool newline_required = false;
+
+	bool just_seen_global = false;
 
 	size_t i = 0;
 	while (i < tokens_size) {
@@ -2945,12 +2948,16 @@ static void parse(void) {
 
 		if (type == WORD_TOKEN && streq(token.str, "define") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			grug_assert(!seen_define_fn, "There can't be more than one define function in a grug file");
+			grug_assert(!newline_required, "Expected an empty line, on line %zu", get_token_line_number(i));
 
 			parse_define_fn(&i);
 
 			seen_define_fn = true;
 
 			newline_allowed = true;
+			newline_required = true;
+
+			just_seen_global = false;
 
 			struct global_statement global = {
 				.type = GLOBAL_DEFINE_FN,
@@ -2960,9 +2967,15 @@ static void parse(void) {
 		} else if (type == WORD_TOKEN && i + 1 < tokens_size && peek_token(i + 1).type == COLON_TOKEN) {
 			grug_assert(seen_define_fn, "Move the global variable '%s' below the define function", token.str);
 
+			// Make having an empty line between globals optional
+			grug_assert(!newline_required || just_seen_global, "Expected an empty line, on line %zu", get_token_line_number(i));
+
 			struct global_variable_statement variable = parse_global_variable(&i);
 
 			newline_allowed = true;
+			newline_required = true;
+
+			just_seen_global = true;
 
 			struct global_statement global = {
 				.type = GLOBAL_VARIABLE,
@@ -2972,10 +2985,14 @@ static void parse(void) {
 			consume_token_type(&i, NEWLINE_TOKEN);
 		} else if (type == WORD_TOKEN && starts_with(token.str, "on_") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			grug_assert(seen_define_fn, "Move the on_ function '%s' below the define function", token.str);
+			grug_assert(!newline_required, "Expected an empty line, on line %zu", get_token_line_number(i));
 
 			struct on_fn fn = parse_on_fn(&i);
 
 			newline_allowed = true;
+			newline_required = true;
+
+			just_seen_global = false;
 
 			struct global_statement global = {
 				.type = GLOBAL_ON_FN,
@@ -2984,9 +3001,14 @@ static void parse(void) {
 			push_global_statement(global);
 			consume_token_type(&i, NEWLINE_TOKEN);
 		} else if (type == WORD_TOKEN && starts_with(token.str, "helper_") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
+			grug_assert(!newline_required, "Expected an empty line, on line %zu", get_token_line_number(i));
+
 			struct helper_fn fn = parse_helper_fn(&i);
 
 			newline_allowed = true;
+			newline_required = true;
+
+			just_seen_global = false;
 
 			struct global_statement global = {
 				.type = GLOBAL_HELPER_FN,
@@ -3001,6 +3023,9 @@ static void parse(void) {
 
 			// Disallow consecutive empty lines
 			newline_allowed = false;
+			newline_required = false;
+
+			just_seen_global = false;
 
 			struct global_statement global = {
 				.type = GLOBAL_EMPTY_LINE,
@@ -3009,7 +3034,12 @@ static void parse(void) {
 
 			i++;
 		} else if (type == COMMENT_TOKEN) {
+			grug_assert(!newline_required, "Expected an empty line, on line %zu", get_token_line_number(i));
+
 			newline_allowed = true;
+			newline_required = false;
+
+			just_seen_global = false;
 
 			struct global_statement global = {
 				.type = GLOBAL_COMMENT,
