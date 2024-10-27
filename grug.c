@@ -3281,17 +3281,17 @@ static void dump_fields(struct compound_literal compound_literal) {
 static void dump_global_statement(struct global_statement global) {
 	dump("{");
 
-	dump("\"type\":\"%s\",", get_global_statement_type_str[global.type]);
+	dump("\"type\":\"%s\"", get_global_statement_type_str[global.type]);
 
 	switch (global.type) {
 		case GLOBAL_DEFINE_FN:
-			dump("\"name\":\"%s\"", define_fn.return_type);
+			dump(",\"name\":\"%s\"", define_fn.return_type);
 			dump_fields(define_fn.returned_compound_literal);
 			break;
 		case GLOBAL_VARIABLE: {
 			struct global_variable_statement global_variable = *global.global_variable;
 
-			dump("\"name\":\"%s\",", global_variable.name);
+			dump(",\"name\":\"%s\",", global_variable.name);
 
 			dump("\"variable_type\":\"%s\",", type_names[global_variable.type]);
 
@@ -3304,7 +3304,7 @@ static void dump_global_statement(struct global_statement global) {
 		case GLOBAL_ON_FN: {
 			struct on_fn fn = *global.on_fn;
 
-			dump("\"name\":\"%s\"", fn.fn_name);
+			dump(",\"name\":\"%s\"", fn.fn_name);
 
 			dump_arguments(fn.arguments, fn.argument_count);
 
@@ -3317,7 +3317,7 @@ static void dump_global_statement(struct global_statement global) {
 		case GLOBAL_HELPER_FN: {
 			struct helper_fn fn = *global.helper_fn;
 
-			dump("\"name\":\"%s\"", fn.fn_name);
+			dump(",\"name\":\"%s\"", fn.fn_name);
 
 			dump_arguments(fn.arguments, fn.argument_count);
 
@@ -3332,10 +3332,10 @@ static void dump_global_statement(struct global_statement global) {
 
 			break;
 		}
-		case GLOBAL_EMPTY_LINE:
-			break;
 		case GLOBAL_COMMENT:
-			dump("\"comment\":\"%s\"", global.comment);
+			dump(",\"comment\":\"%s\"", global.comment);
+			break;
+		case GLOBAL_EMPTY_LINE:
 			break;
 	}
 
@@ -3385,103 +3385,103 @@ bool grug_dump_file_to_json(char *input_grug_path, char *output_json_path) {
 
 static FILE *applied_stream;
 
-static enum statement_type get_statement_type_from_str(char *token) {
-	if (streq(token, "VARIABLE_STATEMENT")) {
+static enum statement_type get_statement_type_from_str(char *str) {
+	if (streq(str, "VARIABLE_STATEMENT")) {
 		return VARIABLE_STATEMENT;
-	} else if (streq(token, "CALL_STATEMENT")) {
+	} else if (streq(str, "CALL_STATEMENT")) {
 		return CALL_STATEMENT;
-	} else if (streq(token, "IF_STATEMENT")) {
+	} else if (streq(str, "IF_STATEMENT")) {
 		return IF_STATEMENT;
-	} else if (streq(token, "RETURN_STATEMENT")) {
+	} else if (streq(str, "RETURN_STATEMENT")) {
 		return RETURN_STATEMENT;
-	} else if (streq(token, "WHILE_STATEMENT")) {
+	} else if (streq(str, "WHILE_STATEMENT")) {
 		return WHILE_STATEMENT;
-	} else if (streq(token, "BREAK_STATEMENT")) {
+	} else if (streq(str, "BREAK_STATEMENT")) {
 		return BREAK_STATEMENT;
-	} else if (streq(token, "CONTINUE_STATEMENT")) {
+	} else if (streq(str, "CONTINUE_STATEMENT")) {
 		return CONTINUE_STATEMENT;
-	} else if (streq(token, "EMPTY_LINE_STATEMENT")) {
+	} else if (streq(str, "EMPTY_LINE_STATEMENT")) {
 		return EMPTY_LINE_STATEMENT;
-	} else if (streq(token, "COMMENT_STATEMENT")) {
+	} else if (streq(str, "COMMENT_STATEMENT")) {
 		return COMMENT_STATEMENT;
 	}
-	grug_error("get_statement_type_from_str() was passed the token \"%s\", which isn't a statement_type", token);
+	grug_error("get_statement_type_from_str() was passed the string \"%s\", which isn't a statement_type", str);
 }
 
-static enum token_type get_unary_token_type_from_str(char *token) {
-	if (streq(token, "MINUS_TOKEN")) {
+static enum token_type get_unary_token_type_from_str(char *str) {
+	if (streq(str, "MINUS_TOKEN")) {
 		return MINUS_TOKEN;
-	} else if (streq(token, "NOT_TOKEN")) {
+	} else if (streq(str, "NOT_TOKEN")) {
 		return NOT_TOKEN;
 	}
-	grug_error("get_unary_token_type_from_str() was passed the token \"%s\", which isn't a unary operator", token);
+	grug_error("get_unary_token_type_from_str() was passed the string \"%s\", which isn't a unary operator", str);
 }
 
-static char *get_logical_operator_from_token(char *token) {
-	if (streq(token, "AND_TOKEN")) {
+static char *get_logical_operator_from_token(char *str) {
+	if (streq(str, "AND_TOKEN")) {
 		return "and";
-	} else if (streq(token, "OR_TOKEN")) {
+	} else if (streq(str, "OR_TOKEN")) {
 		return "or";
 	}
-	grug_error("get_logical_operator_from_token() was passed the token \"%s\", which isn't a logical operator", token);
+	grug_error("get_logical_operator_from_token() was passed the string \"%s\", which isn't a logical operator", str);
 }
 
-static char *get_binary_operator_from_token(char *token) {
-	if (streq(token, "PLUS_TOKEN")) {
+static char *get_binary_operator_from_token(char *str) {
+	if (streq(str, "PLUS_TOKEN")) {
 		return "+";
-	} else if (streq(token, "MINUS_TOKEN")) {
+	} else if (streq(str, "MINUS_TOKEN")) {
 		return "-";
-	} else if (streq(token, "MULTIPLICATION_TOKEN")) {
+	} else if (streq(str, "MULTIPLICATION_TOKEN")) {
 		return "*";
-	} else if (streq(token, "DIVISION_TOKEN")) {
+	} else if (streq(str, "DIVISION_TOKEN")) {
 		return "/";
-	} else if (streq(token, "REMAINDER_TOKEN")) {
+	} else if (streq(str, "REMAINDER_TOKEN")) {
 		return "%";
-	} else if (streq(token, "EQUALS_TOKEN")) {
+	} else if (streq(str, "EQUALS_TOKEN")) {
 		return "==";
-	} else if (streq(token, "NOT_EQUALS_TOKEN")) {
+	} else if (streq(str, "NOT_EQUALS_TOKEN")) {
 		return "!=";
-	} else if (streq(token, "GREATER_OR_EQUAL_TOKEN")) {
+	} else if (streq(str, "GREATER_OR_EQUAL_TOKEN")) {
 		return ">=";
-	} else if (streq(token, "GREATER_TOKEN")) {
+	} else if (streq(str, "GREATER_TOKEN")) {
 		return ">";
-	} else if (streq(token, "LESS_OR_EQUAL_TOKEN")) {
+	} else if (streq(str, "LESS_OR_EQUAL_TOKEN")) {
 		return "<=";
-	} else if (streq(token, "LESS_TOKEN")) {
+	} else if (streq(str, "LESS_TOKEN")) {
 		return "<";
 	}
-	grug_error("get_binary_operator_from_token() was passed the token \"%s\", which isn't a binary operator", token);
+	grug_error("get_binary_operator_from_token() was passed the string \"%s\", which isn't a binary operator", str);
 }
 
-static enum expr_type get_expr_type_from_str(char *token) {
-	if (streq(token, "TRUE_EXPR")) {
+static enum expr_type get_expr_type_from_str(char *str) {
+	if (streq(str, "TRUE_EXPR")) {
 		return TRUE_EXPR;
-	} else if (streq(token, "FALSE_EXPR")) {
+	} else if (streq(str, "FALSE_EXPR")) {
 		return FALSE_EXPR;
-	} else if (streq(token, "STRING_EXPR")) {
+	} else if (streq(str, "STRING_EXPR")) {
 		return STRING_EXPR;
-	} else if (streq(token, "RESOURCE_EXPR")) {
+	} else if (streq(str, "RESOURCE_EXPR")) {
 		return RESOURCE_EXPR;
-	} else if (streq(token, "ENTITY_EXPR")) {
+	} else if (streq(str, "ENTITY_EXPR")) {
 		return ENTITY_EXPR;
-	} else if (streq(token, "IDENTIFIER_EXPR")) {
+	} else if (streq(str, "IDENTIFIER_EXPR")) {
 		return IDENTIFIER_EXPR;
-	} else if (streq(token, "I32_EXPR")) {
+	} else if (streq(str, "I32_EXPR")) {
 		return I32_EXPR;
-	} else if (streq(token, "F32_EXPR")) {
+	} else if (streq(str, "F32_EXPR")) {
 		return F32_EXPR;
-	} else if (streq(token, "UNARY_EXPR")) {
+	} else if (streq(str, "UNARY_EXPR")) {
 		return UNARY_EXPR;
-	} else if (streq(token, "BINARY_EXPR")) {
+	} else if (streq(str, "BINARY_EXPR")) {
 		return BINARY_EXPR;
-	} else if (streq(token, "LOGICAL_EXPR")) {
+	} else if (streq(str, "LOGICAL_EXPR")) {
 		return LOGICAL_EXPR;
-	} else if (streq(token, "CALL_EXPR")) {
+	} else if (streq(str, "CALL_EXPR")) {
 		return CALL_EXPR;
-	} else if (streq(token, "PARENTHESIZED_EXPR")) {
+	} else if (streq(str, "PARENTHESIZED_EXPR")) {
 		return PARENTHESIZED_EXPR;
 	}
-	grug_error("get_expr_type_from_str() was passed the token \"%s\", which isn't an expr_type", token);
+	grug_error("get_expr_type_from_str() was passed the string \"%s\", which isn't an expr_type", str);
 }
 
 static void apply_expr(struct json_node expr);
@@ -3711,12 +3711,26 @@ static struct json_node *try_get_else_if(struct json_node node) {
 
 static void apply_statements(struct json_node node);
 
+static void apply_comment(struct json_field *statement, size_t field_count) {
+	grug_assert(field_count == 2, "input_json_path its root array values its comments are supposed to only have a \"comment\" field after the \"type\" field");
+
+	grug_assert(streq(statement[1].key, "comment"), "input_json_path its array value its second comment field is supposed to be \"comment\", but got \"%s\"", statement[1].key);
+
+	grug_assert(statement[1].value->type == JSON_NODE_STRING, "input_json_path its \"comments\" values are supposed to be strings");
+
+	apply_indentation();
+
+	char *comment = statement[1].value->string;
+
+	apply("# %s\n", comment);
+}
+
 static void apply_if_statement(struct json_field *statement, size_t field_count) {
-	grug_assert(field_count >= 2 && field_count <= 4, "input_json_path its IF_STATEMENTs are supposed to have between 2 and 4 fields");
+	grug_assert(field_count >= 2 && field_count <= 4, "input_json_path its IF_STATEMENT is supposed to have between 2 and 4 fields");
 
 	apply("if ");
 
-	grug_assert(streq(statement[1].key, "condition"), "input_json_path its IF_STATEMENTs are supposed to have \"condition\" as their second field");
+	grug_assert(streq(statement[1].key, "condition"), "input_json_path its IF_STATEMENT is supposed to have \"condition\" as their second field, but got \"%s\"", statement[1].key);
 
 	apply_expr(*statement[1].value);
 
@@ -3725,24 +3739,25 @@ static void apply_if_statement(struct json_field *statement, size_t field_count)
 	struct json_node *if_statements_node = NULL;
 	struct json_node *else_statements_node = NULL;
 
-	// `+ 2`, due to the "type" and "condition" fields not being included
-	struct json_field *fields_ptr = statement + 2;
+	if (field_count > 2) {
+		if (streq(statement[2].key, "if_statements")) {
+			if_statements_node = statement[2].value;
 
-	if (streq(fields_ptr->key, "if_statements")) {
-		if_statements_node = fields_ptr->value;
-		fields_ptr++;
+			if (field_count > 3) {
+				if (streq(statement[3].key, "else_statements")) {
+					else_statements_node = statement[3].value;
+				} else {
+					grug_error("input_json_path its IF_STATEMENT its fourth optional field is supposed to be \"else_statements\", but got \"%s\"", statement[3].key);
+				}
+			}
+		} else if (streq(statement[2].key, "else_statements")) {
+			grug_assert(field_count == 3, "input_json_path its IF_STATEMENT its \"else_statements\" field isn't supposed to have another field after it");
+
+			else_statements_node = statement[2].value;
+		} else {
+			grug_error("input_json_path its IF_STATEMENT its third optional field is supposed to be either \"if_statements\" or \"else_statements\", but got \"%s\"", statement[2].key);
+		}
 	}
-
-	if (streq(fields_ptr->key, "else_statements")) {
-		else_statements_node = fields_ptr->value;
-		fields_ptr++;
-	}
-
-	size_t recognized_count = fields_ptr - (statement + 2);
-
-	size_t relevant_count = field_count - 2;
-
-	grug_assert(recognized_count == relevant_count, "input_json_path its IF_STATEMENT has %zu fields, but %zu of them are either not recognized, or are not in the right order. One of those fields is '%s'", field_count, relevant_count - recognized_count, fields_ptr->key);
 
 	if (if_statements_node) {
 		apply_statements(*if_statements_node);
@@ -3774,7 +3789,7 @@ static void apply_statement(char *type, size_t field_count, struct json_field *s
 		case VARIABLE_STATEMENT: {
 			grug_assert(field_count == 3 || field_count == 4, "input_json_path its VARIABLE_STATEMENTs are supposed to have 3 or 4 fields");
 
-			grug_assert(streq(statement[1].key, "name"), "input_json_path its VARIABLE_STATEMENTs are supposed to have \"name\" as their second field");
+			grug_assert(streq(statement[1].key, "name"), "input_json_path its VARIABLE_STATEMENTs are supposed to have \"name\" as their second field, but got \"%s\"", statement[1].key);
 
 			grug_assert(statement[1].value->type == JSON_NODE_STRING, "input_json_path its VARIABLE_STATEMENTs its \"name\" fields are supposed to be a string");
 
@@ -3790,7 +3805,7 @@ static void apply_statement(char *type, size_t field_count, struct json_field *s
 
 				apply(": %s", statement[2].value->string);
 
-				grug_assert(streq(statement[3].key, "assignment"), "input_json_path its VARIABLE_STATEMENTs its fourth field is supposed to be \"assignment\"");
+				grug_assert(streq(statement[3].key, "assignment"), "input_json_path its VARIABLE_STATEMENTs its fourth field is supposed to be \"assignment\", but got \"%s\"", statement[3].key);
 
 				apply(" = ");
 
@@ -3802,7 +3817,7 @@ static void apply_statement(char *type, size_t field_count, struct json_field *s
 
 				apply_expr(*statement[2].value);
 			} else {
-				grug_error("input_json_path its VARIABLE_STATEMENTs its third fields are supposed to be either \"variable_type\" or \"assignment\"");
+				grug_error("input_json_path its VARIABLE_STATEMENTs its third fields are supposed to be either \"variable_type\" or \"assignment\", but got \"%s\"", statement[2].key);
 			}
 
 			apply("\n");
@@ -3812,7 +3827,7 @@ static void apply_statement(char *type, size_t field_count, struct json_field *s
 		case CALL_STATEMENT: {
 			grug_assert(field_count == 2 || field_count == 3, "input_json_path its CALL_STATEMENTs are supposed to have either 2 or 3 fields");
 
-			grug_assert(streq(statement[1].key, "name"), "input_json_path its CALL_STATEMENTs are supposed to have \"name\" as their second field");
+			grug_assert(streq(statement[1].key, "name"), "input_json_path its CALL_STATEMENTs are supposed to have \"name\" as their second field, but got \"%s\"", statement[1].key);
 
 			grug_assert(statement[1].value->type == JSON_NODE_STRING, "input_json_path its CALL_STATEMENTs are supposed to have a \"name\" with type string");
 
@@ -3821,7 +3836,7 @@ static void apply_statement(char *type, size_t field_count, struct json_field *s
 			apply("%s(", name);
 
 			if (field_count == 3) {
-				grug_assert(streq(statement[2].key, "arguments"), "input_json_path its CALL_STATEMENTs are supposed to have \"arguments\" as their third field");
+				grug_assert(streq(statement[2].key, "arguments"), "input_json_path its CALL_STATEMENTs are supposed to have \"arguments\" as their third field, but got \"%s\"", statement[2].key);
 
 				struct json_node args_node = *statement[2].value;
 
@@ -3853,7 +3868,7 @@ static void apply_statement(char *type, size_t field_count, struct json_field *s
 			if (field_count == 2) {
 				apply(" ");
 
-				grug_assert(streq(statement[1].key, "expr"), "input_json_path its RETURN_STATEMENTs are supposed to have \"expr\" as their second field");
+				grug_assert(streq(statement[1].key, "expr"), "input_json_path its RETURN_STATEMENTs are supposed to have \"expr\" as their second field, but got \"%s\"", statement[1].key);
 
 				apply_expr(*statement[1].value);
 			}
@@ -3866,13 +3881,13 @@ static void apply_statement(char *type, size_t field_count, struct json_field *s
 
 			apply("while ");
 
-			grug_assert(streq(statement[1].key, "condition"), "input_json_path its WHILE_STATEMENTs are supposed to have \"condition\" as their second field");
+			grug_assert(streq(statement[1].key, "condition"), "input_json_path its WHILE_STATEMENTs are supposed to have \"condition\" as their second field, but got \"%s\"", statement[1].key);
 
 			apply_expr(*statement[1].value);
 
 			apply(" {\n");
 
-			grug_assert(streq(statement[2].key, "statements"), "input_json_path its WHILE_STATEMENTs are supposed to have \"statements\" as their third field");
+			grug_assert(streq(statement[2].key, "statements"), "input_json_path its WHILE_STATEMENTs are supposed to have \"statements\" as their third field, but got \"%s\"", statement[2].key);
 
 			apply_statements(*statement[2].value);
 
@@ -3900,6 +3915,8 @@ static void apply_statements(struct json_node node) {
 
 	struct json_node *statements_array = node.array.values;
 
+	indentation++;
+
 	for (size_t i = 0; i < node.array.value_count; i++) {
 		grug_assert(statements_array[i].type == JSON_NODE_OBJECT, "input_json_path its statements are supposed to be an array of objects");
 
@@ -3908,7 +3925,7 @@ static void apply_statements(struct json_node node) {
 
 		struct json_field *statement = statements_array[i].object.fields;
 
-		grug_assert(streq(statement[0].key, "type"), "input_json_path its statement objects are supposed to have \"type\" as their first field");
+		grug_assert(streq(statement[0].key, "type"), "input_json_path its statement objects are supposed to have \"type\" as their first field, but got \"%s\"", statement[0].key);
 
 		grug_assert(statement[0].value->type == JSON_NODE_STRING, "input_json_path its statement objects are supposed to have a \"type\" with type string");
 
@@ -3918,22 +3935,9 @@ static void apply_statements(struct json_node node) {
 
 		apply_statement(type, field_count, statement);
 	}
-}
 
-static void apply_comments(struct json_node node) {
-	grug_assert(node.type == JSON_NODE_ARRAY, "input_json_path its \"comments\" is supposed to be an array");
-
-	struct json_node *comments_array = node.array.values;
-
-	for (size_t i = 0; i < node.array.value_count; i++) {
-		grug_assert(comments_array[i].type == JSON_NODE_STRING, "input_json_path its \"comments\" values are supposed to be strings");
-
-		apply_indentation();
-
-		char *comment = comments_array[i].string;
-
-		apply("# %s\n", comment);
-	}
+	assert(indentation > 0);
+	indentation--;
 }
 
 static void apply_arguments(struct json_node node) {
@@ -3952,7 +3956,7 @@ static void apply_arguments(struct json_node node) {
 
 		grug_assert(arg.field_count == 2, "input_json_path its \"arguments\" are supposed to have exactly 2 fields");
 
-		grug_assert(streq(arg.fields[0].key, "name"), "input_json_path its \"arguments\" its first field is supposed to be \"name\"");
+		grug_assert(streq(arg.fields[0].key, "name"), "input_json_path its \"arguments\" its first field is supposed to be \"name\", but got \"%s\"", arg.fields[0].key);
 
 		grug_assert(arg.fields[0].value->type == JSON_NODE_STRING, "input_json_path its \"arguments\" its \"name\" is supposed to be a string");
 
@@ -3961,7 +3965,7 @@ static void apply_arguments(struct json_node node) {
 
 		apply("%s", name);
 
-		grug_assert(streq(arg.fields[1].key, "type"), "input_json_path its \"arguments\" its second field is supposed to be \"type\"");
+		grug_assert(streq(arg.fields[1].key, "type"), "input_json_path its \"arguments\" its second field is supposed to be \"type\", but got \"%s\"", arg.fields[1].key);
 
 		grug_assert(arg.fields[1].value->type == JSON_NODE_STRING, "input_json_path its \"arguments\" its type is supposed to be a string");
 
@@ -3972,240 +3976,154 @@ static void apply_arguments(struct json_node node) {
 	}
 }
 
-static void apply_helper_fns(struct json_node node) {
-	grug_assert(node.type == JSON_NODE_ARRAY, "input_json_path its root.helper_fns is supposed to be an array");
+static void apply_helper_fns(struct json_field *statement, size_t field_count) {
+	grug_assert(field_count >= 2 && field_count <= 5, "input_json_path its GLOBAL_HELPER_FN is supposed to have between 2 and 5 (inclusive) fields");
 
-	struct json_node *helper_fns_objects = node.array.values;
+	grug_assert(streq(statement[1].key, "name"), "input_json_path its GLOBAL_HELPER_FN its second field is supposed to be \"name\", but got \"%s\"", statement[1].key);
+	grug_assert(statement[1].value->type == JSON_NODE_STRING, "input_json_path its GLOBAL_HELPER_FN its \"name\" is supposed to be a string");
+	char *name = statement[1].value->string;
+	grug_assert(strlen(name) > 0, "input_json_path its GLOBAL_HELPER_FN its \"name\" is not supposed to be an empty string");
+	apply("%s(", name);
 
-	for (size_t i = 0; i < node.array.value_count; i++) {
-		apply("\n");
+	struct json_node *arguments_node = NULL;
+	struct json_node *return_type_node = NULL;
+	struct json_node *statements_node = NULL;
 
-		grug_assert(helper_fns_objects[i].type == JSON_NODE_OBJECT, "input_json_path its root.helper_fns[%zu] is supposed to be an object", i);
+	if (field_count > 2) {
+		if (streq(statement[2].key, "arguments")) {
+			arguments_node = statement[2].value;
 
-		struct json_object fn = helper_fns_objects[i].object;
+			if (field_count > 3) {
+				if (streq(statement[3].key, "return_type")) {
+					return_type_node = statement[3].value;
 
-		size_t field_count = fn.field_count;
+					if (field_count > 4) {
+						if (streq(statement[4].key, "statements")) {
+							statements_node = statement[4].value;
+						} else {
+							grug_error("input_json_path its GLOBAL_ON_FN its fifth optional field is supposed to be \"statements\", but got \"%s\"", statement[4].key);
+						}
+					}
+				} else if (streq(statement[3].key, "statements")) {
+					grug_assert(field_count == 4, "input_json_path its GLOBAL_HELPER_FN its \"statements\" field isn't supposed to have another field after it");
 
-		grug_assert(field_count >= 1 && field_count <= 5, "input_json_path its root.helper_fns[%zu] is supposed to have between 1 and 5 (inclusive) fields", i);
+					statements_node = statement[3].value;
+				} else {
+					grug_error("input_json_path its GLOBAL_HELPER_FN its fourth optional field is supposed to be either \"return_type\" or \"statements\", but got \"%s\"", statement[3].key);
+				}
+			}
+		} else if (streq(statement[2].key, "return_type")) {
+			grug_assert(field_count == 3, "input_json_path its GLOBAL_HELPER_FN its \"return_type\" field isn't supposed to have another field after it");
 
-		struct json_node *comments_node = NULL;
-		struct json_node *name_node = NULL;
-		struct json_node *arguments_node = NULL;
-		struct json_node *return_type_node = NULL;
-		struct json_node *statements_node = NULL;
+			return_type_node = statement[2].value;
 
-		struct json_field *fields_ptr = fn.fields;
+			if (field_count > 3) {
+				grug_assert(streq(statement[3].key, "statements"), "input_json_path its GLOBAL_ON_FN its fourth optional field is supposed to be \"statements\", but got \"%s\"", statement[3].key);
 
-		if (streq(fields_ptr->key, "comments")) {
-			comments_node = fields_ptr->value;
-			fields_ptr++;
-		}
+				statements_node = statement[3].value;
+			}
+		} else if (streq(statement[2].key, "statements")) {
+			grug_assert(field_count == 3, "input_json_path its GLOBAL_HELPER_FN its \"statements\" field isn't supposed to have another field after it");
 
-		if (streq(fields_ptr->key, "name")) {
-			name_node = fields_ptr->value;
-			fields_ptr++;
+			statements_node = statement[2].value;
 		} else {
-			grug_error("input_json_path its root.helper_fns[%zu] its first or second field is supposed to be \"name\"", i);
+			grug_error("input_json_path its GLOBAL_HELPER_FN its third optional field is supposed to be either \"arguments\", or \"return_type\", or \"statements\", but got \"%s\"", statement[2].key);
 		}
-
-		if (streq(fields_ptr->key, "arguments")) {
-			arguments_node = fields_ptr->value;
-			fields_ptr++;
-		}
-
-		if (streq(fields_ptr->key, "return_type")) {
-			return_type_node = fields_ptr->value;
-			fields_ptr++;
-		}
-
-		if (streq(fields_ptr->key, "statements")) {
-			statements_node = fields_ptr->value;
-			fields_ptr++;
-		}
-
-		size_t recognized_count = fields_ptr - fn.fields;
-
-		grug_assert(recognized_count == field_count, "input_json_path its root.helper_fns[%zu] has %zu fields, but %zu of them are either not recognized, or are not in the right order. One of those fields is '%s'", i, field_count, field_count - recognized_count, fields_ptr->key);
-
-		if (comments_node) {
-			indentation = 0;
-			apply_comments(*comments_node);
-		}
-
-		grug_assert(name_node->type == JSON_NODE_STRING, "input_json_path its root.helper_fns[%zu].name is supposed to be a string", i);
-		grug_assert(strlen(name_node->string) > 0, "input_json_path its root.helper_fns[%zu].name is not supposed to be an empty string", i);
-
-		apply("%s(", name_node->string);
-
-		if (arguments_node) {
-			apply_arguments(*arguments_node);
-		}
-
-		apply(")");
-
-		if (return_type_node) {
-			grug_assert(return_type_node->type == JSON_NODE_STRING, "input_json_path its root.helper_fns[%zu].return_type is supposed to be a string", i);
-
-			apply(" %s", return_type_node->string);
-		}
-
-		apply(" {\n");
-
-		if (statements_node) {
-			indentation = 0;
-			apply_statements(*statements_node);
-		}
-
-		apply("}\n");
 	}
+
+	if (arguments_node) {
+		apply_arguments(*arguments_node);
+	}
+
+	apply(")");
+
+	if (return_type_node) {
+		grug_assert(return_type_node->type == JSON_NODE_STRING, "input_json_path its GLOBAL_HELPER_FN \"return_type\" is supposed to be a string");
+		apply(" %s", return_type_node->string);
+	}
+
+	apply(" {\n");
+
+	if (statements_node) {
+		indentation = 0;
+		apply_statements(*statements_node);
+	}
+
+	apply("}\n");
 }
 
-static void apply_on_fns(struct json_node node) {
-	grug_assert(node.type == JSON_NODE_ARRAY, "input_json_path its root.on_fns is supposed to be an array");
+static void apply_on_fns(struct json_field *statement, size_t field_count) {
+	grug_assert(field_count >= 2 && field_count <= 4, "input_json_path its GLOBAL_ON_FN is supposed to have between 2 and 4 (inclusive) fields");
 
-	struct json_node *on_fns_objects = node.array.values;
+	grug_assert(streq(statement[1].key, "name"), "input_json_path its GLOBAL_ON_FN its second field is supposed to be \"name\"");
+	grug_assert(statement[1].value->type == JSON_NODE_STRING, "input_json_path its GLOBAL_ON_FN its \"name\" is supposed to be a string");
+	char *name = statement[1].value->string;
+	grug_assert(strlen(name) > 0, "input_json_path its GLOBAL_ON_FN its \"name\" is not supposed to be an empty string");
+	apply("%s(", name);
 
-	for (size_t i = 0; i < node.array.value_count; i++) {
-		apply("\n");
+	struct json_node *arguments_node = NULL;
+	struct json_node *statements_node = NULL;
 
-		grug_assert(on_fns_objects[i].type == JSON_NODE_OBJECT, "input_json_path its root.on_fns[%zu] is supposed to be an object", i);
+	if (field_count > 2) {
+		if (streq(statement[2].key, "arguments")) {
+			arguments_node = statement[2].value;
 
-		struct json_object fn = on_fns_objects[i].object;
+			if (field_count > 3) {
+				if (streq(statement[3].key, "statements")) {
+					statements_node = statement[3].value;
+				} else {
+					grug_error("input_json_path its GLOBAL_ON_FN its fourth optional field is supposed to be \"statements\", but got \"%s\"", statement[3].key);
+				}
+			}
+		} else if (streq(statement[2].key, "statements")) {
+			grug_assert(field_count == 3, "input_json_path its GLOBAL_ON_FN its \"statements\" field isn't supposed to have another field after it");
 
-		size_t field_count = fn.field_count;
-
-		grug_assert(field_count >= 1 && field_count <= 4, "input_json_path its root.on_fns[%zu] is supposed to have between 1 and 4 (inclusive) fields", i);
-
-		struct json_node *comments_node = NULL;
-		struct json_node *name_node = NULL;
-		struct json_node *arguments_node = NULL;
-		struct json_node *statements_node = NULL;
-
-		struct json_field *fields_ptr = fn.fields;
-
-		if (streq(fields_ptr->key, "comments")) {
-			comments_node = fields_ptr->value;
-			fields_ptr++;
-		}
-
-		if (streq(fields_ptr->key, "name")) {
-			name_node = fields_ptr->value;
-			fields_ptr++;
+			statements_node = statement[2].value;
 		} else {
-			grug_error("input_json_path its root.on_fns[%zu] its first or second field is supposed to be \"name\"", i);
+			grug_error("input_json_path its GLOBAL_ON_FN its third optional field is supposed to be either \"arguments\" or \"statements\", but got \"%s\"", statement[2].key);
 		}
-
-		if (streq(fields_ptr->key, "arguments")) {
-			arguments_node = fields_ptr->value;
-			fields_ptr++;
-		}
-
-		if (streq(fields_ptr->key, "statements")) {
-			statements_node = fields_ptr->value;
-			fields_ptr++;
-		}
-
-		size_t recognized_count = fields_ptr - fn.fields;
-
-		grug_assert(recognized_count == field_count, "input_json_path its root.on_fns[%zu] has %zu fields, but %zu of them are either not recognized, or are not in the right order. One of those fields is '%s'", i, field_count, field_count - recognized_count, fields_ptr->key);
-
-		if (comments_node) {
-			indentation = 0;
-			apply_comments(*comments_node);
-		}
-
-		grug_assert(name_node->type == JSON_NODE_STRING, "input_json_path its root.on_fns[%zu].name is supposed to be a string", i);
-		grug_assert(strlen(name_node->string) > 0, "input_json_path its root.on_fns[%zu].name is not supposed to be an empty string", i);
-
-		apply("%s(", name_node->string);
-
-		if (arguments_node) {
-			apply_arguments(*arguments_node);
-		}
-
-		apply(") {\n");
-
-		if (statements_node) {
-			indentation = 0;
-			apply_statements(*statements_node);
-		}
-
-		apply("}\n");
 	}
+
+	if (arguments_node) {
+		apply_arguments(*arguments_node);
+	}
+
+	apply(") {\n");
+
+	if (statements_node) {
+		indentation = 0;
+		apply_statements(*statements_node);
+	}
+
+	apply("}\n");
 }
 
-static void apply_global_variable_group_statements(struct json_node node) {
-	grug_assert(node.type == JSON_NODE_ARRAY, "input_json_path its root.global_variables is supposed to be an array");
+static void apply_global_variable(struct json_field *statement, size_t field_count) {
+	grug_assert(field_count == 4, "input_json_path its GLOBAL_VARIABLEs are supposed to have exactly 4 fields");
 
-	struct json_node *globals = node.array.values;
+	grug_assert(streq(statement[1].key, "name"), "input_json_path its GLOBAL_VARIABLE its first field is supposed to be \"name\", but got \"%s\"", statement[1].key);
 
-	for (size_t i = 0; i < node.array.value_count; i++) {
-		grug_assert(globals[i].type == JSON_NODE_OBJECT, "input_json_path its root.global_variables[%zu] is supposed to be an object", i);
+	grug_assert(statement[1].value->type == JSON_NODE_STRING, "input_json_path its GLOBAL_VARIABLE its \"name\" is supposed to be a string");
 
-		struct json_object global = globals[i].object;
-		grug_assert(global.field_count == 3, "input_json_path its root.global_variables[%zu] is supposed to have exactly 3 fields", i);
+	char *name = statement[1].value->string;
+	grug_assert(strlen(name) > 0, "input_json_path its GLOBAL_VARIABLE its \"name\" is not supposed to be an empty string");
 
-		grug_assert(streq(global.fields[0].key, "name"), "input_json_path its root.global_variables[%zu] its first field is supposed to be \"name\"", i);
+	apply("%s", name);
 
-		grug_assert(global.fields[0].value->type == JSON_NODE_STRING, "input_json_path its root.global_variables[%zu].name is supposed to be a string", i);
+	grug_assert(streq(statement[2].key, "variable_type"), "input_json_path its GLOBAL_VARIABLE its second field is supposed to be \"variable_type\", but got \"%s\"", statement[2].key);
 
-		char *name = global.fields[0].value->string;
-		grug_assert(strlen(name) > 0, "input_json_path its root.global_variables[%zu].name is not supposed to be an empty string", i);
+	struct json_node *variable_type = statement[2].value;
+	grug_assert(variable_type->type == JSON_NODE_STRING, "input_json_path its GLOBAL_VARIABLE its \"variable_type\" is supposed to be a string");
+	grug_assert(strlen(variable_type->string) > 0, "input_json_path its GLOBAL_VARIABLE its \"variable_type\" is not supposed to be an empty string");
 
-		apply("%s", name);
+	apply(": %s = ", variable_type->string);
 
-		grug_assert(streq(global.fields[1].key, "variable_type"), "input_json_path its root.global_variables[%zu] its second field is supposed to be \"variable_type\"", i);
+	grug_assert(streq(statement[3].key, "assignment"), "input_json_path its GLOBAL_VARIABLE its third field is supposed to be \"assignment\", but got \"%s\"", statement[3].key);
 
-		struct json_node *variable_type = global.fields[1].value;
-		grug_assert(variable_type->type == JSON_NODE_STRING, "input_json_path its root.global_variables[%zu].variable_type is supposed to be a string", i);
-		grug_assert(strlen(variable_type->string) > 0, "input_json_path its root.global_variables[%zu].variable_type is not supposed to be an empty string", i);
+	struct json_node assignment = *statement[3].value;
+	apply_expr(assignment);
 
-		apply(": %s = ", variable_type->string);
-
-		grug_assert(streq(global.fields[2].key, "assignment"), "input_json_path its root.global_variables[%zu] its third field is supposed to be \"assignment\"", i);
-
-		struct json_node assignment = *global.fields[2].value;
-		apply_expr(assignment);
-
-		apply("\n");
-	}
-}
-
-static void apply_global_variables(struct json_node node) {
-	grug_assert(node.type == JSON_NODE_ARRAY, "input_json_path its root.global_variables is supposed to be an array");
-
-	struct json_node *groups = node.array.values;
-
-	for (size_t i = 0; i < node.array.value_count; i++) {
-		grug_assert(groups[i].type == JSON_NODE_OBJECT, "input_json_path its root.global_variables[%zu] is supposed to be an object", i);
-
-		if (node.array.value_count > 0) {
-			apply("\n");
-		}
-
-		struct json_object group = groups[i].object;
-
-		size_t field_count = group.field_count;
-
-		grug_assert(field_count == 1 || field_count == 2, "input_json_path its root.global_variables[%zu] is supposed to have 1 or 2 fields", i);
-
-		if (streq(group.fields[0].key, "comments")) {
-			grug_assert(field_count == 2, "input_json_path its root.global_variables[%zu] its \"comments\" is supposed to have \"statements\" after it", i);
-
-			indentation = 0;
-			apply_comments(*group.fields[0].value);
-
-			grug_assert(streq(group.fields[1].key, "statements"), "input_json_path its root.global_variables[%zu] its \"comments\" is supposed to have \"statements\" after it", i);
-
-			apply_global_variable_group_statements(*group.fields[1].value);
-		} else if (streq(group.fields[0].key, "statements")) {
-			grug_assert(field_count == 1, "input_json_path its root.global_variables[%zu] its \"statements\" isn't supposed to have a field after it", i);
-
-			apply_global_variable_group_statements(*group.fields[0].value);
-		} else {
-			grug_error("input_json_path its root.global_variables[%zu] its first field is supposed to be either \"comments\" or \"statements\"", i);
-		}
-	}
+	apply("\n");
 }
 
 static void apply_compound_literal(struct json_node *entity_fields_array) {
@@ -4219,13 +4137,13 @@ static void apply_compound_literal(struct json_node *entity_fields_array) {
 		grug_assert(value.type == JSON_NODE_OBJECT, "input_json_path its root.entity.fields[%zu] is supposed to be an object", i);
 		grug_assert(value.object.field_count == 2, "input_json_path its root.entity.fields[%zu] is supposed to have exactly 2 fields", i);
 
-		grug_assert(streq(value.object.fields[0].key, "name"), "input_json_path its root.entity.fields[%zu] its first field is supposed to be \"name\"", i);
+		grug_assert(streq(value.object.fields[0].key, "name"), "input_json_path its root.entity.fields[%zu] its first field is supposed to be \"name\", but got \"%s\"", i, value.object.fields[0].key);
 
 		struct json_node *field_name = value.object.fields[0].value;
 		grug_assert(field_name->type == JSON_NODE_STRING, "input_json_path its root.entity.fields[%zu].name is supposed to be a string", i);
 		grug_assert(strlen(field_name->string) > 0, "input_json_path its root.entity.fields[%zu].name is not supposed to be an empty string", i);
 
-		grug_assert(streq(value.object.fields[1].key, "value"), "input_json_path its root.entity.fields[%zu] its second field is supposed to be \"value\"", i);
+		grug_assert(streq(value.object.fields[1].key, "value"), "input_json_path its root.entity.fields[%zu] its second field is supposed to be \"value\", but got \"%s\"", i, value.object.fields[1].key);
 
 		apply_indentation();
 		apply(".%s = ", field_name->string);
@@ -4239,69 +4157,24 @@ static void apply_compound_literal(struct json_node *entity_fields_array) {
 	indentation--;
 }
 
-static void apply_entity(struct json_node node) {
-	grug_assert(node.type == JSON_NODE_OBJECT, "input_json_path its root.entity is supposed to be an object");
+static void apply_define_fn(struct json_field *statement, size_t field_count) {
+	grug_assert(field_count >= 2 && field_count <= 3, "input_json_path its GLOBAL_DEFINE_FN is supposed to have between 2 and 3 (inclusive) fields");
 
-	size_t field_count = node.object.field_count;
+	grug_assert(streq(statement[1].key, "name"), "input_json_path its GLOBAL_DEFINE_FN its second field is supposed to be \"name\", but got \"%s\"", statement[1].key)
 
-	grug_assert(field_count >= 1 && field_count <= 3, "input_json_path its root.entity is supposed to have between 1 and 3 (inclusive) fields");
+	grug_assert(statement[1].value->type == JSON_NODE_STRING, "input_json_path its GLOBAL_DEFINE_FN \"name\" is supposed to be a string");
 
-	struct json_field *entity_fields = node.object.fields;
-
-	struct json_node *comments_node = NULL;
-	struct json_node *name_node = NULL;
-	struct json_node *fields_node = NULL;
-
-	if (streq(entity_fields[0].key, "comments")) {
-		grug_assert(field_count > 1, "input_json_path its root.entity its \"comments\" is supposed to have \"name\" after it");
-
-		comments_node = entity_fields[0].value;
-
-		if (streq(entity_fields[1].key, "name")) {
-			name_node = entity_fields[1].value;
-
-			if (field_count > 2) {
-				if (streq(entity_fields[2].key, "fields")) {
-					fields_node = entity_fields[2].value;
-				} else {
-					grug_error("input_json_path its root.entity its third (optional) field is supposed to be \"fields\"");
-				}
-			}
-		} else {
-			grug_error("input_json_path its root.entity its \"comments\" field is supposed to have \"name\" after it");
-		}
-	} else if (streq(entity_fields[0].key, "name")) {
-		grug_assert(field_count < 3, "input_json_path its root.entity its \"name\" is only supposed to (optionally) have \"fields\" after it");
-
-		name_node = entity_fields[0].value;
-
-		if (field_count == 2) {
-			if (streq(entity_fields[1].key, "fields")) {
-				fields_node = entity_fields[1].value;
-			} else {
-				grug_error("input_json_path its root.entity its second (optional) field is supposed to be \"fields\"");
-			}
-		}
-	} else {
-		grug_error("input_json_path its root.entity its first field is supposed to be either \"comments\" or \"name\"");
-	}
-
-	if (comments_node) {
-		indentation = 0;
-		apply_comments(*comments_node);
-	}
-
-	grug_assert(name_node->type == JSON_NODE_STRING, "input_json_path its root.entity.name is supposed to be a string");
-	grug_assert(strlen(name_node->string) > 0, "input_json_path its root.entity.name is not supposed to be an empty string");
-
-	apply("define() %s {\n", name_node->string);
+	char *name = statement[1].value->string;
+	grug_assert(strlen(name) > 0, "input_json_path its GLOBAL_DEFINE_FN \"name\" is not supposed to be an empty string");
+	apply("define() %s {\n", name);
 
 	indentation = 1;
 	apply_indentation();
 	apply("return {\n");
 
-	if (fields_node) {
-		apply_compound_literal(fields_node);
+	if (field_count == 3) {
+		grug_assert(streq(statement[2].key, "fields"), "input_json_path its GLOBAL_DEFINE_FN its third (optional) field is supposed to be \"fields\", but got \"%s\"", statement[2].key);
+		apply_compound_literal(statement[2].value);
 	}
 
 	apply_indentation();
@@ -4310,45 +4183,66 @@ static void apply_entity(struct json_node node) {
 	apply("}\n");
 }
 
+static enum global_statement_type get_global_statement_type_from_str(char *str) {
+	if (streq(str, "GLOBAL_DEFINE_FN")) {
+		return GLOBAL_DEFINE_FN;
+	} else if (streq(str, "GLOBAL_VARIABLE")) {
+		return GLOBAL_VARIABLE;
+	} else if (streq(str, "GLOBAL_ON_FN")) {
+		return GLOBAL_ON_FN;
+	} else if (streq(str, "GLOBAL_HELPER_FN")) {
+		return GLOBAL_HELPER_FN;
+	} else if (streq(str, "GLOBAL_EMPTY_LINE")) {
+		return GLOBAL_EMPTY_LINE;
+	} else if (streq(str, "GLOBAL_COMMENT")) {
+		return GLOBAL_COMMENT;
+	}
+	grug_error("get_global_statement_type_from_str() was passed the string \"%s\", which isn't a global_statement_type", str);
+}
+
 static void apply_root(struct json_node node) {
-	grug_assert(node.type == JSON_NODE_OBJECT, "input_json_path its root is supposed to be an object");
+	grug_assert(node.type == JSON_NODE_ARRAY, "input_json_path its root is supposed to be an array");
 
-	size_t field_count = node.object.field_count;
+	size_t statement_count = node.array.value_count;
 
-	grug_assert(field_count >= 1 && field_count <= 4, "input_json_path its root is supposed to have between 1 and 4 (inclusive) fields");
+	indentation = 0;
 
-	struct json_field *root_fields = node.object.fields;
+	for (size_t i = 0; i < statement_count; i++) {
+		grug_assert(node.array.values[i].type == JSON_NODE_OBJECT, "input_json_path its root array values are supposed to be objects")
 
-	grug_assert(streq(root_fields[0].key, "entity"), "input_json_path its first field is supposed to be \"entity\"");
-	apply_entity(*root_fields[0].value);
+		struct json_field *statement = node.array.values[i].object.fields;
 
-	if (field_count > 1) {
-		if (streq(root_fields[1].key, "global_variables")) {
-			apply_global_variables(*root_fields[1].value);
-		} else if (streq(root_fields[1].key, "on_fns")) {
-			apply_on_fns(*root_fields[1].value);
-		} else if (streq(root_fields[1].key, "helper_fns")) {
-			apply_helper_fns(*root_fields[1].value);
-		} else {
-			grug_error("input_json_path its second field is supposed to be either \"global_variables\", \"on_fns\", or \"helper_fns\"");
-		}
+		size_t field_count = node.array.values[i].object.field_count;
 
-		if (field_count > 2) {
-			if (streq(root_fields[2].key, "on_fns")) {
-				apply_on_fns(*root_fields[2].value);
-			} else if (streq(root_fields[2].key, "helper_fns")) {
-				apply_helper_fns(*root_fields[2].value);
-			} else {
-				grug_error("input_json_path its third field is supposed to be either \"on_fns\" or \"helper_fns\"");
-			}
+		grug_assert(field_count >= 1, "input_json_path its root array values are supposed to have at least a \"type\" field");
 
-			if (field_count > 3) {
-				grug_assert(streq(root_fields[3].key, "helper_fns"), "input_json_path its fourth field is supposed to be \"helper_fns\"");
+		grug_assert(streq(statement[0].key, "type"), "input_json_path its array value its first field is supposed to be \"type\", but got \"%s\"", statement[0].key);
 
-				apply_helper_fns(*root_fields[3].value);
-			}
+		grug_assert(statement[0].value->type == JSON_NODE_STRING, "input_json_path its array value its \"type\" field is supposed to be a string");
+
+		switch (get_global_statement_type_from_str(statement[0].value->string)) {
+			case GLOBAL_DEFINE_FN:
+				apply_define_fn(statement, field_count);
+				break;
+			case GLOBAL_VARIABLE:
+				apply_global_variable(statement, field_count);
+				break;
+			case GLOBAL_ON_FN:
+				apply_on_fns(statement, field_count);
+				break;
+			case GLOBAL_HELPER_FN:
+				apply_helper_fns(statement, field_count);
+				break;
+			case GLOBAL_EMPTY_LINE:
+				apply("\n");
+				break;
+			case GLOBAL_COMMENT:
+				apply_comment(statement, field_count);
+				break;
 		}
 	}
+
+	assert(indentation == 0);
 }
 
 bool grug_generate_file_from_json(char *input_json_path, char *output_grug_path) {
@@ -5045,7 +4939,7 @@ static void fill_on_fns(void) {
 			enum type arg_type = args[argument_index].type;
 			struct argument param = params[argument_index];
 
-			grug_assert(arg_type == param.type, "Function '%s' its '%s' parameter was supposed to have the type %s, but was %s", name, param.name, type_names[param.type], type_names[arg_type]);
+			grug_assert(arg_type == param.type, "Function '%s' its '%s' parameter was supposed to have the type %s, but got %s", name, param.name, type_names[param.type], type_names[arg_type]);
 		}
 
 		init_argument_variables(args, arg_count);
@@ -5154,7 +5048,7 @@ static void fill_define_fn(void) {
 			push_entity_type(json_field.entity_type);
 		}
 
-		grug_assert(field->result_type == json_field.type, "The define function its '%s' parameter was supposed to have the type %s, but was %s", json_field.name, type_names[json_field.type], type_names[field->result_type]);
+		grug_assert(field->result_type == json_field.type, "The define function its '%s' parameter was supposed to have the type %s, but got %s", json_field.name, type_names[json_field.type], type_names[field->result_type]);
 	}
 }
 
