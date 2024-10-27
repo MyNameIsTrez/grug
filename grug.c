@@ -2591,8 +2591,8 @@ static struct global_variable_statement *push_global_variable(struct global_vari
 static struct global_variable_statement parse_global_variable(size_t *i) {
 	struct global_variable_statement global = {0};
 
-	struct token name_token = consume_token(i);
-	global.name = name_token.str;
+	size_t name_token_index = *i;
+	global.name = consume_token(i).str;
 
 	assert_token_type(*i, COLON_TOKEN);
 	consume_token(i);
@@ -2604,6 +2604,8 @@ static struct global_variable_statement parse_global_variable(size_t *i) {
 
 	grug_assert(global.type != type_resource, "The global variable '%s' can't have 'resource' as its type", global.name);
 	grug_assert(global.type != type_entity, "The global variable '%s' can't have 'entity' as its type", global.name);
+
+	grug_assert(peek_token(*i).type == SPACE_TOKEN, "The global variable '%s' was not assigned a value on line %zu", global.name, get_token_line_number(name_token_index));
 
 	consume_space(i);
 	assert_token_type(*i, ASSIGNMENT_TOKEN);
@@ -2694,26 +2696,38 @@ static struct statement *parse_statements(size_t *i, size_t *body_statement_coun
 
 	indentation++;
 
+	bool seen_newline = false;
+	bool newline_allowed = false;
+
 	while (true) {
 		if (is_end_of_block(i)) {
 			break;
 		}
 
-		// Skip empty lines
 		if (peek_token(*i).type == NEWLINE_TOKEN) {
+			grug_assert(newline_allowed, "Unexpected empty line, on line %zu", get_token_line_number(*i));
+
+			seen_newline = true;
+
+			// Disallow consecutive empty lines
+			newline_allowed = false;
+
 			(*i)++;
-			continue;
+		} else {
+			newline_allowed = true;
+
+			consume_indentation(i);
+
+			struct statement statement = parse_statement(i);
+
+			grug_assert(*body_statement_count < MAX_STATEMENTS_PER_SCOPE, "There are more than %d statements in one of the grug file's scopes, exceeding MAX_STATEMENTS_PER_SCOPE", MAX_STATEMENTS_PER_SCOPE);
+			local_statements[(*body_statement_count)++] = statement;
+
+			consume_token_type(i, NEWLINE_TOKEN);
 		}
-
-		consume_indentation(i);
-
-		struct statement statement = parse_statement(i);
-
-		grug_assert(*body_statement_count < MAX_STATEMENTS_PER_SCOPE, "There are more than %d statements in one of the grug file's scopes, exceeding MAX_STATEMENTS_PER_SCOPE", MAX_STATEMENTS_PER_SCOPE);
-		local_statements[(*body_statement_count)++] = statement;
-
-		consume_token_type(i, NEWLINE_TOKEN);
 	}
+
+	grug_assert(!seen_newline || newline_allowed, "Unexpected empty line, on line %zu", get_token_line_number(newline_allowed ? *i : *i - 1));
 
 	assert(indentation > 0);
 	indentation--;
@@ -2921,9 +2935,8 @@ static void parse(void) {
 
 	bool seen_define_fn = false;
 
-	bool comment_allowed = true;
+	bool seen_newline = false;
 	bool newline_allowed = false;
-	bool just_seen_newline = false;
 
 	size_t i = 0;
 	while (i < tokens_size) {
@@ -2937,77 +2950,66 @@ static void parse(void) {
 
 			seen_define_fn = true;
 
-			comment_allowed = false;
 			newline_allowed = true;
-			just_seen_newline = false;
 
 			struct global_statement global = {
 				.type = GLOBAL_DEFINE_FN,
 			};
 			push_global_statement(global);
+			consume_token_type(&i, NEWLINE_TOKEN);
 		} else if (type == WORD_TOKEN && i + 1 < tokens_size && peek_token(i + 1).type == COLON_TOKEN) {
 			grug_assert(seen_define_fn, "Move the global variable '%s' below the define function", token.str);
 
 			struct global_variable_statement variable = parse_global_variable(&i);
 
-			comment_allowed = false;
 			newline_allowed = true;
-			just_seen_newline = false;
 
 			struct global_statement global = {
 				.type = GLOBAL_VARIABLE,
 				.global_variable = push_global_variable(variable),
 			};
 			push_global_statement(global);
+			consume_token_type(&i, NEWLINE_TOKEN);
 		} else if (type == WORD_TOKEN && starts_with(token.str, "on_") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			grug_assert(seen_define_fn, "Move the on_ function '%s' below the define function", token.str);
 
 			struct on_fn fn = parse_on_fn(&i);
 
-			comment_allowed = false;
 			newline_allowed = true;
-			just_seen_newline = false;
 
 			struct global_statement global = {
 				.type = GLOBAL_ON_FN,
 				.on_fn = push_on_fn(fn),
 			};
 			push_global_statement(global);
+			consume_token_type(&i, NEWLINE_TOKEN);
 		} else if (type == WORD_TOKEN && starts_with(token.str, "helper_") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			struct helper_fn fn = parse_helper_fn(&i);
 
-			comment_allowed = false;
 			newline_allowed = true;
-			just_seen_newline = false;
 
 			struct global_statement global = {
 				.type = GLOBAL_HELPER_FN,
 				.helper_fn = push_helper_fn(fn),
 			};
 			push_global_statement(global);
+			consume_token_type(&i, NEWLINE_TOKEN);
 		} else if (type == NEWLINE_TOKEN) {
 			grug_assert(newline_allowed, "Unexpected empty line, on line %zu", get_token_line_number(i));
 
-			// If this is an empty line, so if we've now seen "\n\n"
-			if (just_seen_newline) {
-				comment_allowed = true;
+			seen_newline = true;
 
-				// Disallows "\n\n\n"
-				newline_allowed = false;
+			// Disallow consecutive empty lines
+			newline_allowed = false;
 
-				struct global_statement global = {
-					.type = GLOBAL_EMPTY_LINE,
-				};
-				push_global_statement(global);
-			}
-			just_seen_newline = true;
+			struct global_statement global = {
+				.type = GLOBAL_EMPTY_LINE,
+			};
+			push_global_statement(global);
 
 			i++;
 		} else if (type == COMMENT_TOKEN) {
-			grug_assert(comment_allowed, "Unexpected comment, on line %zu", get_token_line_number(i));
-
 			newline_allowed = true;
-			just_seen_newline = false;
 
 			struct global_statement global = {
 				.type = GLOBAL_COMMENT,
@@ -3016,10 +3018,13 @@ static void parse(void) {
 			push_global_statement(global);
 
 			i++;
+			consume_token_type(&i, NEWLINE_TOKEN);
 		} else {
 			grug_error("Unexpected token '%s' on line %zu", token.str, get_token_line_number(i));
 		}
 	}
+
+	grug_assert(!seen_newline || newline_allowed, "Unexpected empty line, on line %zu", get_token_line_number(newline_allowed ? i : i - 1));
 
 	grug_assert(seen_define_fn, "Every grug file requires exactly one define function");
 
@@ -4723,7 +4728,7 @@ static void add_global_variable(char *name, enum type type) {
 	// TODO: Print the exact grug file path, function and line number
 	grug_assert(global_variables_size < MAX_GLOBAL_VARIABLES, "There are more than %d global variables in a grug file, exceeding MAX_GLOBAL_VARIABLES", MAX_GLOBAL_VARIABLES);
 
-	grug_assert(!get_global_variable(name), "The global variable '%s' shadows an earlier global variable with the same name, so change the name of either of them", name);
+	grug_assert(!get_global_variable(name), "The global variable '%s' shadows an earlier global variable with the same name, so change the name of one of them", name);
 
 	global_variables[global_variables_size] = (struct variable){
 		.name = name,
@@ -4830,8 +4835,8 @@ static void add_local_variable(char *name, enum type type) {
 	// TODO: Print the exact grug file path, function and line number
 	grug_assert(variables_size < MAX_VARIABLES_PER_FUNCTION, "There are more than %d variables in a function, exceeding MAX_VARIABLES_PER_FUNCTION", MAX_VARIABLES_PER_FUNCTION);
 
-	grug_assert(!get_local_variable(name), "The local variable '%s' shadows an earlier local variable with the same name, so change the name of either of them", name);
-	grug_assert(!get_global_variable(name), "The local variable '%s' shadows an earlier global variable with the same name, so change the name of either of them", name);
+	grug_assert(!get_local_variable(name), "The local variable '%s' shadows an earlier local variable with the same name, so change the name of one of them", name);
+	grug_assert(!get_global_variable(name), "The local variable '%s' shadows an earlier global variable with the same name, so change the name of one of them", name);
 
 	stack_frame_bytes += type_sizes[type];
 
@@ -5050,14 +5055,18 @@ static void check_global_expr(struct expr *expr, char *global_name) {
 	}
 }
 
-static void fill_global_variable(struct variable_statement var) {
-	check_global_expr(var.assignment_expr, var.name);
+static void fill_global_variables(void) {
+	for (size_t i = 0; i < global_variable_statements_size; i++) {
+		struct global_variable_statement *global = &global_variable_statements[i];
 
-	fill_expr(var.assignment_expr);
+		check_global_expr(&global->assignment_expr, global->name);
 
-	grug_assert(var.type == var.assignment_expr->result_type, "Can't assign %s to '%s', which has type %s", type_names[var.assignment_expr->result_type], var.name, type_names[var.type]);
+		fill_expr(&global->assignment_expr);
 
-	add_global_variable(var.name, var.type);
+		grug_assert(global->type == global->assignment_expr.result_type, "Can't assign %s to '%s', which has type %s", type_names[global->assignment_expr.result_type], global->name, type_names[global->type]);
+
+		add_global_variable(global->name, global->type);
+	}
 }
 
 static void check_define_fn_field_doesnt_contain_call_nor_identifier(struct expr *expr) {
