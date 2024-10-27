@@ -3676,40 +3676,21 @@ static void apply_indentation(void) {
 }
 
 static struct json_node *try_get_else_if(struct json_node node) {
-	// TODO: Fix
-	(void)node;
-	assert(false);
+	grug_assert(node.type == JSON_NODE_ARRAY, "input_json_path its \"else_statements\" is supposed to be an array");
 
-	// grug_assert(node.type == JSON_NODE_ARRAY, "input_json_path its \"else_statement_groups\" is supposed to be an array");
+	grug_assert(node.array.value_count > 0, "input_json_path its \"else_statements\" is supposed to contain at least one value");
 
-	// grug_assert(node.array.value_count > 0, "input_json_path its \"else_statement_groups\" is supposed to contain at least one value");
+	grug_assert(node.array.values[0].type == JSON_NODE_OBJECT, "input_json_path its \"else_statements\" is supposed to only contain objects");
 
-	// grug_assert(node.array.values[0].type == JSON_NODE_OBJECT, "input_json_path its \"else_statement_groups\" is supposed to only contain objects");
+	grug_assert(node.array.values[0].object.field_count > 1, "input_json_path its \"else_statements\" its object is supposed to contain at least a \"type\" and \"condition\" field");
 
-	// grug_assert(node.array.values[0].object.field_count > 0, "input_json_path its \"else_statement_groups\" its object is supposed to contain at least one field");
+	grug_assert(streq(node.array.values[0].object.fields[0].key, "type"), "input_json_path its \"else_statements\" its object is supposed to contain \"type\" as the first field");
 
-	// // This uses the fact that there is no way for an else or else-if to have a comment
-	// if (!streq(node.array.values[0].object.fields[0].key, "statements")) {
-	// 	return NULL;
-	// }
+	grug_assert(node.array.values[0].object.fields[0].value->type == JSON_NODE_STRING, "input_json_path its \"else_statements\" its object its \"type\" is supposed to be a string");
 
-	// grug_assert(node.array.values[0].object.fields[0].value->type == JSON_NODE_ARRAY,  "input_json_path its \"statements\" is supposed to be an array");
-
-	// struct json_array statements_array = node.array.values[0].object.fields[0].value->array;
-
-	// grug_assert(statements_array.value_count > 0, "input_json_path its \"statements\" is supposed to contain at least one value");
-
-	// grug_assert(statements_array.values[0].type == JSON_NODE_OBJECT, "input_json_path its \"statements\" is supposed to only contain object");
-
-	// grug_assert(statements_array.values[0].object.field_count > 1, "input_json_path its \"statements\" its object is supposed to contain a \"type\" and \"condition\" field");
-
-	// grug_assert(streq(statements_array.values[0].object.fields[0].key, "type"), "input_json_path its \"statements\" its object is supposed to contain \"type\" as the first field");
-
-	// grug_assert(statements_array.values[0].object.fields[0].value->type == JSON_NODE_STRING, "input_json_path its \"type\" is supposed to be a string");
-
-	// if (streq(statements_array.values[0].object.fields[0].value->string, "IF_STATEMENT")) {
-	// 	return &statements_array.values[0];
-	// }
+	if (streq(node.array.values[0].object.fields[0].value->string, "IF_STATEMENT")) {
+		return &node.array.values[0];
+	}
 
 	return NULL;
 }
@@ -4019,12 +4000,12 @@ static void apply_helper_fn(struct json_field *statement, size_t field_count) {
 				}
 			}
 		} else if (streq(statement[2].key, "return_type")) {
-			grug_assert(field_count == 3, "input_json_path its GLOBAL_HELPER_FN its \"return_type\" field isn't supposed to have another field after it");
-
 			return_type_node = statement[2].value;
 
 			if (field_count > 3) {
 				grug_assert(streq(statement[3].key, "statements"), "input_json_path its GLOBAL_ON_FN its fourth optional field is supposed to be \"statements\", but got \"%s\"", statement[3].key);
+
+				grug_assert(field_count == 4, "input_json_path its GLOBAL_HELPER_FN its \"statements\" field isn't supposed to have another field after it");
 
 				statements_node = statement[3].value;
 			}
