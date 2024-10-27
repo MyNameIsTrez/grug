@@ -3718,8 +3718,6 @@ static void apply_comment(struct json_field *statement, size_t field_count) {
 
 	grug_assert(statement[1].value->type == JSON_NODE_STRING, "input_json_path its \"comments\" values are supposed to be strings");
 
-	apply_indentation();
-
 	char *comment = statement[1].value->string;
 
 	apply("# %s\n", comment);
@@ -3905,7 +3903,7 @@ static void apply_statement(char *type, size_t field_count, struct json_field *s
 			assert(false); // TODO: Implement
 			break;
 		case COMMENT_STATEMENT:
-			assert(false); // TODO: Implement
+			apply_comment(statement, field_count);
 			break;
 	}
 }
@@ -3976,7 +3974,7 @@ static void apply_arguments(struct json_node node) {
 	}
 }
 
-static void apply_helper_fns(struct json_field *statement, size_t field_count) {
+static void apply_helper_fn(struct json_field *statement, size_t field_count) {
 	grug_assert(field_count >= 2 && field_count <= 5, "input_json_path its GLOBAL_HELPER_FN is supposed to have between 2 and 5 (inclusive) fields");
 
 	grug_assert(streq(statement[1].key, "name"), "input_json_path its GLOBAL_HELPER_FN its second field is supposed to be \"name\", but got \"%s\"", statement[1].key);
@@ -4045,14 +4043,13 @@ static void apply_helper_fns(struct json_field *statement, size_t field_count) {
 	apply(" {\n");
 
 	if (statements_node) {
-		indentation = 0;
 		apply_statements(*statements_node);
 	}
 
 	apply("}\n");
 }
 
-static void apply_on_fns(struct json_field *statement, size_t field_count) {
+static void apply_on_fn(struct json_field *statement, size_t field_count) {
 	grug_assert(field_count >= 2 && field_count <= 4, "input_json_path its GLOBAL_ON_FN is supposed to have between 2 and 4 (inclusive) fields");
 
 	grug_assert(streq(statement[1].key, "name"), "input_json_path its GLOBAL_ON_FN its second field is supposed to be \"name\"");
@@ -4091,7 +4088,6 @@ static void apply_on_fns(struct json_field *statement, size_t field_count) {
 	apply(") {\n");
 
 	if (statements_node) {
-		indentation = 0;
 		apply_statements(*statements_node);
 	}
 
@@ -4168,17 +4164,20 @@ static void apply_define_fn(struct json_field *statement, size_t field_count) {
 	grug_assert(strlen(name) > 0, "input_json_path its GLOBAL_DEFINE_FN \"name\" is not supposed to be an empty string");
 	apply("define() %s {\n", name);
 
-	indentation = 1;
+	indentation++;
 	apply_indentation();
 	apply("return {\n");
+	indentation--;
 
 	if (field_count == 3) {
 		grug_assert(streq(statement[2].key, "fields"), "input_json_path its GLOBAL_DEFINE_FN its third (optional) field is supposed to be \"fields\", but got \"%s\"", statement[2].key);
 		apply_compound_literal(statement[2].value);
 	}
 
+	indentation++;
 	apply_indentation();
 	apply("}\n");
+	indentation--;
 
 	apply("}\n");
 }
@@ -4228,10 +4227,10 @@ static void apply_root(struct json_node node) {
 				apply_global_variable(statement, field_count);
 				break;
 			case GLOBAL_ON_FN:
-				apply_on_fns(statement, field_count);
+				apply_on_fn(statement, field_count);
 				break;
 			case GLOBAL_HELPER_FN:
-				apply_helper_fns(statement, field_count);
+				apply_helper_fn(statement, field_count);
 				break;
 			case GLOBAL_EMPTY_LINE:
 				apply("\n");
