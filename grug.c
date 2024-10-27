@@ -2706,13 +2706,19 @@ static struct statement *parse_statements(size_t *i, size_t *body_statement_coun
 
 		if (peek_token(*i).type == NEWLINE_TOKEN) {
 			grug_assert(newline_allowed, "Unexpected empty line, on line %zu", get_token_line_number(*i));
+			(*i)++;
 
 			seen_newline = true;
 
 			// Disallow consecutive empty lines
 			newline_allowed = false;
 
-			(*i)++;
+			struct statement statement = {
+				.type = EMPTY_LINE_STATEMENT,
+			};
+
+			grug_assert(*body_statement_count < MAX_STATEMENTS_PER_SCOPE, "There are more than %d statements in one of the grug file's scopes, exceeding MAX_STATEMENTS_PER_SCOPE", MAX_STATEMENTS_PER_SCOPE);
+			local_statements[(*body_statement_count)++] = statement;
 		} else {
 			newline_allowed = true;
 
@@ -3034,12 +3040,12 @@ static void parse(void) {
 
 			i++;
 		} else if (type == COMMENT_TOKEN) {
-			grug_assert(!newline_required, "Expected an empty line, on line %zu", get_token_line_number(i));
-
 			newline_allowed = true;
-			newline_required = false;
 
-			just_seen_global = false;
+			// Deliberately not commenting these in,
+			// since we want their state to stay whatever it was
+			// newline_required = false or true;
+			// just_seen_global = false;
 
 			struct global_statement global = {
 				.type = GLOBAL_COMMENT,
@@ -3212,8 +3218,7 @@ static void dump_statements(struct statement *group_statements, size_t statement
 
 				break;
 			case COMMENT_STATEMENT:
-				dump(",");
-				dump("\"comment\":\"%s\"", statement.comment);
+				dump(",\"comment\":\"%s\"", statement.comment);
 				break;
 			case BREAK_STATEMENT:
 			case CONTINUE_STATEMENT:
@@ -3782,8 +3787,8 @@ static void apply_if_statement(struct json_field *statement, size_t field_count)
 	}
 }
 
-static void apply_statement(char *type, size_t field_count, struct json_field *statement) {
-	switch (get_statement_type_from_str(type)) {
+static void apply_statement(enum statement_type type, size_t field_count, struct json_field *statement) {
+	switch (type) {
 		case VARIABLE_STATEMENT: {
 			grug_assert(field_count == 3 || field_count == 4, "input_json_path its VARIABLE_STATEMENTs are supposed to have 3 or 4 fields");
 
@@ -3900,7 +3905,6 @@ static void apply_statement(char *type, size_t field_count, struct json_field *s
 			apply("continue\n");
 			break;
 		case EMPTY_LINE_STATEMENT:
-			assert(false); // TODO: Implement
 			break;
 		case COMMENT_STATEMENT:
 			apply_comment(statement, field_count);
@@ -3927,11 +3931,15 @@ static void apply_statements(struct json_node node) {
 
 		grug_assert(statement[0].value->type == JSON_NODE_STRING, "input_json_path its statement objects are supposed to have a \"type\" with type string");
 
-		char *type = statement[0].value->string;
+		enum statement_type type = get_statement_type_from_str(statement[0].value->string);
 
-		apply_indentation();
+		if (type == EMPTY_LINE_STATEMENT) {
+			apply("\n");
+		} else {
+			apply_indentation();
 
-		apply_statement(type, field_count, statement);
+			apply_statement(type, field_count, statement);
+		}
 	}
 
 	assert(indentation > 0);
@@ -4167,14 +4175,12 @@ static void apply_define_fn(struct json_field *statement, size_t field_count) {
 	indentation++;
 	apply_indentation();
 	apply("return {\n");
-	indentation--;
 
 	if (field_count == 3) {
 		grug_assert(streq(statement[2].key, "fields"), "input_json_path its GLOBAL_DEFINE_FN its third (optional) field is supposed to be \"fields\", but got \"%s\"", statement[2].key);
 		apply_compound_literal(statement[2].value);
 	}
 
-	indentation++;
 	apply_indentation();
 	apply("}\n");
 	indentation--;
