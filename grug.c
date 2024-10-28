@@ -91,8 +91,8 @@ static bool streq(char *a, char *b);
 	 || !streq(grug_error.path, previous_grug_error.path)\
 	 || grug_error.line_number != previous_grug_error.line_number;\
 	\
-	strncpy(previous_grug_error.msg, grug_error.msg, sizeof(previous_grug_error.msg));\
-	strncpy(previous_grug_error.path, grug_error.path, sizeof(previous_grug_error.path));\
+	memcpy(previous_grug_error.msg, grug_error.msg, sizeof(grug_error.msg));\
+	memcpy(previous_grug_error.path, grug_error.path, sizeof(grug_error.path));\
 	previous_grug_error.line_number = grug_error.line_number;\
 	\
 	longjmp(error_jmp_buffer, 1);\
@@ -8401,7 +8401,8 @@ static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
 
 			struct grug_modified_resource modified = {0};
 
-			strncpy(modified.path, resource, sizeof(modified.path));
+			assert(strlen(resource) + 1 <= sizeof(modified.path));
+			memcpy(modified.path, resource, strlen(resource) + 1);
 
 			if (grug_resource_reloads_size >= MAX_RESOURCE_RELOADS) {
 				if (dlclose(dll)) {
@@ -8464,8 +8465,8 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name) {
 
 	mod = mod_name;
 
-	strncpy(grug_error.path, grug_path, sizeof(grug_error.path) - 1);
-	grug_error.path[sizeof(grug_error.path) - 1] = '\0';
+	assert(strlen(grug_path) + 1 <= sizeof(grug_error.path));
+	memcpy(grug_error.path, grug_path, strlen(grug_path) + 1);
 
 	static bool parsed_mod_api_json = false;
 	if (!parsed_mod_api_json) {
@@ -8697,7 +8698,8 @@ static bool seen_entry(char *name, char **seen_names, size_t seen_names_size) {
 static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char entry_path[STUPID_MAX_PATH], bool needs_regeneration, char dll_path[STUPID_MAX_PATH], char *grug_filename, struct grug_mod_dir *dir) {
 	struct grug_modified modified = {0};
 
-	strncpy(grug_error.path, entry_path, sizeof(grug_error.path));
+	assert(strlen(entry_path) + 1 <= sizeof(grug_error.path));
+	memcpy(grug_error.path, entry_path, strlen(entry_path) + 1);
 
 	if (file && file->dll) {
 		modified.old_dll = file->dll;
@@ -8794,7 +8796,9 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char en
 
 	// Let the game developer know that a grug file was recompiled
 	if (needs_regeneration) {
-		strncpy(modified.path, entry_path, sizeof(modified.path));
+		assert(strlen(entry_path) + 1 <= sizeof(modified.path));
+		memcpy(modified.path, entry_path, strlen(entry_path) + 1);
+
 		modified.file = file;
 		push_reload(modified);
 	}
