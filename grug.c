@@ -41,7 +41,7 @@
 
 //// INCLUDES AND DEFINES
 
-#define _XOPEN_SOURCE 700 // This is just so VS Code can find SIGSTKSZ
+#define _XOPEN_SOURCE 700 // This is just so VS Code can find SIGSTKSZ and sigaction
 
 #include "grug.h"
 
@@ -83,17 +83,16 @@ static bool streq(char *a, char *b);
 		abort();\
 	}\
 	\
-	grug_error.line_number = 0; /* TODO: Change this to the .grug file's line number */\
 	grug_error.grug_c_line_number = __LINE__;\
 	\
 	grug_error.has_changed =\
 		!streq(grug_error.msg, previous_grug_error.msg)\
 	 || !streq(grug_error.path, previous_grug_error.path)\
-	 || grug_error.line_number != previous_grug_error.line_number;\
+	 || grug_error.grug_c_line_number != previous_grug_error.grug_c_line_number;\
 	\
 	memcpy(previous_grug_error.msg, grug_error.msg, sizeof(grug_error.msg));\
 	memcpy(previous_grug_error.path, grug_error.path, sizeof(grug_error.path));\
-	previous_grug_error.line_number = grug_error.line_number;\
+	previous_grug_error.grug_c_line_number = grug_error.grug_c_line_number;\
 	\
 	longjmp(error_jmp_buffer, 1);\
 }
@@ -386,7 +385,9 @@ timer_settime(timer_t tim, int flags,
 
 #define GRUG_ON_FN_TIME_LIMIT_MS 1000
 
-volatile sig_atomic_t grug_runtime_error;
+volatile sig_atomic_t grug_runtime_error_type;
+volatile char *grug_runtime_error_reason;
+
 jmp_buf grug_runtime_error_jmp_buffer;
 
 static struct sigaction previous_segv_sa;
@@ -397,10 +398,17 @@ static timer_t on_fn_timeout_timer_id;
 
 sigset_t grug_block_mask;
 
+grug_runtime_error_handler_t grug_runtime_error_handler;
+
+void grug_set_runtime_error_handler(grug_runtime_error_handler_t handler) {
+    grug_runtime_error_handler = handler;
+}
+
 void grug_disable_on_fn_runtime_error_handling(void) {
 	// Disable the SIGALRM timeout timer
 	static struct itimerspec new = {0};
 	static struct itimerspec old;
+
 	// Can't use grug_assert() here, since its snprintf() isn't in the async-signal-safe function list:
 	// https://stackoverflow.com/a/67840070/13279557
 	// if (timer_settime(on_fn_timeout_timer_id, 0, &new, NULL) == -1) {
@@ -420,9 +428,7 @@ void grug_disable_on_fn_runtime_error_handling(void) {
 }
 
 static void grug_error_signal_handler_segv(int sig) {
-	(void)sig; // TODO: REMOVE
-
-	// write(STDERR_FILENO, "segv\n", 5); // TODO: REMOVE
+	(void)sig;
 
 	// It is important that we cancel on fn timeout alarms asap,
 	// cause if there was a stack overflow, then the on fn didn't get the chance
@@ -434,37 +440,40 @@ static void grug_error_signal_handler_segv(int sig) {
 	// then only a slice of the game's code would be executed, causing havoc
 	grug_disable_on_fn_runtime_error_handling();
 
-	grug_runtime_error = GRUG_ON_FN_STACK_OVERFLOW;
+	grug_runtime_error_type = GRUG_ON_FN_STACK_OVERFLOW;
+	grug_runtime_error_reason = "Stack overflow, so check for accidental infinite recursion";
 
 	siglongjmp(grug_runtime_error_jmp_buffer, 1);
 }
 
 static void grug_error_signal_handler_alrm(int sig) {
-	(void)sig; // TODO: REMOVE
-
-	// write(STDERR_FILENO, "alrm\n", 5); // TODO: REMOVE
+	(void)sig;
 
 	grug_disable_on_fn_runtime_error_handling();
 
-	grug_runtime_error = GRUG_ON_FN_TIME_LIMIT_EXCEEDED;
+	grug_runtime_error_type = GRUG_ON_FN_TIME_LIMIT_EXCEEDED;
+
+	static char temp[420];
+
+	snprintf(temp, sizeof(temp), "Took longer than %d milliseconds to run", GRUG_ON_FN_TIME_LIMIT_MS);
+
+	grug_runtime_error_reason = temp;
 
 	siglongjmp(grug_runtime_error_jmp_buffer, 1);
 }
 
 static void grug_error_signal_handler_fpe(int sig) {
-	(void)sig; // TODO: REMOVE
-
-	// write(STDERR_FILENO, "fpe\n", 4); // TODO: REMOVE
+	(void)sig;
 
 	grug_disable_on_fn_runtime_error_handling();
 
-	grug_runtime_error = GRUG_ON_FN_ARITHMETIC_ERROR;
+	grug_runtime_error_type = GRUG_ON_FN_DIVISION_BY_ZERO;
+	grug_runtime_error_reason = "Division of an i32 by 0";
 
 	siglongjmp(grug_runtime_error_jmp_buffer, 1);
 }
 
 void grug_enable_on_fn_runtime_error_handling(void) {
-	// TODO: Try removing SA_RESETHAND and SA_NODEFER from these
 	static struct sigaction sigsegv_sa = {
 		.sa_handler = grug_error_signal_handler_segv,
 		.sa_flags = SA_ONSTACK, // SA_ONSTACK gives SIGSEGV its own stack
@@ -478,6 +487,8 @@ void grug_enable_on_fn_runtime_error_handling(void) {
 
 	static bool initialized = false;
 	if (!initialized) {
+		// This makes sure that SIGALRM won't be raised while a mod is calling a game function,
+		// which is important because TODO: ??
 		grug_assert(sigemptyset(&grug_block_mask) != -1, "sigemptyset: %s", strerror(errno));
 		grug_assert(sigaddset(&grug_block_mask, SIGALRM) != -1, "sigaddset: %s", strerror(errno));
 
@@ -517,26 +528,6 @@ void grug_enable_on_fn_runtime_error_handling(void) {
 		.it_value.tv_nsec = (GRUG_ON_FN_TIME_LIMIT_MS % 1000) * 1000000,
 	};
 	grug_assert(timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) != -1, "timer_settime: %s", strerror(errno));
-}
-
-char *grug_get_runtime_error_reason(void) {
-	static char runtime_error_reason[420];
-
-	switch (grug_runtime_error) {
-		case GRUG_ON_FN_TIME_LIMIT_EXCEEDED:
-			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function took longer than %d millisecond%s to run", GRUG_ON_FN_TIME_LIMIT_MS, GRUG_ON_FN_TIME_LIMIT_MS > 1 ? "s" : "");
-			break;
-		case GRUG_ON_FN_STACK_OVERFLOW:
-			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function caused a stack overflow, so check for accidental infinite recursion");
-			break;
-		case GRUG_ON_FN_ARITHMETIC_ERROR:
-			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "An on_ function divided an i32 by 0");
-			break;
-		default:
-			grug_unreachable();
-	}
-
-	return runtime_error_reason;
 }
 
 //// JSON
@@ -6007,7 +5998,9 @@ static char *push_entity_dependency_string(char *string) {
 	static char entity[MAX_ENTITY_DEPENDENCY_NAME_LENGTH];
 
 	if (strchr(string, ':')) {
-		strcpy(entity, string);
+		grug_assert(strlen(string) + 1 <= sizeof(entity), "There are more than %d characters in the entity string '%s', exceeding MAX_ENTITY_DEPENDENCY_NAME_LENGTH", MAX_ENTITY_DEPENDENCY_NAME_LENGTH, string);
+
+		memcpy(entity, string, strlen(string) + 1);
 	} else {
 		snprintf(entity, sizeof(entity), "%s:%s", mod, string);
 	}
@@ -8329,9 +8322,6 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 #define MAX_ENTITY_NAME_LENGTH 420
 #define DLL_DIR_PATH "mod_dlls"
 
-char *grug_on_fn_name;
-char *grug_on_fn_path;
-
 struct grug_mod_dir grug_mods;
 
 struct grug_modified grug_reloads[MAX_RELOADS];
@@ -8453,7 +8443,7 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 static void reset_previous_grug_error(void) {
 	previous_grug_error.msg[0] = '\0';
 	previous_grug_error.path[0] = '\0';
-	previous_grug_error.line_number = 0;
+	previous_grug_error.grug_c_line_number = 0;
 }
 
 // This function just exists for the grug-tests repository
@@ -8809,11 +8799,14 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char en
 static void reload_grug_file(char *dll_entry_path, i64 entry_mtime, char *grug_filename, struct grug_mod_dir *dir, char entry_path[STUPID_MAX_PATH]) {
 	// Fill dll_path
 	char dll_path[STUPID_MAX_PATH];
-	memcpy(dll_path, dll_entry_path, STUPID_MAX_PATH);
+	grug_assert(strlen(dll_entry_path) + 1 <= STUPID_MAX_PATH, "There are more than %d characters in the dll_entry_path '%s', exceeding STUPID_MAX_PATH", STUPID_MAX_PATH, dll_entry_path);
+	memcpy(dll_path, dll_entry_path, strlen(dll_entry_path) + 1);
+
 	char *ext = get_file_extension(dll_path);
-	assert(*ext);
-	ext[1] = '\0';
-	strncat(ext + 1, "so", STUPID_MAX_PATH - 1 - strlen(dll_path));
+	assert(ext[0] == '.');
+
+	// We know that there's enough space, since ".so" is shorter than ".grug"
+	memcpy(ext + 1, "so", sizeof("so"));
 
 	struct stat dll_stat;
 	bool dll_exists = stat(dll_path, &dll_stat) == 0;

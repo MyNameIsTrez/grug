@@ -10,7 +10,24 @@
 #include <stddef.h>
 #include <stdlib.h>
 
+//// Enums
+
+enum grug_runtime_error_type {
+	GRUG_ON_FN_DIVISION_BY_ZERO,
+	GRUG_ON_FN_TIME_LIMIT_EXCEEDED,
+	GRUG_ON_FN_STACK_OVERFLOW,
+};
+
+//// Function typedefs
+
+typedef void (*grug_runtime_error_handler_t)(char *reason, enum grug_runtime_error_type type, char *on_fn_name, char *on_fn_path);
+
+typedef void (*grug_define_fn_t)(void);
+typedef void (*grug_init_globals_fn_t)(void *globals);
+
 //// Functions
+
+void grug_set_runtime_error_handler(grug_runtime_error_handler_t handler);
 
 // Returns whether an error occurred
 bool grug_regenerate_modified_mods(void);
@@ -19,8 +36,6 @@ bool grug_regenerate_modified_mods(void);
 // We aren't allowed to jump to a function that called sigsetjmp(), if we've already returned from that function.
 // You can find more information here: https://stackoverflow.com/a/21151061/13279557
 #define grug_mod_had_runtime_error() sigsetjmp(grug_runtime_error_jmp_buffer, 1)
-
-char *grug_get_runtime_error_reason(void);
 
 // Do NOT store the returned pointer!
 // It has a chance to dangle after the next grug_regenerate_modified_mods() call
@@ -49,11 +64,6 @@ bool grug_generate_file_from_json(char *input_json_path, char *output_grug_path)
 
 #define MAX_RELOADS 6969
 #define MAX_RESOURCE_RELOADS 6969
-
-//// Function typedefs
-
-typedef void (*grug_define_fn_t)(void);
-typedef void (*grug_init_globals_fn_t)(void *globals);
 
 //// Structs
 
@@ -91,19 +101,10 @@ struct grug_modified_resource {
 };
 
 struct grug_error {
-	char path[4096];
 	char msg[420];
-	bool has_changed;
-	int line_number;
+	char path[4096];
 	int grug_c_line_number;
-};
-
-//// Enums
-
-enum grug_runtime_error {
-	GRUG_ON_FN_TIME_LIMIT_EXCEEDED,
-	GRUG_ON_FN_STACK_OVERFLOW,
-	GRUG_ON_FN_ARITHMETIC_ERROR,
+	bool has_changed;
 };
 
 //// Globals
@@ -117,8 +118,3 @@ extern struct grug_modified_resource grug_resource_reloads[MAX_RESOURCE_RELOADS]
 extern size_t grug_resource_reloads_size;
 
 extern struct grug_error grug_error;
-extern char *grug_on_fn_name;
-extern char *grug_on_fn_path;
-
-extern volatile sig_atomic_t grug_runtime_error;
-extern jmp_buf grug_runtime_error_jmp_buffer;
