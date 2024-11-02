@@ -400,6 +400,9 @@ sigset_t grug_block_mask;
 
 grug_runtime_error_handler_t grug_runtime_error_handler;
 
+// TODO: Profile whether turning this into a local variable in the x86 code improves performance
+bool grug_in_on_fn = false;
+
 void grug_set_runtime_error_handler(grug_runtime_error_handler_t handler) {
     grug_runtime_error_handler = handler;
 }
