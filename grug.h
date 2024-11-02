@@ -32,11 +32,6 @@ void grug_set_runtime_error_handler(grug_runtime_error_handler_t handler);
 // Returns whether an error occurred
 bool grug_regenerate_modified_mods(void);
 
-// I would have made this a function if I could have, but it'd be Undefined Behavior:
-// We aren't allowed to jump to a function that called sigsetjmp(), if we've already returned from that function.
-// You can find more information here: https://stackoverflow.com/a/21151061/13279557
-#define grug_mod_had_runtime_error() sigsetjmp(grug_runtime_error_jmp_buffer, 1)
-
 // Do NOT store the returned pointer!
 // It has a chance to dangle after the next grug_regenerate_modified_mods() call
 struct grug_file *grug_get_entity_file(char *entity_name);
