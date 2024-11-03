@@ -386,7 +386,6 @@ timer_settime(timer_t tim, int flags,
 #define GRUG_ON_FN_TIME_LIMIT_MS 1000
 
 volatile sig_atomic_t grug_runtime_error_type;
-volatile char *grug_runtime_error_reason;
 
 jmp_buf grug_runtime_error_jmp_buffer;
 
@@ -400,17 +399,14 @@ sigset_t grug_block_mask;
 
 grug_runtime_error_handler_t grug_runtime_error_handler;
 
-// TODO: Profile whether turning this into a local variable in the x86 code improves performance
-bool grug_in_on_fn = false;
-
 void grug_set_runtime_error_handler(grug_runtime_error_handler_t handler) {
     grug_runtime_error_handler = handler;
 }
 
 void grug_disable_on_fn_runtime_error_handling(void) {
 	// Disable the SIGALRM timeout timer
-	static struct itimerspec new = {0};
-	static struct itimerspec old;
+	struct itimerspec new = {0};
+	struct itimerspec old;
 
 	// Can't use grug_assert() here, since its snprintf() isn't in the async-signal-safe function list:
 	// https://stackoverflow.com/a/67840070/13279557
@@ -444,7 +440,6 @@ static void grug_error_signal_handler_segv(int sig) {
 	grug_disable_on_fn_runtime_error_handling();
 
 	grug_runtime_error_type = GRUG_ON_FN_STACK_OVERFLOW;
-	grug_runtime_error_reason = "Stack overflow, so check for accidental infinite recursion";
 
 	siglongjmp(grug_runtime_error_jmp_buffer, 1);
 }
@@ -456,12 +451,6 @@ static void grug_error_signal_handler_alrm(int sig) {
 
 	grug_runtime_error_type = GRUG_ON_FN_TIME_LIMIT_EXCEEDED;
 
-	static char temp[420];
-
-	snprintf(temp, sizeof(temp), "Took longer than %d milliseconds to run", GRUG_ON_FN_TIME_LIMIT_MS);
-
-	grug_runtime_error_reason = temp;
-
 	siglongjmp(grug_runtime_error_jmp_buffer, 1);
 }
 
@@ -471,7 +460,6 @@ static void grug_error_signal_handler_fpe(int sig) {
 	grug_disable_on_fn_runtime_error_handling();
 
 	grug_runtime_error_type = GRUG_ON_FN_DIVISION_BY_ZERO;
-	grug_runtime_error_reason = "Division of an i32 by 0";
 
 	siglongjmp(grug_runtime_error_jmp_buffer, 1);
 }
@@ -531,6 +519,23 @@ void grug_enable_on_fn_runtime_error_handling(void) {
 		.it_value.tv_nsec = (GRUG_ON_FN_TIME_LIMIT_MS % 1000) * 1000000,
 	};
 	grug_assert(timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) != -1, "timer_settime: %s", strerror(errno));
+}
+
+char *grug_get_runtime_error_reason(void) {
+	switch (grug_runtime_error_type) {
+		case GRUG_ON_FN_DIVISION_BY_ZERO:
+			return "Division of an i32 by 0";
+		case GRUG_ON_FN_TIME_LIMIT_EXCEEDED: {
+			static char temp[420];
+
+			snprintf(temp, sizeof(temp), "Took longer than %d milliseconds to run", GRUG_ON_FN_TIME_LIMIT_MS);
+
+			return temp;
+		}
+		case GRUG_ON_FN_STACK_OVERFLOW:
+			return "Stack overflow, so check for accidental infinite recursion";
+	}
+	grug_unreachable();
 }
 
 //// JSON
