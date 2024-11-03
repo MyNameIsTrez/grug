@@ -525,6 +525,8 @@ char *grug_get_runtime_error_reason(void) {
 	switch (grug_runtime_error_type) {
 		case GRUG_ON_FN_DIVISION_BY_ZERO:
 			return "Division of an i32 by 0";
+		case GRUG_ON_FN_STACK_OVERFLOW:
+			return "Stack overflow, so check for accidental infinite recursion";
 		case GRUG_ON_FN_TIME_LIMIT_EXCEEDED: {
 			static char temp[420];
 
@@ -532,8 +534,6 @@ char *grug_get_runtime_error_reason(void) {
 
 			return temp;
 		}
-		case GRUG_ON_FN_STACK_OVERFLOW:
-			return "Stack overflow, so check for accidental infinite recursion";
 	}
 	grug_unreachable();
 }
@@ -5207,13 +5207,14 @@ static void fill_result_types(void) {
 #define MOV_GLOBAL_VARIABLE_TO_RAX 0x58b48 // mov rax, [rel foo wrt ..got]
 #define MOV_GLOBAL_VARIABLE_TO_RDI 0x3d8b48 // mov rdi, [rel foo wrt ..got]
 #define MOV_GLOBAL_VARIABLE_TO_RSI 0x358b48 // mov rsi, [rel foo wrt ..got]
-#define MOV_GLOBAL_VARIABLE_TO_ESI 0x358b // mov esi, [rel foo wrt ..got]
 
 #define MOV_EAX_TO_DEREF_RBP 0x4589 // mov rbp[n], eax
 #define MOV_RAX_TO_DEREF_RBP 0x458948 // mov rbp[n], rax
 
 #define DEREF_RAX_TO_EAX 0x408b // mov eax, rax[n]
 #define DEREF_RAX_TO_RAX 0x408b48 // mov rax, rax[n]
+
+#define DEREF_RSI_TO_ESI 0x368b // mov esi, [rsi]
 
 #define MOV_EAX_TO_DEREF_R11 0x438941 // mov r11[n], eax
 #define MOV_RAX_TO_DEREF_R11 0x438949 // mov r11[n], rax
@@ -6540,6 +6541,14 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		size_t end_jump_offset = codes_size;
 		compile_unpadded(PLACEHOLDER_32);
 
+		// call grug_get_runtime_error_reason wrt ..plt:
+		compile_byte(CALL);
+		push_system_fn_call("grug_get_runtime_error_reason", codes_size);
+		compile_unpadded(PLACEHOLDER_32);
+
+		// mov rdi, rax:
+		compile_unpadded(MOV_RDI_TO_RAX);
+
 		// lea rcx, strings[rel n]:
 		add_data_string(grug_path);
 		compile_unpadded(LEA_STRINGS_TO_RCX);
@@ -6552,18 +6561,13 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		push_data_string_code(fn_name, codes_size);
 		compile_unpadded(PLACEHOLDER_32);
 
-		// mov esi, [rel grug_runtime_error_type wrt ..got]:
-		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_ESI);
+		// mov rsi, [rel grug_runtime_error_type wrt ..got]:
+		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RSI);
 		push_used_extern_global_variable("grug_runtime_error_type", codes_size);
 		compile_32(PLACEHOLDER_32);
 
-		// call grug_get_runtime_error_reason wrt ..plt:
-		compile_byte(CALL);
-		push_system_fn_call("grug_get_runtime_error_reason", codes_size);
-		compile_unpadded(PLACEHOLDER_32);
-
-		// mov rdi, rax:
-		compile_unpadded(MOV_RDI_TO_RAX);
+		// mov esi, [rsi]
+		compile_unpadded(DEREF_RSI_TO_ESI);
 
 		// mov rax, [rel grug_runtime_error_handler wrt ..got]:
 		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
