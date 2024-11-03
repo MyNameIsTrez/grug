@@ -4532,10 +4532,12 @@ static void fill_call_expr(struct expr *expr) {
 		return;
 	}
 
-	if (starts_with(name, "helper_")) {
-		grug_error("The function '%s' does not exist", name);
+	if (streq(name, "define")) {
+		grug_error("Mods aren't allowed to call their own define function");
+	} else if (starts_with(name, "on_")) {
+		grug_error("Mods aren't allowed to call their own on_ functions, but '%s' was called", name);
 	} else {
-		grug_error("The game function '%s' does not exist", name);
+		grug_error("The function '%s' does not exist", name);
 	}
 }
 
