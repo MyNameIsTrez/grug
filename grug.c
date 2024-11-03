@@ -1878,6 +1878,7 @@ static void tokenize(void) {
 #define MAX_ON_FNS 420420
 #define MAX_HELPER_FNS 420420
 #define MAX_GLOBAL_VARIABLES 420420
+#define MAX_CALLED_HELPER_FN_NAMES 420420
 #define MAX_CALL_ARGUMENTS_PER_STACK_FRAME 69
 #define MAX_STATEMENTS_PER_SCOPE 1337
 
@@ -2101,6 +2102,12 @@ static size_t global_variable_statements_size;
 
 static size_t indentation;
 
+static char *called_helper_fn_names[MAX_CALLED_HELPER_FN_NAMES];
+static size_t called_helper_fn_names_size;
+
+static u32 buckets_called_helper_fn_names[MAX_CALLED_HELPER_FN_NAMES];
+static u32 chains_called_helper_fn_names[MAX_CALLED_HELPER_FN_NAMES];
+
 static void reset_parsing(void) {
 	exprs_size = 0;
 	fields_size = 0;
@@ -2110,6 +2117,7 @@ static void reset_parsing(void) {
 	on_fns_size = 0;
 	helper_fns_size = 0;
 	global_variable_statements_size = 0;
+	called_helper_fn_names_size = 0;
 }
 
 static struct helper_fn *get_helper_fn(char *name) {
@@ -2145,6 +2153,22 @@ static void hash_helper_fns(void) {
 		chains_helper_fns[i] = buckets_helper_fns[bucket_index];
 
 		buckets_helper_fns[bucket_index] = i;
+	}
+}
+
+static void check_helper_fn_is_called(struct helper_fn fn) {
+	for (size_t i = 0; i < called_helper_fn_names_size; i++) {
+		if (streq(called_helper_fn_names[i], fn.fn_name)) {
+			return;
+		}
+	}
+
+	grug_error("The function '%s' is not being called anywhere", fn.fn_name);
+}
+
+static void check_helper_fns_are_called(void) {
+	for (size_t i = 0; i < helper_fns_size; i++) {
+		check_helper_fn_is_called(helper_fns[i]);
 	}
 }
 
@@ -2332,6 +2356,46 @@ static struct expr parse_primary(size_t *i) {
 	}
 }
 
+static void push_called_helper_fn_name(char *name) {
+	grug_assert(called_helper_fn_names_size < MAX_CALLED_HELPER_FN_NAMES, "There are more than %d called helper function names, exceeding MAX_CALLED_HELPER_FN_NAMES", MAX_CALLED_HELPER_FN_NAMES);
+
+	called_helper_fn_names[called_helper_fn_names_size++] = name;
+}
+
+static bool seen_called_helper_fn_name(char *name) {
+	if (called_helper_fn_names_size == 0) {
+		return false;
+	}
+
+	u32 i = buckets_called_helper_fn_names[elf_hash(name) % MAX_CALLED_HELPER_FN_NAMES];
+
+	while (true) {
+		if (i == UINT32_MAX) {
+			return false;
+		}
+
+		if (streq(name, called_helper_fn_names[i])) {
+			break;
+		}
+
+		i = chains_called_helper_fn_names[i];
+	}
+
+	return true;
+}
+
+static void add_called_helper_fn_name(char *name) {
+	if (!seen_called_helper_fn_name(name)) {
+		u32 bucket_index = elf_hash(name) % MAX_CALLED_HELPER_FN_NAMES;
+
+		chains_called_helper_fn_names[called_helper_fn_names_size] = buckets_called_helper_fn_names[bucket_index];
+
+		buckets_called_helper_fn_names[bucket_index] = called_helper_fn_names_size;
+
+		push_called_helper_fn_name(name);
+	}
+}
+
 static struct expr parse_call(size_t *i) {
 	struct expr expr = parse_primary(i);
 
@@ -2346,6 +2410,10 @@ static struct expr parse_call(size_t *i) {
 	expr.type = CALL_EXPR;
 
 	expr.call.fn_name = expr.literal.string;
+
+	if (starts_with(expr.call.fn_name, "helper_")) {
+		add_called_helper_fn_name(expr.call.fn_name);
+	}
 
 	expr.call.argument_count = 0;
 
@@ -3062,6 +3130,8 @@ static void parse(void) {
 	grug_assert(!seen_newline || newline_allowed, "Unexpected empty line, on line %zu", get_token_line_number(newline_allowed ? i : i - 1));
 
 	grug_assert(seen_define_fn, "Every grug file requires exactly one define function");
+
+	check_helper_fns_are_called();
 
 	hash_helper_fns();
 }
@@ -7507,11 +7577,12 @@ static void push_got(void) {
 	got_offset = bytes_size;
 
 	// This is for extern globals
-	push_zeros(8); // grug_on_fn_name
-	push_zeros(8); // grug_on_fn_path
+	push_zeros(8); // grug_runtime_error_handler
+	push_zeros(8); // grug_runtime_error_jmp_buffer
 	if (calling_game_fn) {
 		push_zeros(8); // grug_block_mask
 	}
+	push_zeros(8); // grug_runtime_error_type
 
 	got_size = bytes_size - got_offset;
 }
@@ -8280,14 +8351,18 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 
 	first_extern_data_symbol_index = data_symbols_size;
 	if (on_fns_size > 0) {
-		push_symbol("grug_on_fn_name");
+		push_symbol("grug_runtime_error_handler");
 		extern_data_symbols_size++;
 
-		push_symbol("grug_on_fn_path");
+		push_symbol("grug_runtime_error_jmp_buffer");
 		extern_data_symbols_size++;
-	}
-	if (calling_game_fn) {
-		push_symbol("grug_block_mask");
+
+		if (calling_game_fn) {
+			push_symbol("grug_block_mask");
+			extern_data_symbols_size++;
+		}
+
+		push_symbol("grug_runtime_error_type");
 		extern_data_symbols_size++;
 	}
 
