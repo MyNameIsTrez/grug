@@ -4374,12 +4374,6 @@ bool grug_generate_file_from_json(char *input_json_path, char *output_grug_path)
 
 #define GLOBAL_VARIABLES_POINTER_SIZE sizeof(void *)
 
-// The global variable offsets in the .rela.dyn section
-#define GRUG_RUNTIME_ERROR_HANDLER_OFFSET sizeof(void *)
-#define GRUG_RUNTIME_ERROR_JMP_BUFFER_OFFSET (GRUG_RUNTIME_ERROR_HANDLER_OFFSET + sizeof(void *))
-#define GRUG_BLOCK_MASK_OFFSET (GRUG_RUNTIME_ERROR_JMP_BUFFER_OFFSET + sizeof(void *))
-#define GRUG_RUNTIME_ERROR_TYPE_OFFSET (GRUG_BLOCK_MASK_OFFSET + sizeof(void *))
-
 struct variable {
 	char *name;
 	enum type type;
@@ -5147,6 +5141,7 @@ static void fill_result_types(void) {
 #define MAX_ENTITY_DEPENDENCIES_STRINGS_CHARACTERS 420420
 #define MAX_DATA_STRING_CODES 420420
 #define MAX_GAME_FN_CALLS 420420
+#define MAX_USED_EXTERN_GLOBAL_VARIABLES 420420
 #define MAX_HELPER_FN_CALLS 420420
 #define MAX_USED_GAME_FNS 420
 #define MAX_HELPER_FN_OFFSETS 420420
@@ -5338,14 +5333,21 @@ static size_t entity_dependency_strings_size;
 static struct data_string_code data_string_codes[MAX_DATA_STRING_CODES];
 static size_t data_string_codes_size;
 
-struct fn_call {
-	char *fn_name;
+struct offset {
+	char *name;
+	size_t offset;
+};
+static struct offset extern_fn_calls[MAX_GAME_FN_CALLS];
+static size_t extern_fn_calls_size;
+static struct offset helper_fn_calls[MAX_HELPER_FN_CALLS];
+static size_t helper_fn_calls_size;
+
+struct used_extern_global_variable {
+	char *variable_name;
 	size_t codes_offset;
 };
-static struct fn_call extern_fn_calls[MAX_GAME_FN_CALLS];
-static size_t extern_fn_calls_size;
-static struct fn_call helper_fn_calls[MAX_HELPER_FN_CALLS];
-static size_t helper_fn_calls_size;
+static struct used_extern_global_variable used_extern_global_variables[MAX_USED_EXTERN_GLOBAL_VARIABLES];
+static size_t used_extern_global_variables_size;
 
 static char *used_extern_fns[MAX_USED_GAME_FNS];
 static size_t extern_fns_size;
@@ -5355,12 +5357,7 @@ static u32 chains_used_extern_fns[MAX_USED_GAME_FNS];
 static char used_extern_fn_symbols[MAX_USED_EXTERN_FN_SYMBOLS_CHARACTERS];
 static size_t used_extern_fn_symbols_size;
 
-struct fn_offset {
-	char *fn_name;
-	size_t offset;
-};
-
-static struct fn_offset helper_fn_offsets[MAX_HELPER_FN_OFFSETS];
+static struct offset helper_fn_offsets[MAX_HELPER_FN_OFFSETS];
 static size_t helper_fn_offsets_size;
 static u32 buckets_helper_fn_offsets[MAX_HELPER_FN_OFFSETS];
 static u32 chains_helper_fn_offsets[MAX_HELPER_FN_OFFSETS];
@@ -5392,6 +5389,7 @@ static void reset_compiling(void) {
 	data_string_codes_size = 0;
 	extern_fn_calls_size = 0;
 	helper_fn_calls_size = 0;
+	used_extern_global_variables_size = 0;
 	extern_fns_size = 0;
 	used_extern_fn_symbols_size = 0;
 	helper_fn_offsets_size = 0;
@@ -5404,12 +5402,14 @@ static void reset_compiling(void) {
 }
 
 static size_t get_helper_fn_offset(char *name) {
+	assert(helper_fn_offsets_size > 0);
+
 	u32 i = buckets_helper_fn_offsets[elf_hash(name) % helper_fn_offsets_size];
 
 	while (true) {
 		assert(i != UINT32_MAX && "get_helper_fn_offset() is supposed to never fail");
 
-		if (streq(name, helper_fn_offsets[i].fn_name)) {
+		if (streq(name, helper_fn_offsets[i].name)) {
 			break;
 		}
 
@@ -5423,7 +5423,7 @@ static void hash_helper_fn_offsets(void) {
 	memset(buckets_helper_fn_offsets, 0xff, helper_fn_offsets_size * sizeof(u32));
 
 	for (size_t i = 0; i < helper_fn_offsets_size; i++) {
-		char *name = helper_fn_offsets[i].fn_name;
+		char *name = helper_fn_offsets[i].name;
 
 		u32 bucket_index = elf_hash(name) % helper_fn_offsets_size;
 
@@ -5436,8 +5436,8 @@ static void hash_helper_fn_offsets(void) {
 static void push_helper_fn_offset(char *fn_name, size_t offset) {
 	grug_assert(helper_fn_offsets_size < MAX_HELPER_FN_OFFSETS, "There are more than %d helper functions, exceeding MAX_HELPER_FN_OFFSETS", MAX_HELPER_FN_OFFSETS);
 
-	helper_fn_offsets[helper_fn_offsets_size++] = (struct fn_offset){
-		.fn_name = fn_name,
+	helper_fn_offsets[helper_fn_offsets_size++] = (struct offset){
+		.name = fn_name,
 		.offset = offset,
 	};
 }
@@ -5464,7 +5464,7 @@ static void hash_used_extern_fns(void) {
 	memset(buckets_used_extern_fns, 0xff, BFD_HASH_BUCKET_SIZE * sizeof(u32));
 
 	for (size_t i = 0; i < extern_fn_calls_size; i++) {
-		char *name = extern_fn_calls[i].fn_name;
+		char *name = extern_fn_calls[i].name;
 
 		if (has_used_extern_fn(name)) {
 			continue;
@@ -5483,9 +5483,9 @@ static void hash_used_extern_fns(void) {
 static void push_helper_fn_call(char *fn_name, size_t codes_offset) {
 	grug_assert(helper_fn_calls_size < MAX_HELPER_FN_CALLS, "There are more than %d helper function calls, exceeding MAX_HELPER_FN_CALLS", MAX_HELPER_FN_CALLS);
 
-	helper_fn_calls[helper_fn_calls_size++] = (struct fn_call){
-		.fn_name = fn_name,
-		.codes_offset = codes_offset,
+	helper_fn_calls[helper_fn_calls_size++] = (struct offset){
+		.name = fn_name,
+		.offset = codes_offset,
 	};
 }
 
@@ -5513,9 +5513,9 @@ static char *push_used_extern_fn_symbol(char *name, bool is_game_fn) {
 static void push_extern_fn_call(char *fn_name, size_t codes_offset, bool is_game_fn) {
 	grug_assert(extern_fn_calls_size < MAX_GAME_FN_CALLS, "There are more than %d game function calls, exceeding MAX_GAME_FN_CALLS", MAX_GAME_FN_CALLS);
 
-	extern_fn_calls[extern_fn_calls_size++] = (struct fn_call){
-		.fn_name = push_used_extern_fn_symbol(fn_name, is_game_fn),
-		.codes_offset = codes_offset,
+	extern_fn_calls[extern_fn_calls_size++] = (struct offset){
+		.name = push_used_extern_fn_symbol(fn_name, is_game_fn),
+		.offset = codes_offset,
 	};
 }
 
@@ -5745,6 +5745,15 @@ static size_t get_padding(void) {
 	return -stack_frame_bytes & 0xf;
 }
 
+static void push_used_extern_global_variable(char *variable_name, size_t codes_offset) {
+	grug_assert(used_extern_global_variables_size < MAX_USED_EXTERN_GLOBAL_VARIABLES, "There are more than %d usages of game global variables, exceeding MAX_USED_EXTERN_GLOBAL_VARIABLES", MAX_USED_EXTERN_GLOBAL_VARIABLES);
+
+	used_extern_global_variables[used_extern_global_variables_size++] = (struct used_extern_global_variable){
+		.variable_name = variable_name,
+		.codes_offset = codes_offset,
+	};
+}
+
 static void compile_call_expr(struct call_expr call_expr) {
 	char *fn_name = call_expr.fn_name;
 	struct grug_game_function *game_fn = get_grug_game_fn(fn_name);
@@ -5755,7 +5764,8 @@ static void compile_call_expr(struct call_expr call_expr) {
 		// Compile sigprocmask(SIG_BLOCK, &grug_block_mask, NULL);
 		compile_unpadded(XOR_CLEAR_EDX);
 		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RSI);
-		compile_32(-(u8)GRUG_BLOCK_MASK_OFFSET);
+		push_used_extern_global_variable("grug_block_mask", codes_size);
+		compile_32(PLACEHOLDER_32);
 		compile_unpadded(XOR_CLEAR_EDI);
 		compile_byte(CALL);
 		push_system_fn_call("sigprocmask", codes_size);
@@ -5829,7 +5839,8 @@ static void compile_call_expr(struct call_expr call_expr) {
 		// Compile sigprocmask(SIG_UNBLOCK, &grug_block_mask, NULL);
 		compile_unpadded(XOR_CLEAR_EDX);
 		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RSI);
-		compile_32(-(u8)GRUG_BLOCK_MASK_OFFSET);
+		push_used_extern_global_variable("grug_block_mask", codes_size);
+		compile_32(PLACEHOLDER_32);
 		compile_unpadded(MOV_TO_EDI);
 		compile_32(1);
 		compile_unpadded(SUB_RSP_8_BITS);
@@ -6513,7 +6524,8 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 
 		// mov rdi, [rel grug_runtime_error_jmp_buffer wrt ..got]:
 		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RDI);
-		compile_32(-(u8)GRUG_RUNTIME_ERROR_JMP_BUFFER_OFFSET);
+		push_used_extern_global_variable("grug_runtime_error_jmp_buffer", codes_size);
+		compile_32(PLACEHOLDER_32);
 
 		// call __sigsetjmp wrt ..plt
 		compile_byte(CALL);
@@ -6542,7 +6554,8 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 
 		// mov esi, [rel grug_runtime_error_type wrt ..got]:
 		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_ESI);
-		compile_32(-(u8)GRUG_RUNTIME_ERROR_TYPE_OFFSET);
+		push_used_extern_global_variable("grug_runtime_error_type", codes_size);
+		compile_32(PLACEHOLDER_32);
 
 		// call grug_get_runtime_error_reason wrt ..plt:
 		compile_byte(CALL);
@@ -6554,7 +6567,8 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 
 		// mov rax, [rel grug_runtime_error_handler wrt ..got]:
 		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
-		compile_32(-(u8)GRUG_RUNTIME_ERROR_HANDLER_OFFSET);
+		push_used_extern_global_variable("grug_runtime_error_handler", codes_size);
+		compile_32(PLACEHOLDER_32);
 
 		// call [rax]:
 		compile_unpadded(CALL_DEREF_RAX);
@@ -6767,6 +6781,7 @@ static void compile(char *grug_path) {
 
 #define MAX_BYTES 420420
 #define MAX_GAME_FN_OFFSETS 420420
+#define MAX_GLOBAL_VARIABLE_OFFSETS 420420
 #define MAX_HASH_BUCKETS 32771 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/elflink.c;h=6db6a9c0b4702c66d73edba87294e2a59ffafcf5;hb=refs/heads/master#l6560
 
 // The first three addresses pushed by push_got_plt() are special:
@@ -6883,10 +6898,15 @@ static size_t symtab_shstrtab_offset;
 static size_t strtab_shstrtab_offset;
 static size_t shstrtab_shstrtab_offset;
 
-static struct fn_offset game_fn_offsets[MAX_GAME_FN_OFFSETS];
+static struct offset game_fn_offsets[MAX_GAME_FN_OFFSETS];
 static size_t game_fn_offsets_size;
 static u32 buckets_game_fn_offsets[MAX_GAME_FN_OFFSETS];
 static u32 chains_game_fn_offsets[MAX_GAME_FN_OFFSETS];
+
+static struct offset global_variable_offsets[MAX_GLOBAL_VARIABLE_OFFSETS];
+static size_t global_variable_offsets_size;
+static u32 buckets_global_variable_offsets[MAX_GLOBAL_VARIABLE_OFFSETS];
+static u32 chains_global_variable_offsets[MAX_GLOBAL_VARIABLE_OFFSETS];
 
 static size_t strings_offset;
 static size_t resources_offset;
@@ -6900,6 +6920,7 @@ static void reset_generate_shared_object(void) {
 	shuffled_symbols_size = 0;
 	bytes_size = 0;
 	game_fn_offsets_size = 0;
+	global_variable_offsets_size = 0;
 }
 
 static void overwrite(u64 n, size_t bytes_offset, size_t overwrite_count) {
@@ -7127,12 +7148,14 @@ static void patch_dynsym(void) {
 }
 
 static size_t get_game_fn_offset(char *name) {
+	assert(game_fn_offsets_size > 0);
+
 	u32 i = buckets_game_fn_offsets[elf_hash(name) % game_fn_offsets_size];
 
 	while (true) {
 		assert(i != UINT32_MAX && "get_game_fn_offset() is supposed to never fail");
 
-		if (streq(name, game_fn_offsets[i].fn_name)) {
+		if (streq(name, game_fn_offsets[i].name)) {
 			break;
 		}
 
@@ -7146,7 +7169,7 @@ static void hash_game_fn_offsets(void) {
 	memset(buckets_game_fn_offsets, 0xff, game_fn_offsets_size * sizeof(u32));
 
 	for (size_t i = 0; i < game_fn_offsets_size; i++) {
-		char *name = game_fn_offsets[i].fn_name;
+		char *name = game_fn_offsets[i].name;
 
 		u32 bucket_index = elf_hash(name) % game_fn_offsets_size;
 
@@ -7159,8 +7182,8 @@ static void hash_game_fn_offsets(void) {
 static void push_game_fn_offset(char *fn_name, size_t offset) {
 	grug_assert(game_fn_offsets_size < MAX_GAME_FN_OFFSETS, "There are more than %d game functions, exceeding MAX_GAME_FN_OFFSETS", MAX_GAME_FN_OFFSETS);
 
-	game_fn_offsets[game_fn_offsets_size++] = (struct fn_offset){
-		.fn_name = fn_name,
+	game_fn_offsets[game_fn_offsets_size++] = (struct offset){
+		.name = fn_name,
 		.offset = offset,
 	};
 }
@@ -7169,23 +7192,62 @@ static void patch_dynamic(void) {
 	overwrite_64(got_plt_offset, dynamic_offset + 0x58);
 }
 
-static void patch_text(void) {
-	for (size_t i = 0; i < extern_fn_calls_size; i++) {
-		struct fn_call fn_call = extern_fn_calls[i];
-		size_t offset = text_offset + fn_call.codes_offset;
-		size_t address_after_call_instruction = offset + NEXT_INSTRUCTION_OFFSET;
-		size_t game_fn_plt_offset = plt_offset + get_game_fn_offset(fn_call.fn_name);
-		overwrite_32(game_fn_plt_offset - address_after_call_instruction, offset);
+static size_t get_global_variable_offset(char *name) {
+	// push_got() guarantees we always have 4
+	assert(global_variable_offsets_size > 0);
+
+	u32 i = buckets_global_variable_offsets[elf_hash(name) % global_variable_offsets_size];
+
+	while (true) {
+		assert(i != UINT32_MAX && "get_global_variable_offset() is supposed to never fail");
+
+		if (streq(name, global_variable_offsets[i].name)) {
+			break;
+		}
+
+		i = chains_global_variable_offsets[i];
 	}
 
-	for (size_t i = 0; i < helper_fn_calls_size; i++) {
-		struct fn_call fn_call = helper_fn_calls[i];
-		size_t offset = text_offset + fn_call.codes_offset;
-		size_t address_after_call_instruction = offset + NEXT_INSTRUCTION_OFFSET;
-		size_t helper_fn_text_offset = text_offset + get_helper_fn_offset(fn_call.fn_name);
-		overwrite_32(helper_fn_text_offset - address_after_call_instruction, offset);
-	}
+	return global_variable_offsets[i].offset;
+}
 
+static void hash_global_variable_offsets(void) {
+	memset(buckets_global_variable_offsets, 0xff, global_variable_offsets_size * sizeof(u32));
+
+	for (size_t i = 0; i < global_variable_offsets_size; i++) {
+		char *name = global_variable_offsets[i].name;
+
+		u32 bucket_index = elf_hash(name) % global_variable_offsets_size;
+
+		chains_global_variable_offsets[i] = buckets_global_variable_offsets[bucket_index];
+
+		buckets_global_variable_offsets[bucket_index] = i;
+	}
+}
+
+static void push_global_variable_offset(char *name, size_t offset) {
+	grug_assert(global_variable_offsets_size < MAX_GLOBAL_VARIABLE_OFFSETS, "There are more than %d game functions, exceeding MAX_GLOBAL_VARIABLE_OFFSETS", MAX_GLOBAL_VARIABLE_OFFSETS);
+
+	global_variable_offsets[global_variable_offsets_size++] = (struct offset){
+		.name = name,
+		.offset = offset,
+	};
+}
+
+static void patch_global_variables(void) {
+	for (size_t i = 0; i < used_extern_global_variables_size; i++) {
+		struct used_extern_global_variable global = used_extern_global_variables[i];
+		size_t offset = text_offset + global.codes_offset;
+		size_t address_after_global_instruction = offset + NEXT_INSTRUCTION_OFFSET;
+		size_t variable_offset = get_global_variable_offset(global.variable_name);
+		size_t global_variable_got_offset = got_offset + variable_offset;
+		size_t value = global_variable_got_offset - address_after_global_instruction;
+
+		overwrite_32(value, offset);
+	}
+}
+
+static void patch_strings(void) {
 	for (size_t i = 0; i < data_string_codes_size; i++) {
 		struct data_string_code dsc = data_string_codes[i];
 		char *string = dsc.string;
@@ -7203,6 +7265,33 @@ static void patch_text(void) {
 
 		overwrite_32(string_offset, text_offset + code_offset);
 	}
+}
+
+static void patch_helper_fn_calls(void) {
+	for (size_t i = 0; i < helper_fn_calls_size; i++) {
+		struct offset fn_call = helper_fn_calls[i];
+		size_t offset = text_offset + fn_call.offset;
+		size_t address_after_call_instruction = offset + NEXT_INSTRUCTION_OFFSET;
+		size_t helper_fn_text_offset = text_offset + get_helper_fn_offset(fn_call.name);
+		overwrite_32(helper_fn_text_offset - address_after_call_instruction, offset);
+	}
+}
+
+static void patch_extern_fn_calls(void) {
+	for (size_t i = 0; i < extern_fn_calls_size; i++) {
+		struct offset fn_call = extern_fn_calls[i];
+		size_t offset = text_offset + fn_call.offset;
+		size_t address_after_call_instruction = offset + NEXT_INSTRUCTION_OFFSET;
+		size_t game_fn_plt_offset = plt_offset + get_game_fn_offset(fn_call.name);
+		overwrite_32(game_fn_plt_offset - address_after_call_instruction, offset);
+	}
+}
+
+static void patch_text(void) {
+	patch_extern_fn_calls();
+	patch_helper_fn_calls();
+	patch_strings();
+	patch_global_variables();
 }
 
 static bool has_got(void) {
@@ -7571,18 +7660,33 @@ static void push_got_plt(void) {
 	got_plt_size = bytes_size - got_plt_offset;
 }
 
+// The .got section is for extern globals
 static void push_got(void) {
 	grug_log_section(".got");
 
 	got_offset = bytes_size;
 
-	// This is for extern globals
-	push_zeros(8); // grug_runtime_error_handler
-	push_zeros(8); // grug_runtime_error_jmp_buffer
+	size_t offset = 0;
+
+	push_global_variable_offset("grug_runtime_error_type", offset);
+	offset += sizeof(u64);
+	push_zeros(sizeof(u64));
+
 	if (calling_game_fn) {
-		push_zeros(8); // grug_block_mask
+		push_global_variable_offset("grug_block_mask", offset);
+		offset += sizeof(u64);
+		push_zeros(sizeof(u64));
 	}
-	push_zeros(8); // grug_runtime_error_type
+
+	push_global_variable_offset("grug_runtime_error_jmp_buffer", offset);
+	offset += sizeof(u64);
+	push_zeros(sizeof(u64));
+
+	push_global_variable_offset("grug_runtime_error_handler", offset);
+	offset += sizeof(u64);
+	push_zeros(sizeof(u64));
+
+	hash_global_variable_offsets();
 
 	got_size = bytes_size - got_offset;
 }
@@ -7604,10 +7708,12 @@ static void push_dynamic(void) {
 	if (has_got()) {
 		// This subtracts the future got_size set by push_got()
 		// TODO: Stop having these hardcoded here
-		dynamic_offset -= 2 * sizeof(u64);
+		dynamic_offset -= sizeof(u64); // grug_runtime_error_handler
+		dynamic_offset -= sizeof(u64); // grug_runtime_error_jmp_buffer
 		if (calling_game_fn) {
-			dynamic_offset -= sizeof(u64);
+			dynamic_offset -= sizeof(u64); // grug_block_mask
 		}
+		dynamic_offset -= sizeof(u64); // grug_runtime_error_type
 	}
 #ifndef OLD_LD
 	dynamic_offset -= GOT_PLT_INTRO_SIZE;
