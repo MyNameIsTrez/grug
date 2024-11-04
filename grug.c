@@ -2118,6 +2118,7 @@ static void reset_parsing(void) {
 	helper_fns_size = 0;
 	global_variable_statements_size = 0;
 	called_helper_fn_names_size = 0;
+	memset(buckets_called_helper_fn_names, 0xff, sizeof(buckets_called_helper_fn_names));
 }
 
 static struct helper_fn *get_helper_fn(char *name) {
@@ -4414,7 +4415,7 @@ static u32 chains_data_strings[MAX_DATA_STRINGS];
 static void reset_filling(void) {
 	global_variables_size = 0;
 	globals_bytes = 0;
-	memset(buckets_global_variables, 0xff, MAX_GLOBAL_VARIABLES * sizeof(u32));
+	memset(buckets_global_variables, 0xff, sizeof(buckets_global_variables));
 	entity_types_size = 0;
 	data_strings_size = 0;
 	memset(buckets_data_strings, 0xff, sizeof(buckets_data_strings));
@@ -4895,7 +4896,7 @@ static void fill_statements(struct statement *group_statements, size_t statement
 
 static void init_argument_variables(struct argument *fn_arguments, size_t argument_count) {
 	variables_size = 0;
-	memset(buckets_variables, 0xff, MAX_VARIABLES_PER_FUNCTION * sizeof(u32));
+	memset(buckets_variables, 0xff, sizeof(buckets_variables));
 
 	stack_frame_bytes = GLOBAL_VARIABLES_POINTER_SIZE;
 
@@ -5462,7 +5463,7 @@ static bool has_used_extern_fn(char *name) {
 }
 
 static void hash_used_extern_fns(void) {
-	memset(buckets_used_extern_fns, 0xff, BFD_HASH_BUCKET_SIZE * sizeof(u32));
+	memset(buckets_used_extern_fns, 0xff, sizeof(buckets_used_extern_fns));
 
 	for (size_t i = 0; i < extern_fn_calls_size; i++) {
 		char *name = extern_fn_calls[i].name;
@@ -8337,7 +8338,7 @@ static void push_shuffled_symbol(char *shuffled_symbol) {
 static void generate_shuffled_symbols(void) {
 	static u32 buckets[BFD_HASH_BUCKET_SIZE];
 
-	memset(buckets, 0, BFD_HASH_BUCKET_SIZE * sizeof(u32));
+	memset(buckets, 0, sizeof(buckets));
 
 	static u32 chains[MAX_SYMBOLS + 1]; // +1, because [0] is STN_UNDEF
 
