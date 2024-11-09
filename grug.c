@@ -397,7 +397,7 @@ static timer_t on_fn_timeout_timer_id;
 
 sigset_t grug_block_mask;
 
-grug_runtime_error_handler_t grug_runtime_error_handler;
+grug_runtime_error_handler_t grug_runtime_error_handler = NULL;
 
 void grug_set_runtime_error_handler(grug_runtime_error_handler_t handler) {
     grug_runtime_error_handler = handler;
@@ -9201,6 +9201,7 @@ static char *get_basename(char *path) {
 bool grug_regenerate_modified_mods(void) {
 	assert(!strchr(MODS_DIR_PATH, '\\') && "MODS_DIR_PATH can't contain backslashes, so replace them with '/'");
 	assert(MODS_DIR_PATH[strlen(MODS_DIR_PATH) - 1] != '/' && "MODS_DIR_PATH can't have a trailing '/'");
+	assert(grug_runtime_error_handler && "You forgot to call grug_set_runtime_error_handler() once at program startup!");
 
 	if (setjmp(error_jmp_buffer)) {
 		return true;
