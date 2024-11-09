@@ -1001,7 +1001,9 @@ static void json_tokenize(void) {
 
 static void json_read_text(char *json_file_path) {
 	FILE *f = fopen(json_file_path, "r");
-	json_assert(f, JSON_ERROR_FAILED_TO_OPEN_FILE);
+	if (!f) {
+		grug_error("JSON error: %s '%s'", json_error_messages[JSON_ERROR_FAILED_TO_OPEN_FILE], json_file_path);
+	}
 
 	json_text_size = fread(
 		json_text,
