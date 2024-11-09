@@ -56,6 +56,12 @@ bool grug_generate_file_from_json(char *input_json_path, char *output_grug_path)
 // bool grug_dump_mods_to_json(char *output_json_path);
 // bool grug_generate_mods_from_json(char *input_json_path);
 
+// Safe mode is the default
+// Safe mode is significantly slower than fast mode, but guarantees the program can't crash
+// from grug mod runtime errors (division by 0/stack overflow/functions taking too long)
+void grug_switch_on_fns_to_safe_mode(void);
+void grug_switch_on_fns_to_fast_mode(void);
+
 //// Defines
 
 #define MAX_RELOADS 6969

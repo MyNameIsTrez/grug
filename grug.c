@@ -5218,6 +5218,7 @@ static void fill_result_types(void) {
 #define DEREF_RAX_TO_RAX 0x408b48 // mov rax, rax[n]
 
 #define DEREF_RSI_TO_ESI 0x368b // mov esi, [rsi]
+#define DEREF_RAX_TO_AL 0x8a // mov al, [rax]
 
 #define MOV_EAX_TO_DEREF_R11 0x438941 // mov r11[n], eax
 #define MOV_RAX_TO_DEREF_R11 0x438949 // mov r11[n], rax
@@ -5242,6 +5243,7 @@ static void fill_result_types(void) {
 #define NEGATE_RAX 0xd8f748 // neg rax
 
 #define TEST_EAX_IS_ZERO 0xc085 // test eax, eax
+#define TEST_AL_IS_ZERO 0xc084 // test al, al
 
 #define JE_8_BIT_OFFSET 0x74 // je $+n
 #define JE_32_BIT_OFFSET 0x840f // je strict $+n
@@ -5385,6 +5387,8 @@ static size_t resources_size;
 
 static u32 entity_dependencies[MAX_ENTITY_DEPENDENCIES];
 static size_t entity_dependencies_size;
+
+static bool compiling_safe_mode;
 
 static void reset_compiling(void) {
 	codes_size = 0;
@@ -5546,7 +5550,7 @@ static void compile_byte(u8 byte) {
 	codes[codes_size++] = byte;
 }
 
-static void compile_padded_number(u64 n, size_t byte_count) {
+static void compile_padded(u64 n, size_t byte_count) {
 	while (byte_count-- > 0) {
 		compile_byte(n & 0xff); // Little-endian
 		n >>= 8;
@@ -5554,7 +5558,7 @@ static void compile_padded_number(u64 n, size_t byte_count) {
 }
 
 static void compile_32(u32 n) {
-	compile_padded_number(n, sizeof(u32));
+	compile_padded(n, sizeof(u32));
 }
 
 static void compile_unpadded(u64 n) {
@@ -5765,15 +5769,17 @@ static void compile_call_expr(struct call_expr call_expr) {
 	if (game_fn) {
 		calling_game_fn = true;
 
-		// Compile sigprocmask(SIG_BLOCK, &grug_block_mask, NULL);
-		compile_unpadded(XOR_CLEAR_EDX);
-		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RSI);
-		push_used_extern_global_variable("grug_block_mask", codes_size);
-		compile_32(PLACEHOLDER_32);
-		compile_unpadded(XOR_CLEAR_EDI);
-		compile_byte(CALL);
-		push_system_fn_call("sigprocmask", codes_size);
-		compile_unpadded(PLACEHOLDER_32);
+		if (compiling_safe_mode) {
+			// Compile sigprocmask(SIG_BLOCK, &grug_block_mask, NULL);
+			compile_unpadded(XOR_CLEAR_EDX);
+			compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RSI);
+			push_used_extern_global_variable("grug_block_mask", codes_size);
+			compile_32(PLACEHOLDER_32);
+			compile_unpadded(XOR_CLEAR_EDI);
+			compile_byte(CALL);
+			push_system_fn_call("sigprocmask", codes_size);
+			compile_unpadded(PLACEHOLDER_32);
+		}
 	}
 
 	bool gets_global_variables_pointer = false;
@@ -5837,7 +5843,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 		compile_unpadded(MOV_XMM0_TO_EAX);
 	}
 
-	if (game_fn) {
+	if (game_fn && compiling_safe_mode) {
 		compile_unpadded(PUSH_RAX);
 
 		// Compile sigprocmask(SIG_UNBLOCK, &grug_block_mask, NULL);
@@ -6521,7 +6527,25 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		}
 	}
 
+	size_t skip_safe_code_offset;
+
 	if (is_on_fn) {
+		// mov rax, [rel grug_on_fns_in_safe_mode wrt ..got]:
+		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
+		push_used_extern_global_variable("grug_on_fns_in_safe_mode", codes_size);
+		compile_32(PLACEHOLDER_32);
+
+		// mov al, [rax]:
+		compile_padded(DEREF_RAX_TO_AL, 2);
+
+		// test al, al:
+		compile_unpadded(TEST_AL_IS_ZERO);
+
+		// je strict $+0xn:
+		compile_unpadded(JE_32_BIT_OFFSET);
+		skip_safe_code_offset = codes_size;
+		compile_unpadded(PLACEHOLDER_32);
+
 		// mov esi, 1:
 		compile_unpadded(MOV_TO_ESI);
 		compile_32(1);
@@ -6531,7 +6555,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		push_used_extern_global_variable("grug_runtime_error_jmp_buffer", codes_size);
 		compile_32(PLACEHOLDER_32);
 
-		// call __sigsetjmp wrt ..plt
+		// call __sigsetjmp wrt ..plt:
 		compile_byte(CALL);
 		push_system_fn_call("__sigsetjmp", codes_size);
 		compile_unpadded(PLACEHOLDER_32);
@@ -6541,7 +6565,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 
 		// je strict $+0xn:
 		compile_unpadded(JE_32_BIT_OFFSET);
-		size_t end_jump_offset = codes_size;
+		size_t skip_runtime_handler_call_offset = codes_size;
 		compile_unpadded(PLACEHOLDER_32);
 
 		// call grug_get_runtime_error_reason wrt ..plt:
@@ -6569,7 +6593,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		push_used_extern_global_variable("grug_runtime_error_type", codes_size);
 		compile_32(PLACEHOLDER_32);
 
-		// mov esi, [rsi]
+		// mov esi, [rsi]:
 		compile_unpadded(DEREF_RSI_TO_ESI);
 
 		// mov rax, [rel grug_runtime_error_handler wrt ..got]:
@@ -6582,7 +6606,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 
 		compile_function_epilogue();
 
-		overwrite_jmp_address(end_jump_offset, codes_size);
+		overwrite_jmp_address(skip_runtime_handler_call_offset, codes_size);
 
 		compile_byte(CALL);
 		push_system_fn_call("grug_enable_on_fn_runtime_error_handling", codes_size);
@@ -6591,6 +6615,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		in_on_fn = true;
 	}
 
+	compiling_safe_mode = true;
 	compile_statements(body_statements, body_statement_count);
 
 	if (is_on_fn) {
@@ -6599,6 +6624,13 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		compile_byte(CALL);
 		push_system_fn_call("grug_disable_on_fn_runtime_error_handling", codes_size);
 		compile_unpadded(PLACEHOLDER_32);
+
+		compile_function_epilogue();
+
+		overwrite_jmp_address(skip_safe_code_offset, codes_size);
+
+		compiling_safe_mode = false;
+		compile_statements(body_statements, body_statement_count);
 	}
 
 	compile_function_epilogue();
@@ -7685,6 +7717,10 @@ static void push_got(void) {
 		push_zeros(sizeof(u64));
 	}
 
+	push_global_variable_offset("grug_on_fns_in_safe_mode", offset);
+	offset += sizeof(u64);
+	push_zeros(sizeof(u64));
+
 	push_global_variable_offset("grug_runtime_error_jmp_buffer", offset);
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
@@ -7717,6 +7753,7 @@ static void push_dynamic(void) {
 		// TODO: Stop having these hardcoded here
 		dynamic_offset -= sizeof(u64); // grug_runtime_error_handler
 		dynamic_offset -= sizeof(u64); // grug_runtime_error_jmp_buffer
+		dynamic_offset -= sizeof(u64); // grug_on_fns_in_safe_mode
 		if (calling_game_fn) {
 			dynamic_offset -= sizeof(u64); // grug_block_mask
 		}
@@ -8468,6 +8505,9 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 		extern_data_symbols_size++;
 
 		push_symbol("grug_runtime_error_jmp_buffer");
+		extern_data_symbols_size++;
+
+		push_symbol("grug_on_fns_in_safe_mode");
 		extern_data_symbols_size++;
 
 		if (calling_game_fn) {
@@ -9229,6 +9269,14 @@ bool grug_regenerate_modified_mods(void) {
 	reset_previous_grug_error();
 
 	return false;
+}
+
+bool grug_on_fns_in_safe_mode = true;
+void grug_switch_on_fns_to_safe_mode(void) {
+	grug_on_fns_in_safe_mode = true;
+}
+void grug_switch_on_fns_to_fast_mode(void) {
+	grug_on_fns_in_safe_mode = false;
 }
 
 // MIT License
