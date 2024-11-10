@@ -9276,11 +9276,17 @@ bool grug_regenerate_modified_mods(void) {
 }
 
 bool grug_on_fns_in_safe_mode = true;
-void grug_switch_on_fns_to_safe_mode(void) {
+void grug_set_on_fns_to_safe_mode(void) {
 	grug_on_fns_in_safe_mode = true;
 }
-void grug_switch_on_fns_to_fast_mode(void) {
+void grug_set_on_fns_to_fast_mode(void) {
 	grug_on_fns_in_safe_mode = false;
+}
+bool grug_are_on_fns_in_safe_mode(void) {
+	return grug_on_fns_in_safe_mode;
+}
+void grug_toggle_on_fns_mode(void) {
+	grug_on_fns_in_safe_mode = !grug_on_fns_in_safe_mode;
 }
 
 // MIT License
