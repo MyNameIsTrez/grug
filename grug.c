@@ -5388,7 +5388,7 @@ static size_t resources_size;
 static u32 entity_dependencies[MAX_ENTITY_DEPENDENCIES];
 static size_t entity_dependencies_size;
 
-static bool compiling_safe_mode;
+static bool compiling_fast_mode;
 
 static void reset_compiling(void) {
 	codes_size = 0;
@@ -5407,6 +5407,7 @@ static void reset_compiling(void) {
 	calling_game_fn = false;
 	resources_size = 0;
 	entity_dependencies_size = 0;
+	compiling_fast_mode = false;
 }
 
 static size_t get_helper_fn_offset(char *name) {
@@ -5769,7 +5770,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 	if (game_fn) {
 		calling_game_fn = true;
 
-		if (compiling_safe_mode) {
+		if (!compiling_fast_mode) {
 			// Compile sigprocmask(SIG_BLOCK, &grug_block_mask, NULL);
 			compile_unpadded(XOR_CLEAR_EDX);
 			compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RSI);
@@ -5843,7 +5844,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 		compile_unpadded(MOV_XMM0_TO_EAX);
 	}
 
-	if (game_fn && compiling_safe_mode) {
+	if (game_fn && !compiling_fast_mode) {
 		compile_unpadded(PUSH_RAX);
 
 		// Compile sigprocmask(SIG_UNBLOCK, &grug_block_mask, NULL);
@@ -6191,14 +6192,17 @@ static void compile_expr(struct expr expr) {
 
 			string = push_entity_dependency_string(string);
 
-			add_data_string(string);
+			// This check prevents the output entities array from containing duplicate entities
+			if (!compiling_fast_mode) {
+				add_data_string(string);
 
-			// We can't do the same thing as with RESOURCE_EXPR,
-			// where we only call `push_entity_dependency()` when `!had_string`,
-			// because the same entity dependency strings
-			// can have with different "entity_type" values in mod_api.json
-			// (namely, game fn 1 might have "car", and game fn 2 the empty string "")
-			push_entity_dependency(get_data_string_index(string));
+				// We can't do the same thing as with RESOURCE_EXPR,
+				// where we only call `push_entity_dependency()` when `!had_string`,
+				// because the same entity dependency strings
+				// can have with different "entity_type" values in mod_api.json
+				// (namely, game fn 1 might have "car", and game fn 2 the empty string "")
+				push_entity_dependency(get_data_string_index(string));
+			}
 
 			compile_unpadded(LEA_STRINGS_TO_RAX);
 
@@ -6615,7 +6619,6 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		in_on_fn = true;
 	}
 
-	compiling_safe_mode = true;
 	compile_statements(body_statements, body_statement_count);
 
 	if (is_on_fn) {
@@ -6629,8 +6632,9 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 
 		overwrite_jmp_address(skip_safe_code_offset, codes_size);
 
-		compiling_safe_mode = false;
+		compiling_fast_mode = true;
 		compile_statements(body_statements, body_statement_count);
+		compiling_fast_mode = false;
 	}
 
 	compile_function_epilogue();
