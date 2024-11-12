@@ -2623,10 +2623,12 @@ static struct statement parse_if_statement(size_t *i) {
 }
 
 static struct variable_statement parse_local_variable(size_t *i) {
-	struct variable_statement variable_statement = {0};
+	struct variable_statement local = {0};
 
 	size_t name_token_index = *i;
-	variable_statement.name = consume_token(i).str;
+	local.name = consume_token(i).str;
+
+	grug_assert(!streq(local.name, "me"), "The local variable 'me' has to have its name changed to something else, since grug already declares that variable");
 
 	if (peek_token(*i).type == COLON_TOKEN) {
 		(*i)++;
@@ -2635,21 +2637,21 @@ static struct variable_statement parse_local_variable(size_t *i) {
 		struct token type_token = consume_token(i);
 		grug_assert(type_token.type == WORD_TOKEN, "Expected a word token after the colon on line %zu", get_token_line_number(name_token_index));
 
-		variable_statement.has_type = true;
-		variable_statement.type = parse_type(type_token.str);
-		grug_assert(variable_statement.type != type_resource, "The variable '%s' can't have 'resource' as its type", variable_statement.name);
-		grug_assert(variable_statement.type != type_entity, "The variable '%s' can't have 'entity' as its type", variable_statement.name);
+		local.has_type = true;
+		local.type = parse_type(type_token.str);
+		grug_assert(local.type != type_resource, "The variable '%s' can't have 'resource' as its type", local.name);
+		grug_assert(local.type != type_entity, "The variable '%s' can't have 'entity' as its type", local.name);
 	}
 
-	grug_assert(peek_token(*i).type == SPACE_TOKEN, "The variable '%s' was not assigned a value on line %zu", variable_statement.name, get_token_line_number(name_token_index));
+	grug_assert(peek_token(*i).type == SPACE_TOKEN, "The variable '%s' was not assigned a value on line %zu", local.name, get_token_line_number(name_token_index));
 
 	consume_space(i);
 	consume_token_type(i, ASSIGNMENT_TOKEN);
 
 	consume_space(i);
-	variable_statement.assignment_expr = push_expr(parse_expression(i));
+	local.assignment_expr = push_expr(parse_expression(i));
 
-	return variable_statement;
+	return local;
 }
 
 static struct global_variable_statement *push_global_variable(struct global_variable_statement global_variable) {
@@ -2663,6 +2665,8 @@ static struct global_variable_statement parse_global_variable(size_t *i) {
 
 	size_t name_token_index = *i;
 	global.name = consume_token(i).str;
+
+	grug_assert(!streq(global.name, "me"), "The global variable 'me' has to have its name changed to something else, since grug already declares that variable");
 
 	assert_token_type(*i, COLON_TOKEN);
 	consume_token(i);
