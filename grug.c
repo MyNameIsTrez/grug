@@ -1056,6 +1056,7 @@ enum type {
 	type_i32,
 	type_f32,
 	type_string,
+	type_id,
 	type_resource,
 	type_entity,
 };
@@ -1064,14 +1065,16 @@ static char *type_names[] = {
 	[type_i32] = "i32",
 	[type_f32] = "f32",
 	[type_string] = "string",
+	[type_id] = "id",
 	[type_resource] = "resource",
 	[type_entity] = "entity",
 };
 static size_t type_sizes[] = {
 	[type_bool] = sizeof(bool),
-	[type_i32] = sizeof(int32_t),
+	[type_i32] = sizeof(i32),
 	[type_f32] = sizeof(float),
 	[type_string] = sizeof(char *),
+	[type_id] = sizeof(u64),
 	[type_resource] = sizeof(char *),
 	[type_entity] = sizeof(char *),
 };
@@ -1189,6 +1192,9 @@ static enum type parse_type(char *type) {
 	if (streq(type, "string")) {
 		return type_string;
 	}
+	if (streq(type, "id")) {
+		return type_id;
+	}
 	if (streq(type, "resource")) {
 		return type_resource;
 	}
@@ -1197,7 +1203,7 @@ static enum type parse_type(char *type) {
 	}
 
 	// Make sure to add any new types to this error message
-	grug_error("The type '%s' must be changed to one of bool/i32/f32/string/resource/entity", type);
+	grug_error("The type '%s' must be changed to one of bool/i32/f32/string/id/resource/entity", type);
 }
 
 static void init_game_fns(struct json_object fns) {
@@ -5008,6 +5014,7 @@ static void fill_on_fns(void) {
 	}
 }
 
+// Check that the global variable's assigned value doesn't contain a call nor identifier
 static void check_global_expr(struct expr *expr, char *global_name) {
 	switch (expr->type) {
 		case TRUE_EXPR:
@@ -5040,6 +5047,8 @@ static void check_global_expr(struct expr *expr, char *global_name) {
 }
 
 static void fill_global_variables(void) {
+	add_global_variable("me", type_id);
+
 	for (size_t i = 0; i < global_variable_statements_size; i++) {
 		struct global_variable_statement *global = &global_variable_statements[i];
 
@@ -5053,7 +5062,8 @@ static void fill_global_variables(void) {
 	}
 }
 
-static void check_define_fn_field_doesnt_contain_call_nor_identifier(struct expr *expr) {
+// Check that the define fn field's assigned value doesn't contain a call nor identifier
+static void check_define_fn_field(struct expr *expr) {
 	switch (expr->type) {
 		case TRUE_EXPR:
 		case FALSE_EXPR:
@@ -5067,18 +5077,18 @@ static void check_define_fn_field_doesnt_contain_call_nor_identifier(struct expr
 			grug_error("The define function isn't allowed to use global variables");
 			break;
 		case UNARY_EXPR:
-			check_define_fn_field_doesnt_contain_call_nor_identifier(expr->unary.expr);
+			check_define_fn_field(expr->unary.expr);
 			break;
 		case BINARY_EXPR:
 		case LOGICAL_EXPR:
-			check_define_fn_field_doesnt_contain_call_nor_identifier(expr->binary.left_expr);
-			check_define_fn_field_doesnt_contain_call_nor_identifier(expr->binary.right_expr);
+			check_define_fn_field(expr->binary.left_expr);
+			check_define_fn_field(expr->binary.right_expr);
 			break;
 		case CALL_EXPR:
 			grug_error("The define function isn't allowed to call a function");
 			break;
 		case PARENTHESIZED_EXPR:
-			check_define_fn_field_doesnt_contain_call_nor_identifier(expr->parenthesized);
+			check_define_fn_field(expr->parenthesized);
 			break;
 	}
 }
@@ -5091,7 +5101,7 @@ static void fill_define_fn(void) {
 	for (size_t i = 0; i < field_count; i++) {
 		struct expr *field = &define_fn.returned_compound_literal.fields[i].expr_value;
 
-		check_define_fn_field_doesnt_contain_call_nor_identifier(field);
+		check_define_fn_field(field);
 
 		fill_expr(field);
 
@@ -5171,6 +5181,7 @@ static void fill_result_types(void) {
 #define MOV_RAX_TO_DEREF_RDI_8_BIT_OFFSET 0x478948 // mov rdi[n], rax
 #define MOV_EAX_TO_DEREF_RDI_32_BIT_OFFSET 0x8789 // mov rdi[n], eax
 #define MOV_RAX_TO_DEREF_RDI_32_BIT_OFFSET 0x878948 // mov rdi[n], rax
+#define MOV_RSI_TO_DEREF_RDI 0x378948 // mov rdi[0x0], rsi
 
 #define PUSH_RAX 0x50 // push rax
 #define PUSH_RBP 0x55 // push rbp
@@ -6229,13 +6240,14 @@ static void compile_expr(struct expr expr) {
 					case type_i32:
 					case type_f32:
 						compile_unpadded(DEREF_RBP_TO_EAX);
-						compile_byte(-var->offset);
 						break;
 					case type_string:
+					case type_id:
 						compile_unpadded(DEREF_RBP_TO_RAX);
-						compile_byte(-var->offset);
 						break;
 				}
+
+				compile_byte(-var->offset);
 				return;
 			}
 
@@ -6253,14 +6265,14 @@ static void compile_expr(struct expr expr) {
 				case type_i32:
 				case type_f32:
 					compile_unpadded(DEREF_RAX_TO_EAX);
-					compile_byte(var->offset);
 					break;
 				case type_string:
+				case type_id:
 					compile_unpadded(DEREF_RAX_TO_RAX);
-					compile_byte(var->offset);
 					break;
 			}
 
+			compile_byte(var->offset);
 			break;
 		}
 		case I32_EXPR: {
@@ -6317,13 +6329,14 @@ static void compile_variable_statement(struct variable_statement variable_statem
 			case type_i32:
 			case type_f32:
 				compile_unpadded(MOV_EAX_TO_DEREF_RBP);
-				compile_byte(-var->offset);
 				break;
 			case type_string:
+			case type_id:
 				compile_unpadded(MOV_RAX_TO_DEREF_RBP);
-				compile_byte(-var->offset);
 				break;
 		}
+
+		compile_byte(-var->offset);
 		return;
 	}
 
@@ -6341,13 +6354,14 @@ static void compile_variable_statement(struct variable_statement variable_statem
 		case type_i32:
 		case type_f32:
 			compile_unpadded(MOV_EAX_TO_DEREF_R11);
-			compile_byte(var->offset);
 			break;
 		case type_string:
+		case type_id:
 			compile_unpadded(MOV_RAX_TO_DEREF_R11);
-			compile_byte(var->offset);
 			break;
 	}
+
+	compile_byte(var->offset);
 }
 
 static void compile_statements(struct statement *group_statements, size_t statement_count) {
@@ -6513,6 +6527,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 				}[float_argument_index]);
 				break;
 			case type_string:
+			case type_id:
 				compile_unpadded((u32[]){
 					MOV_RSI_TO_DEREF_RBP,
 					MOV_RDX_TO_DEREF_RBP,
@@ -6655,20 +6670,26 @@ static void compile_helper_fn(struct helper_fn fn) {
 static void compile_init_globals_fn(void) {
 	size_t ptr_offset = 0;
 
+	// The entity ID passed in the rsi register is always the first global
+	compile_unpadded(MOV_RSI_TO_DEREF_RDI);
+	ptr_offset += sizeof(u64);
+
 	for (size_t i = 0; i < global_variable_statements_size; i++) {
 		struct global_variable_statement global = global_variable_statements[i];
 
 		compile_expr(global.assignment_expr);
 
+		enum type result_type = global.assignment_expr.result_type;
+
 		if (ptr_offset < 0x80) { // an i8 with the value 0x80 is negative in two's complement
-			if (global.assignment_expr.result_type == type_string) {
+			if (result_type == type_string || result_type == type_id) {
 				compile_unpadded(MOV_RAX_TO_DEREF_RDI_8_BIT_OFFSET);
 			} else {
 				compile_unpadded(MOV_EAX_TO_DEREF_RDI_8_BIT_OFFSET);
 			}
 			compile_byte(ptr_offset);
 		} else {
-			if (global.assignment_expr.result_type == type_string) {
+			if (result_type == type_string || result_type == type_id) {
 				compile_unpadded(MOV_RAX_TO_DEREF_RDI_32_BIT_OFFSET);
 			} else {
 				compile_unpadded(MOV_EAX_TO_DEREF_RDI_32_BIT_OFFSET);
@@ -6676,8 +6697,8 @@ static void compile_init_globals_fn(void) {
 			compile_32(ptr_offset);
 		}
 
-		if (global.type == type_string) {
-			ptr_offset += sizeof(char *);
+		if (global.type == type_string || global.type == type_id) {
+			ptr_offset += sizeof(u64);
 		} else {
 			ptr_offset += sizeof(u32);
 		}
