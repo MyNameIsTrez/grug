@@ -2634,10 +2634,10 @@ static struct variable_statement parse_local_variable(size_t *i) {
 	size_t name_token_index = *i;
 	local.name = consume_token(i).str;
 
-	grug_assert(!streq(local.name, "me"), "The local variable 'me' has to have its name changed to something else, since grug already declares that variable");
-
 	if (peek_token(*i).type == COLON_TOKEN) {
 		(*i)++;
+
+		grug_assert(!streq(local.name, "me"), "The local variable 'me' has to have its name changed to something else, since grug already declares that variable");
 
 		consume_space(i);
 		struct token type_token = consume_token(i);
@@ -2653,6 +2653,8 @@ static struct variable_statement parse_local_variable(size_t *i) {
 
 	consume_space(i);
 	consume_token_type(i, ASSIGNMENT_TOKEN);
+
+	grug_assert(!streq(local.name, "me"), "Assigning a new value to the entity's 'me' variable is not allowed");
 
 	consume_space(i);
 	local.assignment_expr = push_expr(parse_expression(i));
