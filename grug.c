@@ -1402,6 +1402,8 @@ static void init_entities(struct json_object entities) {
 					grug_field.type = parse_type(json_field->value->string);
 					json_field++;
 
+					grug_assert(grug_field.type != type_id, "\"entities\" has a \"type\" field with the value \"id\", which isn't allowed");
+
 					if (grug_field.type == type_resource) {
 						grug_assert(value->object.field_count == 3 && streq(json_field->key, "resource_extension"), "\"entities\" has a \"type\" field with the value \"resource\", which means a \"resource_extension\" field is required");
 						grug_assert(json_field->value->type == JSON_NODE_STRING, "\"entities\" its fields must always have string values");
