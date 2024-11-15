@@ -5103,26 +5103,30 @@ static void fill_define_fn(void) {
 	grug_assert(grug_define_entity->field_count == define_fn.returned_compound_literal.field_count, "The entity '%s' expects %zu fields, but got %zu", grug_define_entity->name, grug_define_entity->field_count, define_fn.returned_compound_literal.field_count);
 
 	for (size_t i = 0; i < field_count; i++) {
-		struct expr *field = &define_fn.returned_compound_literal.fields[i].expr_value;
+		struct field *field = &define_fn.returned_compound_literal.fields[i];
 
-		check_define_fn_field(field);
+		grug_assert(streq(field->key, grug_define_entity->fields[i].name), "Field %zu named '%s' that you're returning from your define function must be renamed to '%s', according to the entity '%s' in mod_api.json", i + 1, field->key, grug_define_entity->fields[i].name, grug_define_entity->name);
 
-		fill_expr(field);
+		struct expr *field_expr = &field->expr_value;
+
+		check_define_fn_field(field_expr);
+
+		fill_expr(field_expr);
 
 		struct argument json_field = grug_define_entity->fields[i];
 
-		if (field->type == STRING_EXPR && json_field.type == type_resource) {
-			field->result_type = type_resource;
-			field->type = RESOURCE_EXPR;
-			validate_resource_string(field->literal.string, json_field.resource_extension);
-		} else if (field->type == STRING_EXPR && json_field.type == type_entity) {
-			field->result_type = type_entity;
-			field->type = ENTITY_EXPR;
-			validate_entity_string(field->literal.string);
+		if (field_expr->type == STRING_EXPR && json_field.type == type_resource) {
+			field_expr->result_type = type_resource;
+			field_expr->type = RESOURCE_EXPR;
+			validate_resource_string(field_expr->literal.string, json_field.resource_extension);
+		} else if (field_expr->type == STRING_EXPR && json_field.type == type_entity) {
+			field_expr->result_type = type_entity;
+			field_expr->type = ENTITY_EXPR;
+			validate_entity_string(field_expr->literal.string);
 			push_entity_type(json_field.entity_type);
 		}
 
-		grug_assert(field->result_type == json_field.type, "The define function its '%s' parameter was supposed to have the type %s, but got %s", json_field.name, type_names[json_field.type], type_names[field->result_type]);
+		grug_assert(field_expr->result_type == json_field.type, "The define function its '%s' parameter was supposed to have the type %s, but got %s", json_field.name, type_names[json_field.type], type_names[field_expr->result_type]);
 	}
 }
 
@@ -6771,16 +6775,6 @@ static void compile_define_fn_returned_fields(void) {
 }
 
 static void compile_define_fn(void) {
-	size_t field_count = define_fn.returned_compound_literal.field_count;
-
-	for (size_t field_index = 0; field_index < field_count; field_index++) {
-		struct field field = define_fn.returned_compound_literal.fields[field_index];
-
-		grug_assert(streq(field.key, grug_define_entity->fields[field_index].name), "Field %zu named '%s' that you're returning from your define function must be renamed to '%s', according to the entity '%s' in mod_api.json", field_index + 1, field.key, grug_define_entity->fields[field_index].name, grug_define_entity->name);
-
-		// TODO: Verify that the argument has the same type as the one in grug_define_entity
-	}
-
 	compile_define_fn_returned_fields();
 	compile_byte(CALL);
 	push_game_fn_call(define_fn_name, codes_size);
