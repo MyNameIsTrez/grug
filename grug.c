@@ -4786,6 +4786,9 @@ static void fill_expr(struct expr *expr) {
 			if (var) {
 				expr->result_type = var->type;
 				return;
+			} else if (streq(expr->literal.string, "null_id")) {
+				expr->result_type = type_id;
+				return;
 			}
 
 			grug_error("The variable '%s' does not exist", expr->literal.string);
@@ -5031,7 +5034,9 @@ static void check_global_expr(struct expr *expr, char *global_name) {
 		case ENTITY_EXPR:
 			grug_unreachable();
 		case IDENTIFIER_EXPR:
-			grug_error("The global variable '%s' is using a global variable, which isn't allowed", global_name);
+			if (!streq(expr->literal.string, "null_id")) {
+				grug_error("The global variable '%s' is using a global variable, which isn't allowed", global_name);
+			}
 			break;
 		case UNARY_EXPR:
 			check_global_expr(expr->unary.expr, global_name);
@@ -5225,6 +5230,8 @@ static void fill_result_types(void) {
 #define DEREF_RBP_TO_EAX 0x458b // mov eax, rbp[n]
 #define DEREF_RBP_TO_RAX 0x458b48 // mov rax, rbp[n]
 #define DEREF_RBP_TO_R11 0x5d8b4c // mov r11, rbp[n]
+
+#define MOVABS_TO_RAX 0xb848 // mov rax, n
 
 #define MOV_RDI_TO_RAX 0xc78948 // mov rdi, rax
 
@@ -6236,6 +6243,12 @@ static void compile_expr(struct expr expr) {
 			break;
 		}
 		case IDENTIFIER_EXPR: {
+			if (streq(expr.literal.string, "null_id")) {
+				compile_unpadded(MOVABS_TO_RAX);
+				compile_unpadded(0xffffffffffffffff);
+				return;
+			}
+
 			struct variable *var = get_local_variable(expr.literal.string);
 			if (var) {
 				// TODO: Support any 32 bit offset, instead of only 8 bits
@@ -6323,7 +6336,12 @@ static void compile_expr(struct expr expr) {
 }
 
 static void compile_variable_statement(struct variable_statement variable_statement) {
-	compile_expr(*variable_statement.assignment_expr);
+	if (variable_statement.assignment_expr->result_type == type_id && streq(variable_statement.assignment_expr->literal.string, "null_id")) {
+		compile_unpadded(MOVABS_TO_RAX);
+		compile_unpadded(0xffffffffffffffff);
+	} else {
+		compile_expr(*variable_statement.assignment_expr);
+	}
 
 	struct variable *var = get_local_variable(variable_statement.name);
 	if (var) {
@@ -6685,7 +6703,12 @@ static void compile_init_globals_fn(void) {
 	for (size_t i = 0; i < global_variable_statements_size; i++) {
 		struct global_variable_statement global = global_variable_statements[i];
 
-		compile_expr(global.assignment_expr);
+		if (global.assignment_expr.result_type == type_id && streq(global.assignment_expr.literal.string, "null_id")) {
+			compile_unpadded(MOVABS_TO_RAX);
+			compile_unpadded(0xffffffffffffffff);
+		} else {
+			compile_expr(global.assignment_expr);
+		}
 
 		enum type result_type = global.assignment_expr.result_type;
 
