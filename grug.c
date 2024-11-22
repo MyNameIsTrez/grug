@@ -6798,10 +6798,18 @@ static void compile_define_fn_returned_fields(void) {
 }
 
 static void compile_define_fn(void) {
+	compile_unpadded(SUB_RSP_8_BITS);
+	compile_byte(8);
+
 	compile_define_fn_returned_fields();
+
 	compile_byte(CALL);
 	push_game_fn_call(define_fn_name, codes_size);
 	compile_unpadded(PLACEHOLDER_32);
+
+	compile_unpadded(ADD_RSP_8_BITS);
+	compile_byte(8);
+
 	compile_byte(RET);
 }
 
