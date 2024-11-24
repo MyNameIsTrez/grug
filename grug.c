@@ -133,6 +133,7 @@ typedef uint64_t u64;
 typedef float f32;
 
 struct grug_error grug_error;
+bool grug_loading_error_in_grug_file;
 struct grug_error previous_grug_error;
 static jmp_buf error_jmp_buffer;
 
@@ -8714,6 +8715,8 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 
 	reset_utils();
 
+	grug_loading_error_in_grug_file = true;
+
 	read_file(grug_path);
 	grug_log("\n# Read text\n%s", grug_text);
 
@@ -8733,6 +8736,8 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 
 	grug_log("\n# Section offsets\n");
 	generate_shared_object(grug_path, dll_path);
+
+	grug_loading_error_in_grug_file = false;
 }
 
 // Resetting previous_grug_error is necessary for this edge case:
@@ -8753,6 +8758,8 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name) {
 	}
 
 	mod = mod_name;
+
+	grug_loading_error_in_grug_file = false;
 
 	assert(strlen(grug_path) + 1 <= sizeof(grug_error.path));
 	memcpy(grug_error.path, grug_path, strlen(grug_path) + 1);
@@ -9351,6 +9358,8 @@ bool grug_regenerate_modified_mods(void) {
 	}
 
 	reset_regenerate_modified_mods();
+
+	grug_loading_error_in_grug_file = false;
 
 	static bool parsed_mod_api_json = false;
 	if (!parsed_mod_api_json) {

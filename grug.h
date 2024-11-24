@@ -122,3 +122,4 @@ extern struct grug_modified_resource grug_resource_reloads[MAX_RESOURCE_RELOADS]
 extern size_t grug_resource_reloads_size;
 
 extern struct grug_error grug_error;
+extern bool grug_loading_error_in_grug_file;
