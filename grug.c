@@ -549,7 +549,7 @@ char *grug_get_runtime_error_reason(void) {
 #define JSON_MAX_RECURSION_DEPTH 42
 
 #define json_error(error) {\
-	grug_error("JSON error: %s", json_error_messages[error]);\
+	grug_error("JSON error: %s: %s", json_file_path, json_error_messages[error]);\
 }
 
 #define json_assert(condition, error) {\
@@ -645,6 +645,8 @@ static char *json_error_messages[] = {
 	[JSON_ERROR_UNEXPECTED_COLON] = "Unexpected ':'",
 	[JSON_ERROR_UNEXPECTED_EXTRA_CHARACTER] = "Unexpected extra character",
 };
+
+static char *json_file_path;
 
 static size_t json_recursion_depth;
 
@@ -999,10 +1001,10 @@ static void json_tokenize(void) {
 	}
 }
 
-static void json_read_text(char *json_file_path) {
-	FILE *f = fopen(json_file_path, "r");
+static void json_read_text(char *file_path) {
+	FILE *f = fopen(file_path, "r");
 	if (!f) {
-		grug_error("JSON error: %s '%s'", json_error_messages[JSON_ERROR_FAILED_TO_OPEN_FILE], json_file_path);
+		grug_error("JSON error: %s '%s'", json_error_messages[JSON_ERROR_FAILED_TO_OPEN_FILE], file_path);
 	}
 
 	json_text_size = fread(
@@ -1025,6 +1027,7 @@ static void json_read_text(char *json_file_path) {
 }
 
 static void json_reset(void) {
+	json_file_path = NULL;
 	json_recursion_depth = 0;
 	json_text_size = 0;
 	json_tokens_size = 0;
@@ -1033,10 +1036,12 @@ static void json_reset(void) {
 	json_fields_size = 0;
 }
 
-void json(char *json_file_path, struct json_node *returned) {
+void json(char *file_path, struct json_node *returned) {
 	json_reset();
 
-	json_read_text(json_file_path);
+	json_file_path = file_path;
+
+	json_read_text(file_path);
 
 	json_tokenize();
 
@@ -9233,6 +9238,49 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 	free(seen_file_names);
 }
 
+static void validate_about_file(char *about_json_path) {
+	grug_assert(access(about_json_path, F_OK) == 0, "Every mod requires an 'about.json' file, but the mod '%s' doesn't have one", mod);
+
+	create_mod_api_json_backup();
+
+	struct json_node node;
+	json(about_json_path, &node);
+
+	grug_assert(node.type == JSON_NODE_OBJECT, "%s must start with an object", about_json_path);
+	struct json_object root_object = node.object;
+
+	grug_assert(root_object.field_count >= 4, "%s must have at least these 4 fields, in this order: \"name\", \"version\", \"game_version\", \"author\"", about_json_path);
+
+	struct json_field *field = root_object.fields;
+
+	grug_assert(streq(field->key, "name"), "%s its root object must have \"name\" as its first field", about_json_path);
+	grug_assert(field->value->type == JSON_NODE_STRING, "%s its \"name\" field must have a string as its value", about_json_path);
+	grug_assert(!streq(field->value->string, ""), "%s its \"name\" field value must not be an empty string", about_json_path);
+	field++;
+
+	grug_assert(streq(field->key, "version"), "%s its root object must have \"version\" as its second field", about_json_path);
+	grug_assert(field->value->type == JSON_NODE_STRING, "%s its \"version\" field must have a string as its value", about_json_path);
+	grug_assert(!streq(field->value->string, ""), "%s its \"version\" field value must not be an empty string", about_json_path);
+	field++;
+
+	grug_assert(streq(field->key, "game_version"), "%s its root object must have \"game_version\" as its third field", about_json_path);
+	grug_assert(field->value->type == JSON_NODE_STRING, "%s its \"game_version\" field must have a string as its value", about_json_path);
+	grug_assert(!streq(field->value->string, ""), "%s its \"game_version\" field value must not be an empty string", about_json_path);
+	field++;
+
+	grug_assert(streq(field->key, "author"), "%s its root object must have \"author\" as its fourth field", about_json_path);
+	grug_assert(field->value->type == JSON_NODE_STRING, "%s its \"author\" field must have a string as its value", about_json_path);
+	grug_assert(!streq(field->value->string, ""), "%s its \"author\" field value must not be an empty string", about_json_path);
+	field++;
+
+	for (size_t i = 4; i < root_object.field_count; i++) {
+		grug_assert(!streq(field->key, ""), "%s its %zuth field key must not be an empty string", about_json_path, i + 1);
+		field++;
+	}
+
+	restore_mod_api_json_backup();
+}
+
 static void reload_modified_mods(void) {
 	struct grug_mod_dir *dir = &grug_mods;
 
@@ -9260,7 +9308,7 @@ static void reload_modified_mods(void) {
 			char about_json_path[STUPID_MAX_PATH];
 			grug_assert(snprintf(about_json_path, sizeof(about_json_path), "%s/about.json", entry_path) >= 0, "Filling the variable 'about_json_path' failed");
 
-			grug_assert(access(about_json_path, F_OK) == 0, "Every mod requires an 'about.json' file, but the mod '%s' doesn't have one", mod);
+			validate_about_file(about_json_path);
 
 			char dll_entry_path[STUPID_MAX_PATH];
 			snprintf(dll_entry_path, sizeof(dll_entry_path), DLL_DIR_PATH"/%s", dp->d_name);
