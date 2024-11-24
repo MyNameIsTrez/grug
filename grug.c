@@ -1123,6 +1123,17 @@ static u32 chains_game_fns[MAX_GRUG_FUNCTIONS];
 static struct argument grug_arguments[MAX_GRUG_ARGUMENTS];
 static size_t grug_arguments_size;
 
+static char mod_api_json_text[JSON_MAX_CHARACTERS];
+static size_t mod_api_json_text_size;
+static struct json_token mod_api_json_tokens[JSON_MAX_TOKENS];
+static size_t mod_api_json_tokens_size;
+static struct json_node mod_api_json_nodes[JSON_MAX_NODES];
+static size_t mod_api_json_nodes_size;
+static struct json_field mod_api_json_fields[JSON_MAX_FIELDS];
+static size_t mod_api_json_fields_size;
+static char mod_api_json_strings[JSON_MAX_STRINGS_CHARACTERS];
+static size_t mod_api_json_strings_size;
+
 static void push_grug_on_function(struct grug_on_function fn) {
 	grug_assert(grug_on_functions_size < MAX_GRUG_FUNCTIONS, "There are more than %d on_ functions in mod_api.json, exceeding MAX_GRUG_FUNCTIONS", MAX_GRUG_FUNCTIONS);
 	grug_on_functions[grug_on_functions_size++] = fn;
@@ -1458,6 +1469,32 @@ static void parse_mod_api_json(void) {
 	grug_assert(streq(field->key, "game_functions"), "mod_api.json its root object must have \"game_functions\" as its third field");
 	grug_assert(field->value->type == JSON_NODE_OBJECT, "mod_api.json its \"game_functions\" field must have an object as its value");
 	init_game_fns(field->value->object);
+}
+
+void create_mod_api_json_backup(void) {
+	mod_api_json_text_size = json_text_size;
+	memcpy(mod_api_json_text, json_text, json_text_size);
+	mod_api_json_tokens_size = json_tokens_size;
+	memcpy(mod_api_json_tokens, json_tokens, json_tokens_size);
+	mod_api_json_nodes_size = json_nodes_size;
+	memcpy(mod_api_json_nodes, json_nodes, json_nodes_size);
+	mod_api_json_fields_size = json_fields_size;
+	memcpy(mod_api_json_fields, json_fields, json_fields_size);
+	mod_api_json_strings_size = json_strings_size;
+	memcpy(mod_api_json_strings, json_strings, json_strings_size);
+}
+
+void restore_mod_api_json_backup(void) {
+	json_text_size = mod_api_json_text_size;
+	memcpy(json_text, mod_api_json_text, json_text_size);
+	json_tokens_size = mod_api_json_tokens_size;
+	memcpy(json_tokens, mod_api_json_tokens, json_tokens_size);
+	json_nodes_size = mod_api_json_nodes_size;
+	memcpy(json_nodes, mod_api_json_nodes, json_nodes_size);
+	json_fields_size = mod_api_json_fields_size;
+	memcpy(json_fields, mod_api_json_fields, json_fields_size);
+	json_strings_size = mod_api_json_strings_size;
+	memcpy(json_strings, mod_api_json_strings, json_strings_size);
 }
 
 //// READING
@@ -4318,42 +4355,10 @@ static void apply_root(struct json_node node) {
 }
 
 bool grug_generate_file_from_json(char *input_json_path, char *output_grug_path) {
-	static char mod_api_json_text[JSON_MAX_CHARACTERS];
-	static size_t mod_api_json_text_size;
-	static struct json_token mod_api_json_tokens[JSON_MAX_TOKENS];
-	static size_t mod_api_json_tokens_size;
-	static struct json_node mod_api_json_nodes[JSON_MAX_NODES];
-	static size_t mod_api_json_nodes_size;
-	static struct json_field mod_api_json_fields[JSON_MAX_FIELDS];
-	static size_t mod_api_json_fields_size;
-	static char mod_api_json_strings[JSON_MAX_STRINGS_CHARACTERS];
-	static size_t mod_api_json_strings_size;
-
-	// Make a backup of the mod_api.json AST
-	mod_api_json_text_size = json_text_size;
-	memcpy(mod_api_json_text, json_text, json_text_size);
-	mod_api_json_tokens_size = json_tokens_size;
-	memcpy(mod_api_json_tokens, json_tokens, json_tokens_size);
-	mod_api_json_nodes_size = json_nodes_size;
-	memcpy(mod_api_json_nodes, json_nodes, json_nodes_size);
-	mod_api_json_fields_size = json_fields_size;
-	memcpy(mod_api_json_fields, json_fields, json_fields_size);
-	mod_api_json_strings_size = json_strings_size;
-	memcpy(mod_api_json_strings, json_strings, json_strings_size);
+	create_mod_api_json_backup();
 
 	if (setjmp(error_jmp_buffer)) {
-		// Restore the mod_api.json AST
-		json_text_size = mod_api_json_text_size;
-		memcpy(json_text, mod_api_json_text, json_text_size);
-		json_tokens_size = mod_api_json_tokens_size;
-		memcpy(json_tokens, mod_api_json_tokens, json_tokens_size);
-		json_nodes_size = mod_api_json_nodes_size;
-		memcpy(json_nodes, mod_api_json_nodes, json_nodes_size);
-		json_fields_size = mod_api_json_fields_size;
-		memcpy(json_fields, mod_api_json_fields, json_fields_size);
-		json_strings_size = mod_api_json_strings_size;
-		memcpy(json_strings, mod_api_json_strings, json_strings_size);
-
+		restore_mod_api_json_backup();
 		return true;
 	}
 
@@ -4367,17 +4372,7 @@ bool grug_generate_file_from_json(char *input_json_path, char *output_grug_path)
 
 	grug_assert(fclose(applied_stream) == 0, "fclose: %s", strerror(errno));
 
-	// Restore the mod_api.json AST
-	json_text_size = mod_api_json_text_size;
-	memcpy(json_text, mod_api_json_text, json_text_size);
-	json_tokens_size = mod_api_json_tokens_size;
-	memcpy(json_tokens, mod_api_json_tokens, json_tokens_size);
-	json_nodes_size = mod_api_json_nodes_size;
-	memcpy(json_nodes, mod_api_json_nodes, json_nodes_size);
-	json_fields_size = mod_api_json_fields_size;
-	memcpy(json_fields, mod_api_json_fields, json_fields_size);
-	json_strings_size = mod_api_json_strings_size;
-	memcpy(json_strings, mod_api_json_strings, json_strings_size);
+	restore_mod_api_json_backup();
 
 	return false;
 }
