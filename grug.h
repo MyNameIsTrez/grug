@@ -97,7 +97,7 @@ struct grug_mod_dir {
 struct grug_modified {
 	char path[4096];
 	void *old_dll;
-	struct grug_file *file;
+	struct grug_file file;
 };
 
 struct grug_modified_resource {

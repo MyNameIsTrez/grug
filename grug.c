@@ -9095,7 +9095,7 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char en
 		assert(strlen(entry_path) + 1 <= sizeof(modified.path));
 		memcpy(modified.path, entry_path, strlen(entry_path) + 1);
 
-		modified.file = file;
+		modified.file = *file;
 		push_reload(modified);
 	}
 
