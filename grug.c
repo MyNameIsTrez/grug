@@ -5234,8 +5234,6 @@ static void fill_result_types(void) {
 
 #define MOVABS_TO_RAX 0xb848 // mov rax, n
 
-#define MOV_RDI_TO_RAX 0xc78948 // mov rdi, rax
-
 #define CALL_DEREF_RAX 0x10ff // call [rax]
 
 #define MOV_GLOBAL_VARIABLE_TO_RAX 0x58b48 // mov rax, [rel foo wrt ..got]
@@ -6624,7 +6622,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		compile_unpadded(PLACEHOLDER_32);
 
 		// mov rdi, rax:
-		compile_unpadded(MOV_RDI_TO_RAX);
+		compile_unpadded(MOV_RAX_TO_RDI);
 
 		// lea rcx, strings[rel n]:
 		add_data_string(grug_path);
