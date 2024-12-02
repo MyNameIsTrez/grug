@@ -5252,6 +5252,8 @@ static void fill_result_types(void) {
 #define MOV_EAX_TO_DEREF_R11 0x438941 // mov r11[n], eax
 #define MOV_RAX_TO_DEREF_R11 0x438949 // mov r11[n], rax
 
+#define MOV_R11_TO_DEREF_RAX 0x18894c // mov [rax], r11
+
 #define MOV_RBP_TO_RSP 0xec8948 // mov rsp, rbp
 #define POP_RBP 0x5d // pop rbp
 
@@ -5307,6 +5309,7 @@ static void fill_result_types(void) {
 #define LEA_STRINGS_TO_RAX 0x58d48 // lea rax, strings[rel n]
 #define LEA_STRINGS_TO_RCX 0xd8d48 // lea rcx, strings[rel n]
 #define LEA_STRINGS_TO_RDX 0x158d48 // lea rdx, strings[rel n]
+#define LEA_STRINGS_TO_R11 0x1d8d4c // lea r11, strings[rel n]
 
 #define MOV_EAX_TO_XMM0 0xc06e0f66 // movd xmm0, eax
 #define MOV_EAX_TO_XMM1 0xc86e0f66 // movd xmm1, eax
@@ -6594,6 +6597,34 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		skip_safe_code_offset = codes_size;
 		compile_unpadded(PLACEHOLDER_32);
 
+		// mov rax, [rel grug_on_fn_path wrt ..got]:
+		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
+		push_used_extern_global_variable("grug_on_fn_path", codes_size);
+		compile_32(PLACEHOLDER_32);
+
+		// lea r11, strings[rel n]:
+		add_data_string(grug_path);
+		compile_unpadded(LEA_STRINGS_TO_R11);
+		push_data_string_code(grug_path, codes_size);
+		compile_unpadded(PLACEHOLDER_32);
+
+		// mov [rax], r11:
+		compile_unpadded(MOV_R11_TO_DEREF_RAX);
+
+		// mov rax, [rel grug_on_fn_name wrt ..got]:
+		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
+		push_used_extern_global_variable("grug_on_fn_name", codes_size);
+		compile_32(PLACEHOLDER_32);
+
+		// lea r11, strings[rel n]:
+		add_data_string(fn_name);
+		compile_unpadded(LEA_STRINGS_TO_R11);
+		push_data_string_code(fn_name, codes_size);
+		compile_unpadded(PLACEHOLDER_32);
+
+		// mov [rax], r11:
+		compile_unpadded(MOV_R11_TO_DEREF_RAX);
+
 		// mov esi, 1:
 		compile_unpadded(MOV_TO_ESI);
 		compile_32(1);
@@ -6625,13 +6656,11 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		compile_unpadded(MOV_RAX_TO_RDI);
 
 		// lea rcx, strings[rel n]:
-		add_data_string(grug_path);
 		compile_unpadded(LEA_STRINGS_TO_RCX);
 		push_data_string_code(grug_path, codes_size);
 		compile_unpadded(PLACEHOLDER_32);
 
 		// lea rdx, strings[rel n]:
-		add_data_string(fn_name);
 		compile_unpadded(LEA_STRINGS_TO_RDX);
 		push_data_string_code(fn_name, codes_size);
 		compile_unpadded(PLACEHOLDER_32);
@@ -7778,7 +7807,15 @@ static void push_got(void) {
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
 
+	push_global_variable_offset("grug_on_fn_path", offset);
+	offset += sizeof(u64);
+	push_zeros(sizeof(u64));
+
 	push_global_variable_offset("grug_runtime_error_jmp_buffer", offset);
+	offset += sizeof(u64);
+	push_zeros(sizeof(u64));
+
+	push_global_variable_offset("grug_on_fn_name", offset);
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
 
@@ -7809,7 +7846,9 @@ static void push_dynamic(void) {
 		// This subtracts the future got_size set by push_got()
 		// TODO: Stop having these hardcoded here
 		dynamic_offset -= sizeof(u64); // grug_runtime_error_handler
+		dynamic_offset -= sizeof(u64); // grug_on_fn_name
 		dynamic_offset -= sizeof(u64); // grug_runtime_error_jmp_buffer
+		dynamic_offset -= sizeof(u64); // grug_on_fn_path
 		dynamic_offset -= sizeof(u64); // grug_on_fns_in_safe_mode
 		if (calling_game_fn) {
 			dynamic_offset -= sizeof(u64); // grug_block_mask
@@ -8561,7 +8600,13 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 		push_symbol("grug_runtime_error_handler");
 		extern_data_symbols_size++;
 
+		push_symbol("grug_on_fn_name");
+		extern_data_symbols_size++;
+
 		push_symbol("grug_runtime_error_jmp_buffer");
+		extern_data_symbols_size++;
+
+		push_symbol("grug_on_fn_path");
 		extern_data_symbols_size++;
 
 		push_symbol("grug_on_fns_in_safe_mode");
@@ -8635,6 +8680,9 @@ static size_t entities_size;
 
 struct grug_modified_resource grug_resource_reloads[MAX_RESOURCE_RELOADS];
 size_t grug_resource_reloads_size;
+
+char *grug_on_fn_name;
+char *grug_on_fn_path;
 
 static void reset_regenerate_modified_mods(void) {
 	grug_reloads_size = 0;
