@@ -8690,6 +8690,8 @@ static void reset_regenerate_modified_mods(void) {
 	memset(buckets_entities, 0xff, sizeof(buckets_entities));
 	entities_size = 0;
 	grug_resource_reloads_size = 0;
+	grug_on_fn_name = "OPTIMIZED OUT FUNCTION NAME";
+	grug_on_fn_path = "OPTIMIZED OUT FUNCTION PATH";
 }
 
 static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
