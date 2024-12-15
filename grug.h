@@ -41,7 +41,7 @@ struct grug_file *grug_get_entity_file(char *entity_name);
 void grug_free_mods(void);
 
 // These functions are meant to be used together, to write and read the AST of the mods/ directory
-// One usecase is that this allows you to for example write a Python program that reads the mods/ AST,
+// One use case is that this allows you to for example write a Python program that reads the mods/ AST,
 // and modifies it to apply mod API changes the game had,
 // like renaming game function calls, or doubling jump strength values if the game's gravity was doubled
 //
@@ -51,10 +51,8 @@ void grug_free_mods(void);
 // Returns whether an error occurred
 bool grug_dump_file_to_json(char *input_grug_path, char *output_json_path);
 bool grug_generate_file_from_json(char *input_json_path, char *output_grug_path);
-
-// TODO: Write these
-// bool grug_dump_mods_to_json(char *output_json_path);
-// bool grug_generate_mods_from_json(char *input_json_path);
+bool grug_dump_mods_to_json(char *input_mods_path, char *output_json_path);
+// bool grug_generate_mods_from_json(char *input_json_path, char *output_mods_path);
 
 // Safe mode is the default
 // Safe mode is significantly slower than fast mode, but guarantees the program can't crash
