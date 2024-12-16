@@ -4473,7 +4473,7 @@ bool grug_generate_file_from_json(char *input_json_path, char *output_grug_path)
 static void generate_mods_from_opened_json(char *mods_dir_path, struct json_node node) {
 	grug_assert(node.type == JSON_NODE_OBJECT, "input_json_path contained %s, while a directory object was expected", node.type == JSON_NODE_ARRAY ? "an array" : "a string");
 
-	grug_assert(mkdir(mods_dir_path, 0775) != -1, "mkdir: %s", strerror(errno));
+	grug_assert(mkdir(mods_dir_path, 0775) != -1 || errno == EEXIST, "mkdir: %s", strerror(errno));
 
 	size_t field_count = node.object.field_count;
 
