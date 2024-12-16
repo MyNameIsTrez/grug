@@ -50,8 +50,8 @@ void grug_free_mods(void);
 //
 // Returns whether an error occurred
 bool grug_dump_file_to_json(char *input_grug_path, char *output_json_path);
-bool grug_generate_file_from_json(char *input_json_path, char *output_grug_path);
 bool grug_dump_mods_to_json(char *input_mods_path, char *output_json_path);
+bool grug_generate_file_from_json(char *input_json_path, char *output_grug_path);
 // bool grug_generate_mods_from_json(char *input_json_path, char *output_mods_path);
 
 // Safe mode is the default

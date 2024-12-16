@@ -139,28 +139,7 @@ static jmp_buf error_jmp_buffer;
 
 //// UTILS
 
-#define MAX_TEMP_STRINGS_CHARACTERS 420420
 #define BFD_HASH_BUCKET_SIZE 4051 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l345
-
-static char temp_strings[MAX_TEMP_STRINGS_CHARACTERS];
-static size_t temp_strings_size;
-
-static void reset_utils(void) {
-	temp_strings_size = 0;
-}
-
-static char *push_temp_string(char *slice_start, size_t length) {
-	grug_assert(temp_strings_size + length < MAX_TEMP_STRINGS_CHARACTERS, "There are more than %d characters in the temp_strings array, exceeding MAX_TEMP_STRINGS_CHARACTERS", MAX_TEMP_STRINGS_CHARACTERS);
-
-	char *new_str = temp_strings + temp_strings_size;
-
-	for (size_t i = 0; i < length; i++) {
-		temp_strings[temp_strings_size++] = slice_start[i];
-	}
-	temp_strings[temp_strings_size++] = '\0';
-
-	return new_str;
-}
 
 static bool streq(char *a, char *b) {
 	return strcmp(a, b) == 0;
@@ -179,6 +158,16 @@ static bool ends_with(char *a, char *b) {
 		return false;
 	}
 	return strncmp(a + len_a - len_b, b, len_b) == 0;
+}
+
+static bool is_lowercase(char *str) {
+	for (; *str; str++) {
+        // `!islower()` doesn't work, since '-' isn't considered lowercase
+		if (isupper(*str)) {
+			return false;
+		}
+	}
+	return true;
 }
 
 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/elf.c#l193
@@ -1511,6 +1500,7 @@ static void read_file(char *path) {
 //// TOKENIZATION
 
 #define MAX_TOKENS 420420
+#define MAX_TOKEN_STRINGS_CHARACTERS 420420
 #define SPACES_PER_INDENT 4
 
 enum token_type {
@@ -1601,8 +1591,12 @@ static char *get_token_type_str[] = {
 static struct token tokens[MAX_TOKENS];
 static size_t tokens_size;
 
+static char token_strings[MAX_TOKEN_STRINGS_CHARACTERS];
+static size_t token_strings_size;
+
 static void reset_tokenization(void) {
 	tokens_size = 0;
+	token_strings_size = 0;
 }
 
 static size_t max_size_t(size_t a, size_t b) {
@@ -1699,11 +1693,24 @@ static bool is_end_of_word(char c) {
 	return !isalnum(c) && c != '_';
 }
 
+static char *push_token_string(char *slice_start, size_t length) {
+	grug_assert(token_strings_size + length < MAX_TOKEN_STRINGS_CHARACTERS, "There are more than %d characters in the token_strings array, exceeding MAX_TOKEN_STRINGS_CHARACTERS", MAX_TOKEN_STRINGS_CHARACTERS);
+
+	char *new_str = token_strings + token_strings_size;
+
+	for (size_t i = 0; i < length; i++) {
+		token_strings[token_strings_size++] = slice_start[i];
+	}
+	token_strings[token_strings_size++] = '\0';
+
+	return new_str;
+}
+
 static void push_token(enum token_type type, char *str, size_t len) {
 	grug_assert(tokens_size < MAX_TOKENS, "There are more than %d tokens in the grug file, exceeding MAX_TOKENS", MAX_TOKENS);
 	tokens[tokens_size++] = (struct token){
 		.type = type,
-		.str = push_temp_string(str, len),
+		.str = push_token_string(str, len),
 	};
 }
 
@@ -3455,21 +3462,12 @@ static void dump_global_statement(struct global_statement global) {
 	dump("}");
 }
 
-bool grug_dump_file_to_json(char *input_grug_path, char *output_json_path) {
-	if (setjmp(error_jmp_buffer)) {
-		return true;
-	}
-
-	reset_utils();
-
+static void dump_file_to_opened_json(char *input_grug_path) {
 	read_file(input_grug_path);
 
 	tokenize();
 
 	parse();
-
-	dumped_stream = fopen(output_json_path, "w");
-	grug_assert(dumped_stream, "fopen: %s", strerror(errno));
 
 	dump("[");
 
@@ -3482,6 +3480,117 @@ bool grug_dump_file_to_json(char *input_grug_path, char *output_json_path) {
 	}
 
 	dump("]\n");
+}
+
+bool grug_dump_file_to_json(char *input_grug_path, char *output_json_path) {
+	if (setjmp(error_jmp_buffer)) {
+		return true;
+	}
+
+	dumped_stream = fopen(output_json_path, "w");
+	grug_assert(dumped_stream, "fopen: %s", strerror(errno));
+
+	dump_file_to_opened_json(input_grug_path);
+
+	grug_assert(fclose(dumped_stream) == 0, "fclose: %s", strerror(errno));
+
+	return false;
+}
+
+static void dump_mods_to_opened_json(char *dir_path) {
+	DIR *dirp = opendir(dir_path);
+	grug_assert(dirp, "opendir: %s", strerror(errno));
+
+	struct dirent *dp;
+
+	size_t seen_dir_count = 0;
+	errno = 0;
+	while ((dp = readdir(dirp))) {
+		if (streq(dp->d_name, ".") || streq(dp->d_name, "..")) {
+			continue;
+		}
+
+		char entry_path[STUPID_MAX_PATH];
+		snprintf(entry_path, sizeof(entry_path), "%s/%s", dir_path, dp->d_name);
+
+		grug_assert(is_lowercase(dp->d_name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", dp->d_name, entry_path);
+
+		struct stat entry_stat;
+		grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
+
+		if (S_ISDIR(entry_stat.st_mode)) {
+			if (seen_dir_count == 0) {
+				dump("\"dirs\":{");
+			} else {
+				dump(",");
+			}
+
+			dump("\"%s\":{", dp->d_name);
+			dump_mods_to_opened_json(entry_path);
+			dump("}");
+
+			seen_dir_count++;
+		}
+	}
+	grug_assert(errno == 0, "readdir: %s", strerror(errno));
+	if (seen_dir_count > 0) {
+		dump("}");
+	}
+
+	size_t seen_file_count = 0;
+	rewinddir(dirp);
+	errno = 0;
+	while ((dp = readdir(dirp))) {
+		if (streq(dp->d_name, ".") || streq(dp->d_name, "..")) {
+			continue;
+		}
+
+		char entry_path[STUPID_MAX_PATH];
+		snprintf(entry_path, sizeof(entry_path), "%s/%s", dir_path, dp->d_name);
+
+		grug_assert(is_lowercase(dp->d_name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", dp->d_name, entry_path);
+
+		struct stat entry_stat;
+		grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
+
+		if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(dp->d_name), ".grug")) {
+			if (seen_file_count == 0) {
+				if (seen_dir_count > 0) {
+					dump(",");
+				}
+
+				dump("\"files\":{");
+			} else {
+				dump(",");
+			}
+
+			dump("\"%s\":", dp->d_name);
+			dump_file_to_opened_json(entry_path);
+
+			seen_file_count++;
+		}
+	}
+	grug_assert(errno == 0, "readdir: %s", strerror(errno));
+	if (seen_file_count > 0) {
+		dump("}");
+	}
+
+	closedir(dirp);
+}
+
+bool grug_dump_mods_to_json(char *input_mods_path, char *output_json_path) {
+	if (setjmp(error_jmp_buffer)) {
+		return true;
+	}
+
+	dumped_stream = fopen(output_json_path, "w");
+	grug_assert(dumped_stream, "fopen: %s", strerror(errno));
+
+	dump("{");
+
+	dump_mods_to_opened_json(input_mods_path);
+
+	dump("}");
 
 	grug_assert(fclose(dumped_stream) == 0, "fclose: %s", strerror(errno));
 
@@ -5152,6 +5261,7 @@ static void fill_result_types(void) {
 #define MAX_HELPER_FN_OFFSETS 420420
 #define MAX_STACK_SIZE 420420
 #define MAX_RESOURCES 420420
+#define MAX_DEFINE_FN_NAME_CHARACTERS 420
 #define MAX_LOOP_DEPTH 420
 #define MAX_BREAK_STATEMENTS_PER_LOOP 420
 #define NEXT_INSTRUCTION_OFFSET sizeof(u32)
@@ -5333,8 +5443,6 @@ static size_t text_offsets[MAX_SYMBOLS];
 
 static u8 codes[MAX_CODES];
 static size_t codes_size;
-
-static char *define_fn_name;
 
 static char resource_strings[MAX_RESOURCE_STRINGS_CHARACTERS];
 static size_t resource_strings_size;
@@ -6799,6 +6907,27 @@ static void compile_define_fn_returned_fields(void) {
 	}
 }
 
+static char *get_define_fn_name(void) {
+	char *name = grug_define_entity->name;
+
+	static char define_fn_name[MAX_DEFINE_FN_NAME_CHARACTERS];
+	size_t define_fn_name_size = 0;
+
+	grug_assert(sizeof("define_") - 1 + strlen(name) < MAX_DEFINE_FN_NAME_CHARACTERS, "There are more than %d characters in the define_fn_name array, exceeding MAX_DEFINE_FN_NAME_CHARACTERS", MAX_DEFINE_FN_NAME_CHARACTERS);
+
+	memcpy(define_fn_name, "define_", sizeof("define_") - 1);
+	define_fn_name_size += sizeof("define_") - 1;
+
+	size_t name_length = strlen(name);
+
+	for (size_t i = 0; i < name_length; i++) {
+		define_fn_name[define_fn_name_size++] = name[i];
+	}
+	define_fn_name[define_fn_name_size++] = '\0';
+
+	return define_fn_name;
+}
+
 static void compile_define_fn(void) {
 	compile_unpadded(SUB_RSP_8_BITS);
 	compile_byte(8);
@@ -6806,7 +6935,7 @@ static void compile_define_fn(void) {
 	compile_define_fn_returned_fields();
 
 	compile_byte(CALL);
-	push_game_fn_call(define_fn_name, codes_size);
+	push_game_fn_call(get_define_fn_name(), codes_size);
 	compile_unpadded(PLACEHOLDER_32);
 
 	compile_unpadded(ADD_RSP_8_BITS);
@@ -6815,26 +6944,8 @@ static void compile_define_fn(void) {
 	compile_byte(RET);
 }
 
-static void init_define_fn_name(char *name) {
-	grug_assert(temp_strings_size + sizeof("define_") - 1 + strlen(name) < MAX_TEMP_STRINGS_CHARACTERS, "There are more than %d characters in the strings array, exceeding MAX_TEMP_STRINGS_CHARACTERS", MAX_TEMP_STRINGS_CHARACTERS);
-
-	define_fn_name = temp_strings + temp_strings_size;
-
-	memcpy(define_fn_name, "define_", sizeof("define_") - 1);
-	temp_strings_size += sizeof("define_") - 1;
-
-	size_t name_length = strlen(name);
-
-	for (size_t i = 0; i < name_length; i++) {
-		temp_strings[temp_strings_size++] = name[i];
-	}
-	temp_strings[temp_strings_size++] = '\0';
-}
-
 static void compile(char *grug_path) {
 	reset_compiling();
-
-	init_define_fn_name(grug_define_entity->name);
 
 	size_t text_offset_index = 0;
 	size_t text_offset = 0;
@@ -8737,8 +8848,6 @@ static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
 static void regenerate_dll(char *grug_path, char *dll_path) {
 	grug_log("# Regenerating %s\n", dll_path);
 
-	reset_utils();
-
 	grug_loading_error_in_grug_file = true;
 
 	read_file(grug_path);
@@ -9164,16 +9273,6 @@ static void reload_grug_file(char *dll_entry_path, i64 entry_mtime, char *grug_f
 
 	// Let the game developer know when they need to reload a resource
 	reload_resources_from_dll(dll_path, file->resource_mtimes);
-}
-
-static bool is_lowercase(char *str) {
-	for (; *str; str++) {
-        // `!islower()` doesn't work, since '-' isn't considered lowercase
-		if (isupper(*str)) {
-			return false;
-		}
-	}
-	return true;
 }
 
 static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct grug_mod_dir *dir) {
