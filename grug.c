@@ -4479,25 +4479,25 @@ static void generate_mods_from_opened_json(char *mods_dir_path, struct json_node
 
 	grug_assert(field_count == 1 || field_count == 2, "input_json_path its directory objects are supposed to have 1 or 2 fields");
 
-	struct json_field *fields = node.object.fields;
+	struct json_field *node_fields = node.object.fields;
 
 	struct json_node *dirs_node = NULL;
 	struct json_node *files_node = NULL;
 
-	if (streq(fields[0].key, "dirs")) {
-		dirs_node = fields[0].value;
+	if (streq(node_fields[0].key, "dirs")) {
+		dirs_node = node_fields[0].value;
 
 		if (field_count == 2) {
-			grug_assert(streq(fields[1].key, "files"), "input_json_path its second field must be \"files\", but got \"%s\"", fields[1].key);
+			grug_assert(streq(node_fields[1].key, "files"), "input_json_path its second field must be \"files\", but got \"%s\"", node_fields[1].key);
 
-			files_node = fields[1].value;
+			files_node = node_fields[1].value;
 		}
-	} else if (streq(fields[0].key, "files")) {
+	} else if (streq(node_fields[0].key, "files")) {
 		grug_assert(field_count == 1, "input_json_path its object its \"files\" field isn't supposed to have another field after it");
 
-		files_node = fields[0].value;
+		files_node = node_fields[0].value;
 	} else {
-		grug_error("input_json_path its first field must be either \"dirs\" or \"files\", but got \"%s\"", fields[0].key);
+		grug_error("input_json_path its first field must be either \"dirs\" or \"files\", but got \"%s\"", node_fields[0].key);
 	}
 
 	char entry_path[STUPID_MAX_PATH];
