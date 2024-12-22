@@ -28,13 +28,13 @@ typedef void (*grug_init_globals_fn_t)(void *globals, uint64_t id);
 
 //// Functions
 
-void grug_set_runtime_error_handler(grug_runtime_error_handler_t handler);
+bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, char *mods_dir_path);
 
 // Returns whether an error occurred
 bool grug_regenerate_modified_mods(void);
 
-// Do NOT store the returned pointer!
-// It has a chance to dangle after the next grug_regenerate_modified_mods() call
+// Do NOT store the returned pointer, as it has a chance to dangle
+// after the next grug_regenerate_modified_mods() call!
 struct grug_file *grug_get_entity_file(char *entity_name);
 
 // You aren't expected to call this normally

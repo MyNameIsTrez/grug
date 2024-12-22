@@ -62,13 +62,6 @@
 #include <time.h>
 #include <unistd.h>
 
-// The only reason this define is surrounded by an ifndef,
-// is so that tests.c can override it with "-Dtests" at compile time
-// If you're a game developer however, you should instead just manually change the below "mods" string
-#ifndef MODS_DIR_PATH
-#define MODS_DIR_PATH "mods"
-#endif
-
 // "The problem is that you can't meaningfully define a constant like this
 // in a header file. The maximum path size is actually to be something
 // like a filesystem limitation, or at the very least a kernel parameter.
@@ -138,6 +131,8 @@ struct grug_error previous_grug_error;
 static jmp_buf error_jmp_buffer;
 
 //// UTILS
+
+static char global_mods_dir_path[STUPID_MAX_PATH];
 
 #define BFD_HASH_BUCKET_SIZE 4051 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l345
 
@@ -388,10 +383,6 @@ static timer_t on_fn_timeout_timer_id;
 sigset_t grug_block_mask;
 
 grug_runtime_error_handler_t grug_runtime_error_handler = NULL;
-
-void grug_set_runtime_error_handler(grug_runtime_error_handler_t handler) {
-    grug_runtime_error_handler = handler;
-}
 
 void grug_disable_on_fn_runtime_error_handling(void) {
 	// Disable the SIGALRM timeout timer
@@ -1043,7 +1034,6 @@ void json(char *file_path, struct json_node *returned) {
 
 #define MAX_GRUG_FUNCTIONS 420420
 #define MAX_GRUG_ARGUMENTS 420420
-#define MOD_API_JSON_PATH "mod_api.json"
 
 enum type {
 	type_void,
@@ -1450,9 +1440,9 @@ static void init_entities(struct json_object entities) {
 	}
 }
 
-static void parse_mod_api_json(void) {
+static void parse_mod_api_json(char *mod_api_json_path) {
 	struct json_node node;
-	json(MOD_API_JSON_PATH, &node);
+	json(mod_api_json_path, &node);
 
 	grug_assert(node.type == JSON_NODE_OBJECT, "mod_api.json its root must be an object");
 	struct json_object root_object = node.object;
@@ -6318,7 +6308,7 @@ static char *push_entity_dependency_string(char *string) {
 
 static char *push_resource_string(char *string) {
 	static char resource[STUPID_MAX_PATH];
-	snprintf(resource, sizeof(resource), MODS_DIR_PATH"/%s/%s", mod, string);
+	grug_assert(snprintf(resource, sizeof(resource), "%s/%s/%s", global_mods_dir_path, mod, string) >= 0, "Filling the variable 'resource' failed");
 
 	size_t length = strlen(resource);
 
@@ -8842,10 +8832,10 @@ static size_t entities_size;
 struct grug_modified_resource grug_resource_reloads[MAX_RESOURCE_RELOADS];
 size_t grug_resource_reloads_size;
 
-static bool parsed_mod_api_json = false;
-
 char *grug_on_fn_name;
 char *grug_on_fn_path;
+
+static bool is_grug_initialized = false;
 
 static void reset_regenerate_modified_mods(void) {
 	grug_reloads_size = 0;
@@ -8962,6 +8952,8 @@ static void reset_previous_grug_error(void) {
 // This function just exists for the grug-tests repository
 // It returns whether an error occurred
 bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name) {
+	assert(is_grug_initialized && "You forgot to call grug_init() once at program startup!");
+
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
@@ -8972,11 +8964,6 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name) {
 
 	assert(strlen(grug_path) + 1 <= sizeof(grug_error.path));
 	memcpy(grug_error.path, grug_path, strlen(grug_path) + 1);
-
-	if (!parsed_mod_api_json) {
-		parse_mod_api_json();
-		parsed_mod_api_json = true;
-	}
 
 	regenerate_dll(grug_path, dll_path);
 
@@ -9485,7 +9472,7 @@ static void validate_about_file(char *about_json_path) {
 static void reload_modified_mods(void) {
 	struct grug_mod_dir *dir = &grug_mods;
 
-	DIR *dirp = opendir(MODS_DIR_PATH);
+	DIR *dirp = opendir(global_mods_dir_path);
 	grug_assert(dirp, "opendir: %s", strerror(errno));
 
 	errno = 0;
@@ -9496,7 +9483,7 @@ static void reload_modified_mods(void) {
 		}
 
 		char entry_path[STUPID_MAX_PATH];
-		snprintf(entry_path, sizeof(entry_path), MODS_DIR_PATH"/%s", dp->d_name);
+		grug_assert(snprintf(entry_path, sizeof(entry_path), "%s/%s", global_mods_dir_path, dp->d_name) >= 0, "Filling the variable 'entry_path' failed");
 
 		grug_assert(is_lowercase(dp->d_name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", dp->d_name, entry_path);
 
@@ -9541,11 +9528,30 @@ static char *get_basename(char *path) {
 	return base ? base + 1 : path;
 }
 
-// Returns whether an error occurred
+bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, char *mods_dir_path) {
+	if (setjmp(error_jmp_buffer)) {
+		return true;
+	}
+
+	assert(handler && "grug_init() its grug_runtime_error_handler can't be NULL");
+    grug_runtime_error_handler = handler;
+
+	grug_assert(!is_grug_initialized, "grug_init() can't be called more than once");
+
+	grug_assert(!strchr(mods_dir_path, '\\'), "grug_init() its mods_dir_path can't contain backslashes, so replace them with '/'");
+	grug_assert(mods_dir_path[strlen(mods_dir_path) - 1] != '/', "grug_init() its mods_dir_path can't have a trailing '/'");
+
+	parse_mod_api_json(mod_api_json_path);
+
+	memcpy(global_mods_dir_path, mods_dir_path, strlen(mods_dir_path) + 1);
+
+	is_grug_initialized = true;
+
+	return false;
+}
+
 bool grug_regenerate_modified_mods(void) {
-	assert(!strchr(MODS_DIR_PATH, '\\') && "MODS_DIR_PATH can't contain backslashes, so replace them with '/'");
-	assert(MODS_DIR_PATH[strlen(MODS_DIR_PATH) - 1] != '/' && "MODS_DIR_PATH can't have a trailing '/'");
-	assert(grug_runtime_error_handler && "You forgot to call grug_set_runtime_error_handler() once at program startup!");
+	assert(is_grug_initialized && "You forgot to call grug_init() once at program startup!");
 
 	if (setjmp(error_jmp_buffer)) {
 		return true;
@@ -9555,13 +9561,8 @@ bool grug_regenerate_modified_mods(void) {
 
 	grug_loading_error_in_grug_file = false;
 
-	if (!parsed_mod_api_json) {
-		parse_mod_api_json();
-		parsed_mod_api_json = true;
-	}
-
 	if (!grug_mods.name) {
-		grug_mods.name = strdup(get_basename(MODS_DIR_PATH));
+		grug_mods.name = strdup(get_basename(global_mods_dir_path));
 		grug_assert(grug_mods.name, "strdup: %s", strerror(errno));
 	}
 
