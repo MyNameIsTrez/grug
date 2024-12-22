@@ -6562,9 +6562,17 @@ static void compile_statements(struct statement *group_statements, size_t statem
 				if (in_on_fn) {
 					compile_byte(PUSH_RAX);
 
+					// We must restore our 16-byte alignment after the above PUSH_RAX,
+					// since we need to conform to POSIX when doing our C call
+					compile_unpadded(SUB_RSP_8_BITS);
+					compile_byte(8);
+
 					compile_byte(CALL);
 					push_system_fn_call("grug_disable_on_fn_runtime_error_handling", codes_size);
 					compile_unpadded(PLACEHOLDER_32);
+
+					compile_unpadded(ADD_RSP_8_BITS);
+					compile_byte(8);
 
 					compile_byte(POP_RAX);
 				}
