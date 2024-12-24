@@ -9208,16 +9208,16 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char en
 	assert(strlen(entry_path) + 1 <= sizeof(grug_error.path));
 	memcpy(grug_error.path, entry_path, strlen(entry_path) + 1);
 
+	if (needs_regeneration) {
+		regenerate_dll(entry_path, dll_path);
+	}
+
 	if (file && file->dll) {
 		modified.old_dll = file->dll;
 		if (dlclose(file->dll)) {
 			print_dlerror("dlclose");
 		}
 		file->dll = NULL;
-	}
-
-	if (needs_regeneration) {
-		regenerate_dll(entry_path, dll_path);
 	}
 
 	struct grug_file new_file = {0};
