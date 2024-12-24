@@ -384,6 +384,11 @@ sigset_t grug_block_mask;
 
 grug_runtime_error_handler_t grug_runtime_error_handler = NULL;
 
+// Called by mods
+void grug_disable_on_fn_runtime_error_handling(void);
+void grug_enable_on_fn_runtime_error_handling(void);
+char *grug_get_runtime_error_reason(void);
+
 void grug_disable_on_fn_runtime_error_handling(void) {
 	// Disable the SIGALRM timeout timer
 	struct itimerspec new = {0};
@@ -1017,7 +1022,7 @@ static void json_reset(void) {
 	json_fields_size = 0;
 }
 
-void json(char *file_path, struct json_node *returned) {
+static void json(char *file_path, struct json_node *returned) {
 	json_reset();
 
 	json_file_path = file_path;
@@ -8844,6 +8849,9 @@ char *grug_on_fn_name;
 char *grug_on_fn_path;
 
 static bool is_grug_initialized = false;
+
+// Called by mods
+bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name);
 
 static void reset_regenerate_modified_mods(void) {
 	grug_reloads_size = 0;
