@@ -3494,7 +3494,7 @@ bool grug_dump_file_to_json(char *input_grug_path, char *output_json_path) {
 
 static void dump_mods_to_opened_json(char *dir_path) {
 	DIR *dirp = opendir(dir_path);
-	grug_assert(dirp, "opendir: %s", strerror(errno));
+	grug_assert(dirp, "opendir(\"%s\"): %s", dir_path, strerror(errno));
 
 	struct dirent *dp;
 
@@ -9356,7 +9356,7 @@ static void reload_grug_file(char *dll_entry_path, i64 entry_mtime, char *grug_f
 
 static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct grug_mod_dir *dir) {
 	DIR *dirp = opendir(mods_dir_path);
-	grug_assert(dirp, "opendir: %s", strerror(errno));
+	grug_assert(dirp, "opendir(\"%s\"): %s", mods_dir_path, strerror(errno));
 
 	char **seen_dir_names = NULL;
 	size_t seen_dir_names_size = 0;
@@ -9489,7 +9489,7 @@ static void reload_modified_mods(void) {
 	struct grug_mod_dir *dir = &grug_mods;
 
 	DIR *dirp = opendir(global_mods_dir_path);
-	grug_assert(dirp, "opendir: %s", strerror(errno));
+	grug_assert(dirp, "opendir(\"%s\"): %s", global_mods_dir_path, strerror(errno));
 
 	errno = 0;
 	struct dirent *dp;
