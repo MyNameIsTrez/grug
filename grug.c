@@ -9008,6 +9008,7 @@ static void try_create_parent_dirs(char *file_path) {
 
 static void free_file(struct grug_file file) {
 	free(file.name);
+	free(file.entity);
 
 	if (file.dll && dlclose(file.dll)) {
 		print_dlerror("dlclose");
@@ -9057,8 +9058,8 @@ static u32 get_entity_index(char *entity) {
 	return i;
 }
 
-struct grug_file *grug_get_entity_file(char *entity_name) {
-	u32 index = get_entity_index(entity_name);
+struct grug_file *grug_get_entity_file(char *entity) {
+	u32 index = get_entity_index(entity);
 	if (index == UINT32_MAX) {
 		return NULL;
 	}
@@ -9214,20 +9215,22 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char en
 
 	if (file && file->dll) {
 		modified.old_dll = file->dll;
+
+		// This dlclose() needs to happen after the regenerate_dll() call,
+		// since even if regenerate_dll() throws when a typo is introduced to a mod,
+		// we want to keep the pre-typo DLL version open so the game doesn't crash
+		//
+		// This dlclose() needs to happen before the upcoming dlopen() call,
+		// since the DLL won't be reloaded otherwise
 		if (dlclose(file->dll)) {
 			print_dlerror("dlclose");
 		}
+
+		// Not necessary, but makes debugging less confusing
 		file->dll = NULL;
 	}
 
 	struct grug_file new_file = {0};
-
-	if (file) {
-		new_file.name = file->name;
-	} else {
-		new_file.name = strdup(grug_filename);
-		grug_assert(new_file.name, "strdup: %s", strerror(errno));
-	}
 
 	new_file.dll = dlopen(dll_path, RTLD_NOW);
 	if (!new_file.dll) {
@@ -9279,6 +9282,12 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char en
 			file->resource_mtimes = NULL;
 		}
 	} else {
+		new_file.name = strdup(grug_filename);
+		grug_assert(new_file.name, "strdup: %s", strerror(errno));
+
+		new_file.entity = strdup(form_entity(grug_filename));
+		grug_assert(new_file.entity, "strdup: %s", strerror(errno));
+
 		// We check dll_resources_size > 0, since whether malloc(0) returns NULL is implementation defined
 		// See https://stackoverflow.com/a/1073175/13279557
 		if (dll_resources_size > 0) {

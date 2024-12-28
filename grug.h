@@ -35,7 +35,7 @@ bool grug_regenerate_modified_mods(void);
 
 // Do NOT store the returned pointer, as it has a chance to dangle
 // after the next grug_regenerate_modified_mods() call!
-struct grug_file *grug_get_entity_file(char *entity_name);
+struct grug_file *grug_get_entity_file(char *entity);
 
 // You aren't expected to call this normally
 void grug_free_mods(void);
@@ -71,6 +71,7 @@ void grug_toggle_on_fns_mode(void);
 
 struct grug_file {
 	char *name;
+	char *entity;
 	void *dll;
 	grug_define_fn_t define_fn;
 	size_t globals_size;
