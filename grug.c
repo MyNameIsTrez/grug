@@ -580,7 +580,7 @@ void grug_enable_on_fn_runtime_error_handling(void) {
 
 	static struct sigaction sigsegv_sa = {
 		.sa_sigaction = grug_error_signal_handler_segv,
-		// SA_RESTART is what the JVM uses
+		// SA_RESTART is what the JVM uses, retrying primitive C functions
 		// SA_SIGINFO allows us to pass all information to the original handler
 		// SA_ONSTACK gives SIGSEGV its own stack
 		.sa_flags = SA_RESTART | SA_SIGINFO | SA_ONSTACK,
