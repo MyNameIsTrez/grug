@@ -29,15 +29,16 @@ You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
 15. LINKING
 16. HOT RELOADING
 
-## Small example programs
+## Programs showcasing grug
 
+- [Modding Minecraft with grug](https://github.com/MyNameIsTrez/grug-toys)
 - [Box2D and raylib game](https://github.com/MyNameIsTrez/grug-box2d-and-raylib-game)
 - [terminal game: C/C++](https://github.com/MyNameIsTrez/grug-terminal-game-c-cpp)
 - [terminal game: Python](https://github.com/MyNameIsTrez/grug-terminal-game-python)
 - [terminal game: Java](https://github.com/MyNameIsTrez/grug-terminal-game-java)
 - [grug benchmarks](https://github.com/MyNameIsTrez/grug-benchmarks)
 
-## Options
+## Settings
 
 Search for `#define` in `grug.c` (with Ctrl+F). All the defines are configurable.
 
