@@ -24,7 +24,7 @@ You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
 10. PARSING
 11. DUMPING AST
 12. APPLYING AST
-13. FILLING RESULT TYPES
+13. TYPE PROPAGATION
 14. COMPILING
 15. LINKING
 16. HOT RELOADING

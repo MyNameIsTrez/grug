@@ -22,7 +22,7 @@
 // 10. PARSING
 // 11. DUMPING AST
 // 12. APPLYING AST
-// 13. FILLING RESULT TYPES
+// 13. TYPE PROPAGATION
 // 14. COMPILING
 // 15. LINKING
 // 16. HOT RELOADING
@@ -4704,7 +4704,7 @@ bool grug_generate_mods_from_json(char *input_json_path, char *output_mods_path)
 	return false;
 }
 
-//// FILLING RESULT TYPES
+//// TYPE PROPAGATION
 
 #define MAX_VARIABLES_PER_FUNCTION 420420
 #define MAX_ENTITY_DEPENDENCY_NAME_LENGTH 420
@@ -5162,7 +5162,7 @@ static void add_local_variable(char *name, enum type type) {
 	variables[variables_size] = (struct variable){
 		.name = name,
 		.type = type,
-		.offset = stack_frame_bytes, // This field is unused by the section "FILLING RESULT TYPES", but used by the section "COMPILING"
+		.offset = stack_frame_bytes, // This field is unused by the section "TYPE PROPAGATION", but used by the section "COMPILING"
 	};
 
 	u32 bucket_index = elf_hash(name) % MAX_VARIABLES_PER_FUNCTION;
