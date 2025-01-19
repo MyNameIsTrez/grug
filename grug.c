@@ -9017,7 +9017,7 @@ char *grug_on_fn_path;
 
 static bool is_grug_initialized = false;
 
-// Called by mods
+// Called by the grug-tests repository
 bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name);
 
 static void reset_regenerate_modified_mods(void) {
