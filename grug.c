@@ -461,6 +461,8 @@ static void grug_error_signal_handler_segv(int sig, siginfo_t *info, void *ucont
 	}
 #endif
 
+	assert(false); // TODO: REMOVE!
+
 	// It is important that we cancel on fn timeout alarms asap,
 	// cause if there was a stack overflow, then the on fn didn't get the chance
 	// to deactivate its own alarm
