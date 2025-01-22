@@ -44,6 +44,8 @@
 
 //// INCLUDES AND DEFINES
 
+#define _GNU_SOURCE // TODO: REMOVE! This was just for pthread_getname_np!
+
 #define _XOPEN_SOURCE 700 // This is just so VS Code can find SIGSTKSZ and sigaction
 
 #include "grug.h"
@@ -56,7 +58,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <math.h>
-#include <pthread.h>
+#include <pthread.h> // TODO: REMOVE! This was just for pthread_getname_np!
 #include <setjmp.h>
 #include <signal.h>
 #include <stdio.h>
@@ -387,6 +389,8 @@ static volatile sigaction_handler_t jvm_segv_handler;
 static volatile sigaction_handler_t jvm_fpe_handler;
 
 static volatile pthread_t on_fn_thread;
+
+static volatile bool running_on_fn;
 #endif
 
 static timer_t on_fn_timeout_timer_id;
@@ -423,6 +427,10 @@ void grug_disable_on_fn_runtime_error_handling(void) {
 	if (sigaction(SIGFPE, &previous_fpe_sa, NULL) == -1) {
 		abort();
 	}
+
+#ifdef CHECK_JVM_THREADS
+	running_on_fn = false;
+#endif
 }
 
 static void grug_error_signal_handler_segv(int sig, siginfo_t *info, void *ucontext) {
@@ -430,18 +438,20 @@ static void grug_error_signal_handler_segv(int sig, siginfo_t *info, void *ucont
 	(void)info;
 	(void)ucontext;
 
-	// {
-	// 	static char msg[] = "In grug_error_signal_handler_segv()\n";
-	// 	write(STDERR_FILENO, msg, sizeof(msg)-1);
-	// }
+	{
+		static char msg[] = "In grug_error_signal_handler_segv()\n";
+		write(STDERR_FILENO, msg, sizeof(msg)-1);
+	}
 
 #ifdef CHECK_JVM_THREADS
-	// pthread_t thread = pthread_self();
-	// #define MAX_THREAD_NAME_LEN 420
-	// static char thread_name[MAX_THREAD_NAME_LEN];
-	// assert(pthread_getname_np(thread, thread_name, MAX_THREAD_NAME_LEN) == 0);
-	// fprintf(stderr, "thread: %lu\n", thread);
-	// fprintf(stderr, "thread_name: '%s'\n", thread_name);
+	pthread_t thread = pthread_self();
+	#define MAX_THREAD_NAME_LEN 420
+	static char thread_name[MAX_THREAD_NAME_LEN];
+	assert(pthread_getname_np(thread, thread_name, MAX_THREAD_NAME_LEN) == 0);
+	fprintf(stderr, "on_fn_thread: %lu\n", on_fn_thread);
+	fprintf(stderr, "thread: %lu\n", thread);
+	fprintf(stderr, "thread_name: '%s'\n", thread_name);
+	fprintf(stderr, "running_on_fn: %s\n", running_on_fn ? "true" : "false");
 
 	if (!pthread_equal(pthread_self(), on_fn_thread)) {
 		// {
@@ -461,7 +471,17 @@ static void grug_error_signal_handler_segv(int sig, siginfo_t *info, void *ucont
 	}
 #endif
 
-	assert(false); // TODO: REMOVE!
+	{
+		static char msg[] = "wtf\n";
+		write(STDERR_FILENO, msg, sizeof(msg)-1);
+	}
+#ifdef CHECK_JVM_THREADS
+	assert(jvm_segv_handler);
+	jvm_segv_handler(sig, info, ucontext);
+	assert(false);
+	return;
+#endif
+	// assert(false); // TODO: REMOVE!
 
 	// It is important that we cancel on fn timeout alarms asap,
 	// cause if there was a stack overflow, then the on fn didn't get the chance
@@ -488,18 +508,20 @@ static void grug_error_signal_handler_alrm(int sig, siginfo_t *info, void *ucont
 	(void)info;
 	(void)ucontext;
 
-	// {
-	// 	static char msg[] = "In grug_error_signal_handler_alrm()\n";
-	// 	write(STDERR_FILENO, msg, sizeof(msg)-1);
-	// }
+	{
+		static char msg[] = "In grug_error_signal_handler_alrm()\n";
+		write(STDERR_FILENO, msg, sizeof(msg)-1);
+	}
 
 #ifdef CHECK_JVM_THREADS
-	// pthread_t thread = pthread_self();
-	// #define MAX_THREAD_NAME_LEN 420
-	// static char thread_name[MAX_THREAD_NAME_LEN];
-	// assert(pthread_getname_np(thread, thread_name, MAX_THREAD_NAME_LEN) == 0);
-	// fprintf(stderr, "thread: %lu\n", thread);
-	// fprintf(stderr, "thread_name: '%s'\n", thread_name);
+	pthread_t thread = pthread_self();
+	#define MAX_THREAD_NAME_LEN 420
+	static char thread_name[MAX_THREAD_NAME_LEN];
+	assert(pthread_getname_np(thread, thread_name, MAX_THREAD_NAME_LEN) == 0);
+	fprintf(stderr, "on_fn_thread: %lu\n", on_fn_thread);
+	fprintf(stderr, "thread: %lu\n", thread);
+	fprintf(stderr, "thread_name: '%s'\n", thread_name);
+	fprintf(stderr, "running_on_fn: %s\n", running_on_fn ? "true" : "false");
 
 	if (!pthread_equal(pthread_self(), on_fn_thread)) {
 		// {
@@ -537,10 +559,10 @@ static void grug_error_signal_handler_fpe(int sig, siginfo_t *info, void *uconte
 	(void)info;
 	(void)ucontext;
 
-	// {
-	// 	static char msg[] = "In grug_error_signal_handler_fpe()\n";
-	// 	write(STDERR_FILENO, msg, sizeof(msg)-1);
-	// }
+	{
+		static char msg[] = "In grug_error_signal_handler_fpe()\n";
+		write(STDERR_FILENO, msg, sizeof(msg)-1);
+	}
 
 #ifdef CHECK_JVM_THREADS
 	// pthread_t thread = pthread_self();
@@ -583,6 +605,10 @@ static void grug_error_signal_handler_fpe(int sig, siginfo_t *info, void *uconte
 void grug_enable_on_fn_runtime_error_handling(void) {
 	// fprintf(stderr, "In grug_enable_on_fn_runtime_error_handling\n");
 
+#ifdef CHECK_JVM_THREADS
+	running_on_fn = true;
+#endif
+
 	static struct sigaction sigsegv_sa = {
 		.sa_sigaction = grug_error_signal_handler_segv,
 		// SA_RESTART is what the JVM uses, retrying primitive C functions
@@ -607,9 +633,9 @@ void grug_enable_on_fn_runtime_error_handling(void) {
 		grug_assert(sigaddset(&grug_block_mask, SIGALRM) != -1, "sigaddset: %s", strerror(errno));
 
 		// Handle stack overflow, from https://stackoverflow.com/a/7342398/13279557
-		static char stack[SIGSTKSZ];
+		static char stack[8192]; // TODO: Change back to SIGSTKSZ
 		stack_t ss = {
-			.ss_size = SIGSTKSZ,
+			.ss_size = 8192, // TODO: Change back to SIGSTKSZ
 			.ss_sp = stack,
 		};
 
@@ -638,7 +664,6 @@ void grug_enable_on_fn_runtime_error_handling(void) {
 
 #ifdef CHECK_JVM_THREADS
 	on_fn_thread = pthread_self();
-	// fprintf(stderr, "thread: %lu\n", on_fn_thread);
 
 	// #define MAX_THREAD_NAME_LEN 420
 	// static char thread_name[MAX_THREAD_NAME_LEN];
