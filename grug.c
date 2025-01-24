@@ -13,19 +13,18 @@
 // 1. GRUG DOCUMENTATION
 // 2. INCLUDES AND DEFINES
 // 3. UTILS
-// 4. MACOS TIMER IMPLEMENTATION
-// 5. RUNTIME ERROR HANDLING
-// 6. JSON
-// 7. PARSING MOD API JSON
-// 8. READING
-// 9. TOKENIZATION
-// 10. PARSING
-// 11. DUMPING AST
-// 12. APPLYING AST
-// 13. TYPE PROPAGATION
-// 14. COMPILING
-// 15. LINKING
-// 16. HOT RELOADING
+// 4. RUNTIME ERROR HANDLING
+// 5. JSON
+// 6. PARSING MOD API JSON
+// 7. READING
+// 8. TOKENIZATION
+// 9. PARSING
+// 10. DUMPING AST
+// 11. APPLYING AST
+// 12. TYPE PROPAGATION
+// 13. COMPILING
+// 14. LINKING
+// 15. HOT RELOADING
 //
 // ## Programs showcasing grug
 //
@@ -44,10 +43,6 @@
 
 //// INCLUDES AND DEFINES
 
-#define _GNU_SOURCE // TODO: REMOVE! This was just for pthread_getname_np!
-
-#define _XOPEN_SOURCE 700 // This is just so VS Code can find SIGSTKSZ and sigaction
-
 #include "grug.h"
 
 #include <assert.h>
@@ -58,9 +53,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <math.h>
-#include <pthread.h> // TODO: REMOVE! This was just for pthread_getname_np!
 #include <setjmp.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -221,488 +214,19 @@ static void *get_dll_symbol(void *dll, char *symbol_name) {
 	return dlsym(dll, symbol_name);
 }
 
-//// MACOS TIMER IMPLEMENTATION
-
-#ifdef __APPLE__
-
-// Source: https://stackoverflow.com/a/68468895/13279557
-
-// #include <sys/stdtypes.h>
-#include <stdbool.h>
-#include <mach/boolean.h>
-#include <sys/errno.h>
-#include <stdlib.h>
-
-#include <dispatch/dispatch.h>
-
-// #if !defined(MAC_OS_X_VERSION_10_12) || (MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_12)
-// typedef int clockid_t;
-// #endif
-
-struct itimerspec {
-	struct timespec it_interval;	/* timer period */
-	struct timespec it_value;		/* timer expiration */
-};
-
-struct sigevent;
-
-/* If used a lot, queue should probably be outside of this struct */
-struct macos_timer {
-	dispatch_queue_t tim_queue;
-	dispatch_source_t tim_timer;
-	void (*tim_func)(union sigval);
-	void *tim_arg;
-};
-
-typedef struct macos_timer *timer_t;
-
-static inline void
-_timer_cancel(void *arg)
-{
-	struct macos_timer *tim = (struct macos_timer *)arg;
-	dispatch_release(tim->tim_timer);
-	dispatch_release(tim->tim_queue);
-	tim->tim_timer = NULL;
-	tim->tim_queue = NULL;
-	free(tim);
-}
-
-static inline void
-_timer_handler(void *arg)
-{
-	struct macos_timer *tim = (struct macos_timer *)arg;
-	union sigval sv;
-
-	sv.sival_ptr = tim->tim_arg;
-
-	if (tim->tim_func != NULL)
-		tim->tim_func(sv);
-}
-
-static inline int
-timer_create(clockid_t clockid, struct sigevent *sevp, timer_t *timerid)
-{
-	struct macos_timer *tim;
-
-	*timerid = NULL;
-
-	switch (clockid) {
-		case CLOCK_REALTIME:
-
-			/* What is implemented so far */
-			if (sevp->sigev_notify != SIGEV_THREAD) {
-				errno = ENOTSUP;
-				return (-1);
-			}
-
-			tim = (struct macos_timer *)
-				malloc(sizeof (struct macos_timer));
-			if (tim == NULL) {
-				errno = ENOMEM;
-				return (-1);
-			}
-
-			tim->tim_queue =
-				dispatch_queue_create("org.openzfsonosx.timerqueue",
-				0);
-			tim->tim_timer =
-				dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER,
-				0, 0, tim->tim_queue);
-
-			tim->tim_func = sevp->sigev_notify_function;
-			tim->tim_arg = sevp->sigev_value.sival_ptr;
-			*timerid = tim;
-
-			/* Opting to use pure C instead of Block versions */
-			dispatch_set_context(tim->tim_timer, tim);
-			dispatch_source_set_event_handler_f(tim->tim_timer,
-				_timer_handler);
-			dispatch_source_set_cancel_handler_f(tim->tim_timer,
-				_timer_cancel);
-
-			return (0);
-		default:
-			break;
-	}
-
-	errno = EINVAL;
-	return (-1);
-}
-
-static inline int
-timer_settime(timer_t tim, int flags, const struct itimerspec *its, struct itimerspec *remainvalue)
-{
-	(void)flags;
-	(void)remainvalue;
-
-	if (tim != NULL) {
-
-		/* Both zero, is disarm */
-		if (its->it_value.tv_sec == 0 &&
-			its->it_value.tv_nsec == 0) {
-		/* There's a comment about suspend count in Apple docs */
-			dispatch_suspend(tim->tim_timer);
-			return (0);
-		}
-
-		dispatch_time_t start;
-		start = dispatch_time(DISPATCH_TIME_NOW,
-			NSEC_PER_SEC * its->it_value.tv_sec +
-			its->it_value.tv_nsec);
-		dispatch_source_set_timer(tim->tim_timer, start,
-			NSEC_PER_SEC * its->it_value.tv_sec +
-			its->it_value.tv_nsec,
-			0);
-		dispatch_resume(tim->tim_timer);
-	}
-	return (0);
-}
-
-// static inline int
-// timer_delete(timer_t tim)
-// {
-// 	/* Calls _timer_cancel() */
-// 	if (tim != NULL)
-// 		dispatch_source_cancel(tim->tim_timer);
-
-// 	return (0);
-// }
-
-#endif
-
 //// RUNTIME ERROR HANDLING
 
 #define GRUG_ON_FN_TIME_LIMIT_MS 1000
 
-volatile sig_atomic_t grug_runtime_error_type;
-
 jmp_buf grug_runtime_error_jmp_buffer;
-
-static struct sigaction previous_segv_sa;
-static struct sigaction previous_alrm_sa;
-static struct sigaction previous_fpe_sa;
-
-#ifdef CHECK_JVM_THREADS
-typedef void (*sigaction_handler_t)(int, siginfo_t *, void *);
-
-static volatile sigaction_handler_t jvm_segv_handler;
-static volatile sigaction_handler_t jvm_fpe_handler;
-
-static volatile pthread_t on_fn_thread;
-
-static volatile bool running_on_fn;
-#endif
-
-static timer_t on_fn_timeout_timer_id;
-
-sigset_t grug_block_mask;
 
 grug_runtime_error_handler_t grug_runtime_error_handler = NULL;
 
 // Called by mods
-void grug_disable_on_fn_runtime_error_handling(void);
-void grug_enable_on_fn_runtime_error_handling(void);
-char *grug_get_runtime_error_reason(void);
+char *grug_get_runtime_error_reason(enum grug_runtime_error_type type);
 
-void grug_disable_on_fn_runtime_error_handling(void) {
-	// fprintf(stderr, "In grug_disable_on_fn_runtime_error_handling\n");
-
-	// Disable the SIGALRM timeout timer
-	struct itimerspec new = {0};
-	struct itimerspec old;
-
-	// Can't use grug_assert() here, since its snprintf() isn't in the async-signal-safe function list:
-	// https://stackoverflow.com/a/67840070/13279557
-	// if (timer_settime(on_fn_timeout_timer_id, 0, &new, NULL) == -1) {
-	if (timer_settime(on_fn_timeout_timer_id, 0, &new, &old) == -1) {
-		abort();
-	}
-
-	if (sigaction(SIGSEGV, &previous_segv_sa, NULL) == -1) {
-		abort();
-	}
-	if (sigaction(SIGALRM, &previous_alrm_sa, NULL) == -1) {
-		abort();
-	}
-	if (sigaction(SIGFPE, &previous_fpe_sa, NULL) == -1) {
-		abort();
-	}
-
-#ifdef CHECK_JVM_THREADS
-	running_on_fn = false;
-#endif
-}
-
-static void grug_error_signal_handler_segv(int sig, siginfo_t *info, void *ucontext) {
-	(void)sig;
-	(void)info;
-	(void)ucontext;
-
-	{
-		static char msg[] = "In grug_error_signal_handler_segv()\n";
-		write(STDERR_FILENO, msg, sizeof(msg)-1);
-	}
-
-#ifdef CHECK_JVM_THREADS
-	pthread_t thread = pthread_self();
-	#define MAX_THREAD_NAME_LEN 420
-	static char thread_name[MAX_THREAD_NAME_LEN];
-	assert(pthread_getname_np(thread, thread_name, MAX_THREAD_NAME_LEN) == 0);
-	fprintf(stderr, "on_fn_thread: %lu\n", on_fn_thread);
-	fprintf(stderr, "thread: %lu\n", thread);
-	fprintf(stderr, "thread_name: '%s'\n", thread_name);
-	fprintf(stderr, "running_on_fn: %s\n", running_on_fn ? "true" : "false");
-
-	if (!pthread_equal(pthread_self(), on_fn_thread)) {
-		// {
-		// 	char msg[] = "An unexpected thread entered the handler, so we'll call the original handler\n";
-		// 	write(STDERR_FILENO, msg, sizeof(msg)-1);
-		// }
-
-		assert(jvm_segv_handler);
-		jvm_segv_handler(sig, info, ucontext);
-
-		// {
-		// 	char msg[] = "The original signal handler returned\n";
-		// 	write(STDERR_FILENO, msg, sizeof(msg)-1);
-		// }
-
-		return;
-	}
-#endif
-
-	{
-		static char msg[] = "wtf\n";
-		write(STDERR_FILENO, msg, sizeof(msg)-1);
-	}
-#ifdef CHECK_JVM_THREADS
-	assert(jvm_segv_handler);
-	jvm_segv_handler(sig, info, ucontext);
-	assert(false);
-	return;
-#endif
-	// assert(false); // TODO: REMOVE!
-
-	// It is important that we cancel on fn timeout alarms asap,
-	// cause if there was a stack overflow, then the on fn didn't get the chance
-	// to deactivate its own alarm
-	//
-	// The reason having an alarm be raised outside of the on fn is bad,
-	// is because this function always longjmps out of itself,
-	// meaning that if the alarm happens in the middle of the game's code,
-	// then only a slice of the game's code would be executed, causing havoc
-	grug_disable_on_fn_runtime_error_handling();
-
-	grug_runtime_error_type = GRUG_ON_FN_STACK_OVERFLOW;
-
-	// {
-	// 	static char msg[] = "Calling siglongjmp() in grug_error_signal_handler_segv()\n";
-	// 	write(STDERR_FILENO, msg, sizeof(msg)-1);
-	// }
-
-	siglongjmp(grug_runtime_error_jmp_buffer, 1);
-}
-
-static void grug_error_signal_handler_alrm(int sig, siginfo_t *info, void *ucontext) {
-	(void)sig;
-	(void)info;
-	(void)ucontext;
-
-	{
-		static char msg[] = "In grug_error_signal_handler_alrm()\n";
-		write(STDERR_FILENO, msg, sizeof(msg)-1);
-	}
-
-#ifdef CHECK_JVM_THREADS
-	pthread_t thread = pthread_self();
-	#define MAX_THREAD_NAME_LEN 420
-	static char thread_name[MAX_THREAD_NAME_LEN];
-	assert(pthread_getname_np(thread, thread_name, MAX_THREAD_NAME_LEN) == 0);
-	fprintf(stderr, "on_fn_thread: %lu\n", on_fn_thread);
-	fprintf(stderr, "thread: %lu\n", thread);
-	fprintf(stderr, "thread_name: '%s'\n", thread_name);
-	fprintf(stderr, "running_on_fn: %s\n", running_on_fn ? "true" : "false");
-
-	if (!pthread_equal(pthread_self(), on_fn_thread)) {
-		// {
-		// 	char msg[] = "An unexpected thread entered the handler, so we'll pass the SIGALRM signal on to the on fn thread\n";
-		// 	write(STDERR_FILENO, msg, sizeof(msg)-1);
-		// }
-
-		if (pthread_kill(on_fn_thread, SIGALRM) != 0) {
-			abort();
-		}
-
-		// {
-		// 	char msg[] = "The SIGALRM has been passed on\n";
-		// 	write(STDERR_FILENO, msg, sizeof(msg)-1);
-		// }
-
-		return;
-	}
-#endif
-
-	grug_disable_on_fn_runtime_error_handling();
-
-	grug_runtime_error_type = GRUG_ON_FN_TIME_LIMIT_EXCEEDED;
-
-	// {
-	// 	static char msg[] = "Calling siglongjmp() in grug_error_signal_handler_alrm()\n";
-	// 	write(STDERR_FILENO, msg, sizeof(msg)-1);
-	// }
-
-	siglongjmp(grug_runtime_error_jmp_buffer, 1);
-}
-
-static void grug_error_signal_handler_fpe(int sig, siginfo_t *info, void *ucontext) {
-	(void)sig;
-	(void)info;
-	(void)ucontext;
-
-	{
-		static char msg[] = "In grug_error_signal_handler_fpe()\n";
-		write(STDERR_FILENO, msg, sizeof(msg)-1);
-	}
-
-#ifdef CHECK_JVM_THREADS
-	// pthread_t thread = pthread_self();
-	// #define MAX_THREAD_NAME_LEN 420
-	// static char thread_name[MAX_THREAD_NAME_LEN];
-	// assert(pthread_getname_np(thread, thread_name, MAX_THREAD_NAME_LEN) == 0);
-	// fprintf(stderr, "thread: %lu\n", thread);
-	// fprintf(stderr, "thread_name: '%s'\n", thread_name);
-
-	if (!pthread_equal(pthread_self(), on_fn_thread)) {
-		// {
-		// 	char msg[] = "An unexpected thread entered the handler, so we'll call the original handler\n";
-		// 	write(STDERR_FILENO, msg, sizeof(msg)-1);
-		// }
-
-		assert(jvm_fpe_handler);
-		jvm_fpe_handler(sig, info, ucontext);
-
-		// {
-		// 	char msg[] = "The original signal handler returned\n";
-		// 	write(STDERR_FILENO, msg, sizeof(msg)-1);
-		// }
-
-		return;
-	}
-#endif
-
-	grug_disable_on_fn_runtime_error_handling();
-
-	grug_runtime_error_type = GRUG_ON_FN_DIVISION_BY_ZERO;
-
-	// {
-	// 	static char msg[] = "Calling siglongjmp() in grug_error_signal_handler_fpe()\n";
-	// 	write(STDERR_FILENO, msg, sizeof(msg)-1);
-	// }
-
-	siglongjmp(grug_runtime_error_jmp_buffer, 1);
-}
-
-void grug_enable_on_fn_runtime_error_handling(void) {
-	// fprintf(stderr, "In grug_enable_on_fn_runtime_error_handling\n");
-
-#ifdef CHECK_JVM_THREADS
-	running_on_fn = true;
-#endif
-
-	static struct sigaction sigsegv_sa = {
-		.sa_sigaction = grug_error_signal_handler_segv,
-		// SA_RESTART is what the JVM uses, retrying primitive C functions
-		// SA_SIGINFO allows us to pass all information to the original handler
-		// SA_ONSTACK gives SIGSEGV its own stack
-		.sa_flags = SA_RESTART | SA_SIGINFO | SA_ONSTACK,
-	};
-	static struct sigaction alrm_sa = {
-		.sa_sigaction = grug_error_signal_handler_alrm,
-		.sa_flags = SA_RESTART | SA_SIGINFO,
-	};
-	static struct sigaction fpe_sa = {
-		.sa_sigaction = grug_error_signal_handler_fpe,
-		.sa_flags = SA_RESTART | SA_SIGINFO,
-	};
-
-	static bool initialized = false;
-	if (!initialized) {
-		// This makes sure that SIGALRM won't be raised while a mod is calling a game function,
-		// because we don't want to interrupt game functions
-		grug_assert(sigemptyset(&grug_block_mask) != -1, "sigemptyset: %s", strerror(errno));
-		grug_assert(sigaddset(&grug_block_mask, SIGALRM) != -1, "sigaddset: %s", strerror(errno));
-
-		// Handle stack overflow, from https://stackoverflow.com/a/7342398/13279557
-		static char stack[8192]; // TODO: Change back to SIGSTKSZ
-		stack_t ss = {
-			.ss_size = 8192, // TODO: Change back to SIGSTKSZ
-			.ss_sp = stack,
-		};
-
-		// Set up SIGSEGV's stack
-		grug_assert(sigaltstack(&ss, NULL) != -1, "sigaltstack: %s", strerror(errno));
-
-		// Create the SIGALRM timeout timer
-		static struct sigevent sev = {
-			.sigev_notify = SIGEV_SIGNAL,
-			.sigev_signo = SIGALRM,
-			// .sigev_value.sival_ptr = &on_fn_timeout_timer_id, // TODO: Remove?
-		};
-		grug_assert(timer_create(CLOCK_MONOTONIC, &sev, &on_fn_timeout_timer_id) != -1, "timer_create: %s", strerror(errno));
-
-		grug_assert(sigfillset(&sigsegv_sa.sa_mask) != -1, "sigfillset: %s", strerror(errno));
-		grug_assert(sigfillset(&alrm_sa.sa_mask) != -1, "sigfillset: %s", strerror(errno));
-		grug_assert(sigfillset(&fpe_sa.sa_mask) != -1, "sigfillset: %s", strerror(errno));
-
-		initialized = true;
-	}
-
-	// Register our handlers
-	grug_assert(sigaction(SIGSEGV, &sigsegv_sa, &previous_segv_sa) != -1, "sigaction: %s", strerror(errno));
-	grug_assert(sigaction(SIGALRM, &alrm_sa, &previous_alrm_sa) != -1, "sigaction: %s", strerror(errno));
-	grug_assert(sigaction(SIGFPE, &fpe_sa, &previous_fpe_sa) != -1, "sigaction: %s", strerror(errno));
-
-#ifdef CHECK_JVM_THREADS
-	on_fn_thread = pthread_self();
-
-	// #define MAX_THREAD_NAME_LEN 420
-	// static char thread_name[MAX_THREAD_NAME_LEN];
-	// assert(pthread_getname_np(on_fn_thread, thread_name, MAX_THREAD_NAME_LEN) == 0);
-	// fprintf(stderr, "thread_name: '%s'\n", thread_name);
-
-	// TODO: The cast to sigaction_handler_t here may not be valid,
-	// since the man page only specifies that SIG_DFL has meaning with sa_handler,
-	// so it says nothing about using SIG_DFL with sa_sigaction:
-	// https://man7.org/linux/man-pages/man2/sigaction.2.html
-	// https://stackoverflow.com/a/46670155/13279557
-	#pragma GCC diagnostic push
-	#pragma GCC diagnostic ignored "-Wcast-function-type"
-	jvm_segv_handler = previous_segv_sa.sa_sigaction;
-	assert((jvm_segv_handler != (sigaction_handler_t)SIG_IGN)
-		&& (jvm_segv_handler != (sigaction_handler_t)SIG_DFL));
-
-	jvm_fpe_handler = previous_fpe_sa.sa_sigaction;
-	assert((jvm_fpe_handler != (sigaction_handler_t)SIG_IGN)
-		&& (jvm_fpe_handler != (sigaction_handler_t)SIG_DFL));
-	#pragma GCC diagnostic pop
-
-	// #pragma GCC diagnostic push
-	// #pragma GCC diagnostic ignored "-Wpedantic"
-	// fprintf(stderr, "jvm_segv_handler: %p\n", (void *)jvm_segv_handler);
-	// fprintf(stderr, "jvm_fpe_handler: %p\n", (void *)jvm_fpe_handler);
-	// #pragma GCC diagnostic pop
-#endif
-
-	// Set SIGALRM timeout
-	static struct itimerspec its = {
-		.it_value.tv_sec = GRUG_ON_FN_TIME_LIMIT_MS / 1000,
-		.it_value.tv_nsec = (GRUG_ON_FN_TIME_LIMIT_MS % 1000) * 1000000,
-	};
-	grug_assert(timer_settime(on_fn_timeout_timer_id, 0, &its, NULL) != -1, "timer_settime: %s", strerror(errno));
-}
-
-char *grug_get_runtime_error_reason(void) {
-	switch (grug_runtime_error_type) {
+char *grug_get_runtime_error_reason(enum grug_runtime_error_type type) {
+	switch (type) {
 		case GRUG_ON_FN_DIVISION_BY_ZERO:
 			return "Division of an i32 by 0";
 		case GRUG_ON_FN_STACK_OVERFLOW:
@@ -5587,7 +5111,6 @@ static void fill_result_types(void) {
 
 #define MOV_GLOBAL_VARIABLE_TO_RAX 0x58b48 // mov rax, [rel foo wrt ..got]
 #define MOV_GLOBAL_VARIABLE_TO_RDI 0x3d8b48 // mov rdi, [rel foo wrt ..got]
-#define MOV_GLOBAL_VARIABLE_TO_RSI 0x358b48 // mov rsi, [rel foo wrt ..got]
 
 #define MOV_EAX_TO_DEREF_RBP 0x4589 // mov rbp[n], eax
 #define MOV_RAX_TO_DEREF_RBP 0x458948 // mov rbp[n], rax
@@ -5595,7 +5118,6 @@ static void fill_result_types(void) {
 #define DEREF_RAX_TO_EAX 0x408b // mov eax, rax[n]
 #define DEREF_RAX_TO_RAX 0x408b48 // mov rax, rax[n]
 
-#define DEREF_RSI_TO_ESI 0x368b // mov esi, [rsi]
 #define DEREF_RAX_TO_AL 0x8a // mov al, [rax]
 
 #define MOV_EAX_TO_DEREF_R11 0x438941 // mov r11[n], eax
@@ -5623,9 +5145,11 @@ static void fill_result_types(void) {
 #define NEGATE_RAX 0xd8f748 // neg rax
 
 #define TEST_EAX_IS_ZERO 0xc085 // test eax, eax
+#define TEST_R11_IS_ZERO 0xdb854d // test r11, r11
 #define TEST_AL_IS_ZERO 0xc084 // test al, al
 
 #define JE_8_BIT_OFFSET 0x74 // je $+n
+#define JNE_8_BIT_OFFSET 0x75 // jne $+n
 #define JE_32_BIT_OFFSET 0x840f // je strict $+n
 #define JMP_32_BIT_OFFSET 0xe9 // jmp $+n
 
@@ -5653,8 +5177,6 @@ static void fill_result_types(void) {
 
 #define XOR_EAX_BY_N 0x35 // xor eax, n
 #define XOR_CLEAR_EAX 0xc031 // xor eax, eax
-#define XOR_CLEAR_EDI 0xff31 // xor edi, edi
-#define XOR_CLEAR_EDX 0xd231 // xor edx, edx
 #define LEA_STRINGS_TO_RAX 0x58d48 // lea rax, strings[rel n]
 #define LEA_STRINGS_TO_RCX 0xd8d48 // lea rcx, strings[rel n]
 #define LEA_STRINGS_TO_RDX 0x158d48 // lea rdx, strings[rel n]
@@ -5688,7 +5210,6 @@ static void fill_result_types(void) {
 #define MOV_XMM0_TO_EAX 0xc07e0f66 // movd eax, xmm0
 
 #define MOV_TO_EAX 0xb8 // mov eax, n
-#define MOV_TO_EDI 0xbf // mov edi, n
 #define MOV_TO_ESI 0xbe // mov esi, n
 
 #define NOP_8_BITS 0x90 // nop
@@ -5696,6 +5217,10 @@ static void fill_result_types(void) {
 
 #define PUSH_REL 0x35ff // Not quite push qword [$+n]
 #define JMP_REL 0x25ff // Not quite jmp [$+n]
+
+#define DEC_EAX 0xc8ff // dec eax
+
+#define MOV_EAX_TO_EDI 0xc789 // mov edi, eax
 
 // End of code enums
 
@@ -5757,10 +5282,6 @@ struct loop_break_statements {
 static struct loop_break_statements loop_break_statements_stack[MAX_LOOP_DEPTH];
 static size_t loop_depth;
 
-static bool in_on_fn;
-
-static bool calling_game_fn;
-
 static u32 resources[MAX_RESOURCES];
 static size_t resources_size;
 
@@ -5782,8 +5303,6 @@ static void reset_compiling(void) {
 	helper_fn_offsets_size = 0;
 	stack_size = 0;
 	loop_depth = 0;
-	in_on_fn = false;
-	calling_game_fn = false;
 	resources_size = 0;
 	entity_dependencies_size = 0;
 	compiling_fast_mode = false;
@@ -6146,22 +5665,6 @@ static void compile_call_expr(struct call_expr call_expr) {
 	char *fn_name = call_expr.fn_name;
 	struct grug_game_function *game_fn = get_grug_game_fn(fn_name);
 
-	if (game_fn) {
-		calling_game_fn = true;
-
-		if (!compiling_fast_mode) {
-			// Compile pthread_sigmask(SIG_BLOCK, &grug_block_mask, NULL);
-			compile_unpadded(XOR_CLEAR_EDX);
-			compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RSI);
-			push_used_extern_global_variable("grug_block_mask", codes_size);
-			compile_32(PLACEHOLDER_32);
-			compile_unpadded(XOR_CLEAR_EDI);
-			compile_byte(CALL);
-			push_system_fn_call("pthread_sigmask", codes_size);
-			compile_unpadded(PLACEHOLDER_32);
-		}
-	}
-
 	bool gets_global_variables_pointer = false;
 	if (get_helper_fn(call_expr.fn_name)) {
 		// Push the secret global variables pointer argument
@@ -6221,27 +5724,6 @@ static void compile_call_expr(struct call_expr call_expr) {
 
 	if (returns_float) {
 		compile_unpadded(MOV_XMM0_TO_EAX);
-	}
-
-	if (game_fn && !compiling_fast_mode) {
-		compile_unpadded(PUSH_RAX);
-
-		// Compile pthread_sigmask(SIG_UNBLOCK, &grug_block_mask, NULL);
-		compile_unpadded(XOR_CLEAR_EDX);
-		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RSI);
-		push_used_extern_global_variable("grug_block_mask", codes_size);
-		compile_32(PLACEHOLDER_32);
-		compile_unpadded(MOV_TO_EDI);
-		compile_32(1);
-		compile_unpadded(SUB_RSP_8_BITS);
-		compile_byte(0x8);
-		compile_byte(CALL);
-		push_system_fn_call("pthread_sigmask", codes_size);
-		compile_unpadded(PLACEHOLDER_32);
-		compile_unpadded(ADD_RSP_8_BITS);
-		compile_byte(0x8);
-
-		compile_unpadded(POP_RAX);
 	}
 }
 
@@ -6326,6 +5808,29 @@ static void compile_binary_expr(struct expr expr) {
 			break;
 		case DIVISION_TOKEN:
 			if (expr.result_type == type_i32) {
+				if (!compiling_fast_mode) {
+					compile_unpadded(TEST_R11_IS_ZERO);
+					compile_byte(JNE_8_BIT_OFFSET);
+					compile_byte(0x11); // Jumps over the longjmp()
+
+					// mov esi, 1 + GRUG_ON_FN_DIVISION_BY_ZERO:
+					// The `1 +` here is necessary for the longjmp(),
+					// since passing it 0 will be converted to 1 at the setjmp()
+					// After the setjmp() we get the true value by decrementing by 1
+					compile_unpadded(MOV_TO_ESI);
+					compile_32(1 + GRUG_ON_FN_DIVISION_BY_ZERO);
+
+					// mov rdi, [rel grug_runtime_error_jmp_buffer wrt ..got]:
+					compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RDI);
+					push_used_extern_global_variable("grug_runtime_error_jmp_buffer", codes_size);
+					compile_32(PLACEHOLDER_32);
+
+					// call longjmp wrt ..plt:
+					compile_byte(CALL);
+					push_system_fn_call("longjmp", codes_size);
+					compile_unpadded(PLACEHOLDER_32);
+				}
+
 				compile_unpadded(CQO_CLEAR_BEFORE_DIVISION);
 				compile_unpadded(DIV_RAX_BY_R11);
 			} else {
@@ -6757,27 +6262,7 @@ static void compile_statements(struct statement *group_statements, size_t statem
 				if (statement.return_statement.has_value) {
 					compile_expr(*statement.return_statement.value);
 				}
-
-				if (in_on_fn) {
-					compile_byte(PUSH_RAX);
-
-					// We must restore our 16-byte alignment after the above PUSH_RAX,
-					// since we need to conform to POSIX when doing our C call
-					compile_unpadded(SUB_RSP_8_BITS);
-					compile_byte(8);
-
-					compile_byte(CALL);
-					push_system_fn_call("grug_disable_on_fn_runtime_error_handling", codes_size);
-					compile_unpadded(PLACEHOLDER_32);
-
-					compile_unpadded(ADD_RSP_8_BITS);
-					compile_byte(8);
-
-					compile_byte(POP_RAX);
-				}
-
 				compile_function_epilogue();
-
 				break;
 			case WHILE_STATEMENT:
 				compile_while_statement(statement.while_statement);
@@ -6980,18 +6465,14 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		// mov [rax], r11:
 		compile_unpadded(MOV_R11_TO_DEREF_RAX);
 
-		// mov esi, 1:
-		compile_unpadded(MOV_TO_ESI);
-		compile_32(1);
-
 		// mov rdi, [rel grug_runtime_error_jmp_buffer wrt ..got]:
 		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RDI);
 		push_used_extern_global_variable("grug_runtime_error_jmp_buffer", codes_size);
 		compile_32(PLACEHOLDER_32);
 
-		// call __sigsetjmp wrt ..plt:
+		// call setjmp wrt ..plt:
 		compile_byte(CALL);
-		push_system_fn_call("__sigsetjmp", codes_size);
+		push_system_fn_call("setjmp", codes_size);
 		compile_unpadded(PLACEHOLDER_32);
 
 		// test eax, eax:
@@ -7002,10 +6483,27 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		size_t skip_runtime_handler_call_offset = codes_size;
 		compile_unpadded(PLACEHOLDER_32);
 
+		// dec eax:
+		compile_unpadded(DEC_EAX);
+
+		// push rax:
+		compile_byte(PUSH_RAX);
+
+		// mov edi, eax:
+		compile_unpadded(MOV_EAX_TO_EDI);
+
+		// sub rsp, 8:
+		compile_unpadded(SUB_RSP_8_BITS);
+		compile_byte(8);
+
 		// call grug_get_runtime_error_reason wrt ..plt:
 		compile_byte(CALL);
 		push_system_fn_call("grug_get_runtime_error_reason", codes_size);
 		compile_unpadded(PLACEHOLDER_32);
+
+		// add rsp, 8:
+		compile_unpadded(ADD_RSP_8_BITS);
+		compile_byte(8);
 
 		// mov rdi, rax:
 		compile_unpadded(MOV_RAX_TO_RDI);
@@ -7020,13 +6518,8 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		push_data_string_code(fn_name, codes_size);
 		compile_unpadded(PLACEHOLDER_32);
 
-		// mov rsi, [rel grug_runtime_error_type wrt ..got]:
-		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RSI);
-		push_used_extern_global_variable("grug_runtime_error_type", codes_size);
-		compile_32(PLACEHOLDER_32);
-
-		// mov esi, [rsi]:
-		compile_unpadded(DEREF_RSI_TO_ESI);
+		// pop rsi:
+		compile_byte(POP_RSI);
 
 		// mov rax, [rel grug_runtime_error_handler wrt ..got]:
 		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
@@ -7039,23 +6532,11 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		compile_function_epilogue();
 
 		overwrite_jmp_address(skip_runtime_handler_call_offset, codes_size);
-
-		compile_byte(CALL);
-		push_system_fn_call("grug_enable_on_fn_runtime_error_handling", codes_size);
-		compile_unpadded(PLACEHOLDER_32);
-
-		in_on_fn = true;
 	}
 
 	compile_statements(body_statements, body_statement_count);
 
 	if (is_on_fn) {
-		in_on_fn = false;
-
-		compile_byte(CALL);
-		push_system_fn_call("grug_disable_on_fn_runtime_error_handling", codes_size);
-		compile_unpadded(PLACEHOLDER_32);
-
 		compile_function_epilogue();
 
 		overwrite_jmp_address(skip_safe_code_offset, codes_size);
@@ -8151,16 +7632,6 @@ static void push_got(void) {
 
 	size_t offset = 0;
 
-	push_global_variable_offset("grug_runtime_error_type", offset);
-	offset += sizeof(u64);
-	push_zeros(sizeof(u64));
-
-	if (calling_game_fn) {
-		push_global_variable_offset("grug_block_mask", offset);
-		offset += sizeof(u64);
-		push_zeros(sizeof(u64));
-	}
-
 	push_global_variable_offset("grug_on_fns_in_safe_mode", offset);
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
@@ -8208,10 +7679,6 @@ static void push_dynamic(void) {
 		dynamic_offset -= sizeof(u64); // grug_runtime_error_jmp_buffer
 		dynamic_offset -= sizeof(u64); // grug_on_fn_path
 		dynamic_offset -= sizeof(u64); // grug_on_fns_in_safe_mode
-		if (calling_game_fn) {
-			dynamic_offset -= sizeof(u64); // grug_block_mask
-		}
-		dynamic_offset -= sizeof(u64); // grug_runtime_error_type
 	}
 #ifndef OLD_LD
 	dynamic_offset -= GOT_PLT_INTRO_SIZE;
@@ -8968,14 +8435,6 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 		extern_data_symbols_size++;
 
 		push_symbol("grug_on_fns_in_safe_mode");
-		extern_data_symbols_size++;
-
-		if (calling_game_fn) {
-			push_symbol("grug_block_mask");
-			extern_data_symbols_size++;
-		}
-
-		push_symbol("grug_runtime_error_type");
 		extern_data_symbols_size++;
 	}
 
