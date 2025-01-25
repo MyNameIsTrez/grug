@@ -116,6 +116,9 @@ static bool streq(char *a, char *b);
 }
 #endif
 
+#define USED_BY_MODS
+#define USED_BY_PROGRAMS
+
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef int32_t i32;
@@ -218,12 +221,11 @@ static void *get_dll_symbol(void *dll, char *symbol_name) {
 
 #define GRUG_ON_FN_TIME_LIMIT_MS 1000
 
-jmp_buf grug_runtime_error_jmp_buffer;
+USED_BY_MODS jmp_buf grug_runtime_error_jmp_buffer;
 
-grug_runtime_error_handler_t grug_runtime_error_handler = NULL;
+USED_BY_MODS grug_runtime_error_handler_t grug_runtime_error_handler = NULL;
 
-// Called by mods
-char *grug_get_runtime_error_reason(enum grug_runtime_error_type type);
+USED_BY_MODS char *grug_get_runtime_error_reason(enum grug_runtime_error_type type);
 
 char *grug_get_runtime_error_reason(enum grug_runtime_error_type type) {
 	switch (type) {
@@ -5060,6 +5062,11 @@ static void fill_result_types(void) {
 #define PLACEHOLDER_32 0xEFBEADDE
 #define PLACEHOLDER_64 0xEFBEADDEEFBEADDE
 
+// We use a limit of 64 KiB, since native JNI methods can use up to 80 KiB
+// without a risk of a JVM crash:
+// See https://pangin.pro/posts/stack-overflow-handling
+#define GRUG_STACK_LIMIT 0x10000
+
 // Start of code enums
 
 #define CALL 0xe8 // call a function
@@ -5075,9 +5082,11 @@ static void fill_result_types(void) {
 #define PUSH_32_BITS 0x68 // push n
 
 #define MOV_RSP_TO_RBP 0xe58948 // mov rbp, rsp
+#define MOV_RSP_TO_DEREF_RAX 0x208948 // mov [rax], rsp
 #define SUB_RSP_8_BITS 0xec8348 // sub rsp, n
 #define SUB_RSP_32_BITS 0xec8148 // sub rsp, n
 #define ADD_RSP_8_BITS 0xc48348 // add rsp, n
+#define SUB_DEREF_RAX_32_BITS 0x288148 // sub qword [rax], 0x10000
 
 #define MOV_ESI_TO_DEREF_RBP 0x7589 // mov rbp[n], esi
 #define MOV_EDX_TO_DEREF_RBP 0x5589 // mov rbp[n], edx
@@ -5137,6 +5146,7 @@ static void fill_result_types(void) {
 #define MOV_RDX_TO_RAX 0xd08948 // mov rax, rdx
 
 #define CMP_RAX_WITH_R11 0xd8394c // cmp rax, r11
+#define CMP_RSP_WITH_DEREF_RAX 0x203b48 // cmp rsp, [rax]
 
 // See this for an explanation of "ordered" vs. "unordered":
 // https://stackoverflow.com/a/8627368/13279557
@@ -5150,6 +5160,7 @@ static void fill_result_types(void) {
 
 #define JE_8_BIT_OFFSET 0x74 // je $+n
 #define JNE_8_BIT_OFFSET 0x75 // jne $+n
+#define JG_8_BIT_OFFSET 0x7f // jg $+n
 #define JE_32_BIT_OFFSET 0x840f // je strict $+n
 #define JMP_32_BIT_OFFSET 0xe9 // jmp $+n
 
@@ -5747,7 +5758,7 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 			compile_expr(*logical_expr.left_expr);
 			compile_unpadded(TEST_EAX_IS_ZERO);
 			compile_byte(JE_8_BIT_OFFSET);
-			compile_byte(10); // Jump 10 bytes forward
+			compile_byte(10);
 			compile_byte(MOV_TO_EAX);
 			compile_32(1);
 			compile_unpadded(JMP_32_BIT_OFFSET);
@@ -5764,6 +5775,27 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 		default:
 			grug_unreachable();
 	}
+}
+
+static void compile_longjmp(enum grug_runtime_error_type type) {
+	// Jumps over the longjmp()
+	compile_byte(0x11);
+
+	// mov esi, 1 + type:
+	// The `1 +` here is necessary for the longjmp()
+	// After the setjmp() we get the true value by decrementing it by 1
+	compile_byte(MOV_TO_ESI);
+	compile_32(1 + type);
+
+	// mov rdi, [rel grug_runtime_error_jmp_buffer wrt ..got]:
+	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RDI);
+	push_used_extern_global_variable("grug_runtime_error_jmp_buffer", codes_size);
+	compile_32(PLACEHOLDER_32);
+
+	// call longjmp wrt ..plt:
+	compile_byte(CALL);
+	push_system_fn_call("longjmp", codes_size);
+	compile_unpadded(PLACEHOLDER_32);
 }
 
 static void compile_binary_expr(struct expr expr) {
@@ -5811,24 +5843,7 @@ static void compile_binary_expr(struct expr expr) {
 				if (!compiling_fast_mode) {
 					compile_unpadded(TEST_R11_IS_ZERO);
 					compile_byte(JNE_8_BIT_OFFSET);
-					compile_byte(0x11); // Jumps over the longjmp()
-
-					// mov esi, 1 + GRUG_ON_FN_DIVISION_BY_ZERO:
-					// The `1 +` here is necessary for the longjmp(),
-					// since passing it 0 will be converted to 1 at the setjmp()
-					// After the setjmp() we get the true value by decrementing by 1
-					compile_unpadded(MOV_TO_ESI);
-					compile_32(1 + GRUG_ON_FN_DIVISION_BY_ZERO);
-
-					// mov rdi, [rel grug_runtime_error_jmp_buffer wrt ..got]:
-					compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RDI);
-					push_used_extern_global_variable("grug_runtime_error_jmp_buffer", codes_size);
-					compile_32(PLACEHOLDER_32);
-
-					// call longjmp wrt ..plt:
-					compile_byte(CALL);
-					push_system_fn_call("longjmp", codes_size);
-					compile_unpadded(PLACEHOLDER_32);
+					compile_longjmp(GRUG_ON_FN_DIVISION_BY_ZERO);
 				}
 
 				compile_unpadded(CQO_CLEAR_BEFORE_DIVISION);
@@ -6465,6 +6480,18 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		// mov [rax], r11:
 		compile_unpadded(MOV_R11_TO_DEREF_RAX);
 
+		// mov rax, [rel grug_max_rsp wrt ..got]:
+		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
+		push_used_extern_global_variable("grug_max_rsp", codes_size);
+		compile_32(PLACEHOLDER_32);
+
+		// mov [rax], rsp:
+		compile_unpadded(MOV_RSP_TO_DEREF_RAX);
+
+		// sub qword [rax], 0x10000:
+		compile_unpadded(SUB_DEREF_RAX_32_BITS);
+		compile_32(GRUG_STACK_LIMIT);
+
 		// mov rdi, [rel grug_runtime_error_jmp_buffer wrt ..got]:
 		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RDI);
 		push_used_extern_global_variable("grug_runtime_error_jmp_buffer", codes_size);
@@ -6532,6 +6559,18 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		compile_function_epilogue();
 
 		overwrite_jmp_address(skip_runtime_handler_call_offset, codes_size);
+	} else {
+		// mov rax, [rel grug_max_rsp wrt ..got]:
+		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
+		push_used_extern_global_variable("grug_max_rsp", codes_size);
+		compile_32(PLACEHOLDER_32);
+
+		// cmp rsp, [rax]:
+		compile_unpadded(CMP_RSP_WITH_DEREF_RAX);
+
+		// jg $+0x17:
+		compile_byte(JG_8_BIT_OFFSET);
+		compile_longjmp(GRUG_ON_FN_STACK_OVERFLOW);
 	}
 
 	compile_statements(body_statements, body_statement_count);
@@ -6876,6 +6915,8 @@ static size_t strings_offset;
 static size_t resources_offset;
 static size_t entities_offset;
 static size_t entity_types_offset;
+
+USED_BY_MODS u64 grug_max_rsp;
 
 static void reset_generate_shared_object(void) {
 	symbols_size = 0;
@@ -7648,6 +7689,10 @@ static void push_got(void) {
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
 
+	push_global_variable_offset("grug_max_rsp", offset);
+	offset += sizeof(u64);
+	push_zeros(sizeof(u64));
+
 	push_global_variable_offset("grug_runtime_error_handler", offset);
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
@@ -7675,6 +7720,7 @@ static void push_dynamic(void) {
 		// This subtracts the future got_size set by push_got()
 		// TODO: Stop having these hardcoded here
 		dynamic_offset -= sizeof(u64); // grug_runtime_error_handler
+		dynamic_offset -= sizeof(u64); // grug_max_rsp
 		dynamic_offset -= sizeof(u64); // grug_on_fn_name
 		dynamic_offset -= sizeof(u64); // grug_runtime_error_jmp_buffer
 		dynamic_offset -= sizeof(u64); // grug_on_fn_path
@@ -8425,6 +8471,9 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 		push_symbol("grug_runtime_error_handler");
 		extern_data_symbols_size++;
 
+		push_symbol("grug_max_rsp");
+		extern_data_symbols_size++;
+
 		push_symbol("grug_on_fn_name");
 		extern_data_symbols_size++;
 
@@ -8482,10 +8531,10 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 #define MAX_ENTITY_NAME_LENGTH 420
 #define DLL_DIR_PATH "mod_dlls"
 
-struct grug_mod_dir grug_mods;
+USED_BY_PROGRAMS struct grug_mod_dir grug_mods;
 
-struct grug_modified grug_reloads[MAX_RELOADS];
-size_t grug_reloads_size;
+USED_BY_PROGRAMS struct grug_modified grug_reloads[MAX_RELOADS];
+USED_BY_PROGRAMS size_t grug_reloads_size;
 
 static char *entities[MAX_ENTITIES];
 static char entity_strings[MAX_ENTITY_STRINGS_CHARACTERS];
@@ -8495,16 +8544,16 @@ static u32 chains_entities[MAX_ENTITIES];
 static struct grug_file entity_files[MAX_ENTITIES];
 static size_t entities_size;
 
-struct grug_modified_resource grug_resource_reloads[MAX_RESOURCE_RELOADS];
-size_t grug_resource_reloads_size;
+USED_BY_PROGRAMS struct grug_modified_resource grug_resource_reloads[MAX_RESOURCE_RELOADS];
+USED_BY_PROGRAMS size_t grug_resource_reloads_size;
 
-char *grug_on_fn_name;
-char *grug_on_fn_path;
+USED_BY_MODS char *grug_on_fn_name;
+USED_BY_MODS char *grug_on_fn_path;
 
 static bool is_grug_initialized = false;
 
 // Called by the grug-tests repository
-bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name);
+USED_BY_PROGRAMS bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name);
 
 static void reset_regenerate_modified_mods(void) {
 	grug_reloads_size = 0;
@@ -9253,7 +9302,7 @@ bool grug_regenerate_modified_mods(void) {
 	return false;
 }
 
-bool grug_on_fns_in_safe_mode = true;
+USED_BY_MODS bool grug_on_fns_in_safe_mode = true;
 void grug_set_on_fns_to_safe_mode(void) {
 	grug_on_fns_in_safe_mode = true;
 }
