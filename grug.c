@@ -43,6 +43,8 @@
 
 //// INCLUDES AND DEFINES
 
+#define _XOPEN_SOURCE 700 // This is just so VS Code can find CLOCK_PROCESS_CPUTIME_ID
+
 #include "grug.h"
 
 #include <assert.h>
@@ -219,7 +221,9 @@ static void *get_dll_symbol(void *dll, char *symbol_name) {
 
 //// RUNTIME ERROR HANDLING
 
-#define GRUG_ON_FN_TIME_LIMIT_MS 1000
+// TODO: Assert `GRUG_ON_FN_TIME_LIMIT_MS >= 1 && GRUG_ON_FN_TIME_LIMIT_MS <= 999`
+// TODO: This is necessary to simplify the generated machine code
+#define GRUG_ON_FN_TIME_LIMIT_MS 10
 
 USED_BY_MODS jmp_buf grug_runtime_error_jmp_buffer;
 
@@ -1829,6 +1833,8 @@ struct on_fn {
 	size_t argument_count;
 	struct statement *body_statements;
 	size_t body_statement_count;
+	bool calls_helper_fn;
+	bool contains_while_loop;
 };
 static struct on_fn on_fns[MAX_ON_FNS];
 static size_t on_fns_size;
@@ -1861,6 +1867,9 @@ static size_t called_helper_fn_names_size;
 
 static u32 buckets_called_helper_fn_names[MAX_CALLED_HELPER_FN_NAMES];
 static u32 chains_called_helper_fn_names[MAX_CALLED_HELPER_FN_NAMES];
+
+static bool *parsed_on_fn_calls_helper_fn;
+static bool *parsed_on_fn_contains_while_loop;
 
 static void reset_parsing(void) {
 	exprs_size = 0;
@@ -2168,6 +2177,7 @@ static struct expr parse_call(size_t *i) {
 
 	if (starts_with(expr.call.fn_name, "helper_")) {
 		add_called_helper_fn_name(expr.call.fn_name);
+		*parsed_on_fn_calls_helper_fn = true;
 	}
 
 	expr.call.argument_count = 0;
@@ -2487,6 +2497,7 @@ static struct statement parse_statement(size_t *i) {
 		case WHILE_TOKEN:
 			(*i)++;
 			statement = parse_while_statement(i);
+			*parsed_on_fn_contains_while_loop = true;
 			break;
 		case BREAK_TOKEN:
 			(*i)++;
@@ -2670,6 +2681,9 @@ static struct on_fn parse_on_fn(size_t *i) {
 	}
 
 	consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
+
+	parsed_on_fn_calls_helper_fn = &fn.calls_helper_fn;
+	parsed_on_fn_contains_while_loop = &fn.contains_while_loop;
 
 	indentation = 0;
 	fn.body_statements = parse_statements(i, &fn.body_statement_count);
@@ -5058,6 +5072,7 @@ static void fill_result_types(void) {
 #define NEXT_INSTRUCTION_OFFSET sizeof(u32)
 
 // 0xDEADBEEF in little-endian
+#define PLACEHOLDER_8 0xDE
 #define PLACEHOLDER_16 0xADDE
 #define PLACEHOLDER_32 0xEFBEADDE
 #define PLACEHOLDER_64 0xEFBEADDEEFBEADDE
@@ -5067,32 +5082,174 @@ static void fill_result_types(void) {
 // See https://pangin.pro/posts/stack-overflow-handling
 #define GRUG_STACK_LIMIT 0x10000
 
+#define NS_PER_MS 1000000
+#define NS_PER_SEC 1000000000
+
 // Start of code enums
 
-#define CALL 0xe8 // call a function
-#define RET 0xc3 // ret
-#define MOV_EAX_TO_DEREF_RDI_8_BIT_OFFSET 0x4789 // mov rdi[n], eax
-#define MOV_RAX_TO_DEREF_RDI_8_BIT_OFFSET 0x478948 // mov rdi[n], rax
-#define MOV_EAX_TO_DEREF_RDI_32_BIT_OFFSET 0x8789 // mov rdi[n], eax
-#define MOV_RAX_TO_DEREF_RDI_32_BIT_OFFSET 0x878948 // mov rdi[n], rax
-#define MOV_RSI_TO_DEREF_RDI 0x378948 // mov rdi[0x0], rsi
+#define XOR_EAX_BY_N 0x35 // xor eax, n
 
 #define PUSH_RAX 0x50 // push rax
 #define PUSH_RBP 0x55 // push rbp
+#define PUSH_RSI 0x56 // push rsi
+
+#define POP_RAX 0x58 // pop rax
+#define POP_RCX 0x59 // pop rcx
+#define POP_RDX 0x5a // pop rdx
+#define POP_RBP 0x5d // pop rbp
+#define POP_RSI 0x5e // pop rsi
+#define POP_RDI 0x5f // pop rdi
+
 #define PUSH_32_BITS 0x68 // push n
 
-#define MOV_RSP_TO_RBP 0xe58948 // mov rbp, rsp
-#define MOV_RSP_TO_DEREF_RAX 0x208948 // mov [rax], rsp
-#define SUB_RSP_8_BITS 0xec8348 // sub rsp, n
-#define SUB_RSP_32_BITS 0xec8148 // sub rsp, n
-#define ADD_RSP_8_BITS 0xc48348 // add rsp, n
-#define SUB_DEREF_RAX_32_BITS 0x288148 // sub qword [rax], 0x10000
+#define JE_8_BIT_OFFSET 0x74 // je $+n
+#define JNE_8_BIT_OFFSET 0x75 // jne $+n
+#define JL_8_BIT_OFFSET 0x7c // jl $+0n
+#define JG_8_BIT_OFFSET 0x7f // jg $+n
+
+#define DEREF_RAX_TO_AL 0x8a // mov al, [rax]
+
+#define NOP_8_BITS 0x90 // nop
+
+#define MOV_TO_EAX 0xb8 // mov eax, n
+#define MOV_TO_ESI 0xbe // mov esi, n
+#define MOV_TO_EDI 0xbf // mov edi, n
+
+#define RET 0xc3 // ret
+#define CALL 0xe8 // call a function
+
+#define JMP_8_BIT_OFFSET 0xeb // jmp $+n
+
+#define JMP_32_BIT_OFFSET 0xe9 // jmp $+n
+
+#define CALL_DEREF_RAX 0x10ff // call [rax]
+
+#define JMP_REL 0x25ff // Not quite jmp [$+n]
+#define PUSH_REL 0x35ff // Not quite push qword [$+n]
+
+#define DEREF_RAX_TO_EAX 0x408b // mov eax, rax[n]
+#define DEREF_RBP_TO_EAX 0x458b // mov eax, rbp[n]
+
+#define MOV_EAX_TO_DEREF_RBP 0x4589 // mov rbp[n], eax
+#define MOV_EAX_TO_DEREF_RDI_8_BIT_OFFSET 0x4789 // mov rdi[n], eax
+#define MOV_ECX_TO_DEREF_RBP 0x4d89 // mov rbp[n], ecx
+#define MOV_EDX_TO_DEREF_RBP 0x5589 // mov rbp[n], edx
+
+#define POP_R8 0x5841 // pop r8
+#define POP_R9 0x5941 // pop r9
+#define POP_R11 0x5b41 // pop r11
 
 #define MOV_ESI_TO_DEREF_RBP 0x7589 // mov rbp[n], esi
-#define MOV_EDX_TO_DEREF_RBP 0x5589 // mov rbp[n], edx
-#define MOV_ECX_TO_DEREF_RBP 0x4d89 // mov rbp[n], ecx
+#define JE_32_BIT_OFFSET 0x840f // je strict $+n
+#define MOV_EAX_TO_DEREF_RDI_32_BIT_OFFSET 0x8789 // mov rdi[n], eax
+#define CQO_CLEAR_BEFORE_DIVISION 0x9948 // cqo
+#define MOVABS_TO_RAX 0xb848 // mov rax, n
+#define XOR_CLEAR_EAX 0xc031 // xor eax, eax
+
+#define TEST_AL_IS_ZERO 0xc084 // test al, al
+#define TEST_EAX_IS_ZERO 0xc085 // test eax, eax
+
+#define MOV_EAX_TO_EDI 0xc789 // mov edi, eax
+
+#define DEC_EAX 0xc8ff // dec eax
+
+#define MOV_GLOBAL_VARIABLE_TO_RAX 0x58b48 // mov rax, [rel foo wrt ..got]
+
+#define LEA_STRINGS_TO_RAX 0x58d48 // lea rax, strings[rel n]
+#define LEA_STRINGS_TO_RCX 0xd8d48 // lea rcx, strings[rel n]
+
+#define MOV_R11_8_BIT_OFFSET_TO_R10 0x538b4d // mov r10, [byte r11 + n]
+
+#define LEA_STRINGS_TO_RDX 0x158d48 // lea rdx, strings[rel n]
+
+#define MOV_R11_TO_DEREF_RAX 0x18894c // mov [rax], r11
+#define MOV_GLOBAL_VARIABLE_TO_R11 0x1d8b4c // mov r11, [rel foo wrt ..got]
+#define LEA_STRINGS_TO_R11 0x1d8d4c // lea r11, strings[rel n]
+#define CMP_RSP_WITH_DEREF_RAX 0x203b48 // cmp rsp, [rax]
+#define MOV_RSP_TO_DEREF_RAX 0x208948 // mov [rax], rsp
+
+#define SUB_DEREF_RAX_32_BITS 0x288148 // sub qword [rax], 0x10000
+
+#define MOV_GLOBAL_VARIABLE_TO_RSI 0x358b48 // mov rsi, [rel foo wrt ..got]
+#define MOV_RSI_TO_DEREF_RDI 0x378948 // mov rdi[0x0], rsi
+#define MOV_GLOBAL_VARIABLE_TO_RDI 0x3d8b48 // mov rdi, [rel foo wrt ..got]
+
+#define NOP_32_BITS 0x401f0f // There isn't a nasm equivalent
+
+#define MOV_TO_DEREF_RAX_8_BIT_OFFSET 0x408148 // add qword [byte rax + n], m
+#define DEREF_RAX_TO_RAX 0x408b48 // mov rax, rax[n]
+
+#define INC_DEREF_RAX_8_BIT_OFFSET 0x40ff48 // inc qword [byte rax + n]
+
+#define MOV_EAX_TO_DEREF_R11 0x438941 // mov r11[n], eax
 #define MOV_R8D_TO_DEREF_RBP 0x458944 // mov rbp[n], r8d
+#define MOV_RAX_TO_DEREF_RBP 0x458948 // mov rbp[n], rax
+#define MOV_RAX_TO_DEREF_R11 0x438949 // mov r11[n], rax
+#define MOV_R8_TO_DEREF_RBP 0x45894c // mov rbp[n], r8
+
+#define DEREF_RBP_TO_RAX 0x458b48 // mov rax, rbp[n]
+
+#define MOV_RAX_TO_DEREF_RDI_8_BIT_OFFSET 0x478948 // mov rdi[n], rax
 #define MOV_R9D_TO_DEREF_RBP 0x4d8944 // mov rbp[n], r9d
+#define MOV_RCX_TO_DEREF_RBP 0x4d8948 // mov rbp[n], rcx
+#define MOV_R9_TO_DEREF_RBP 0x4d894c // mov rbp[n], r9
+#define MOV_R10_TO_DEREF_RAX_8_BIT_OFFSET 0x50394c // cmp [byte rax + n], r10
+#define MOV_RDX_TO_DEREF_RBP 0x558948 // mov rbp[n], rdx
+
+#define DEREF_RBP_TO_R11 0x5d8b4c // mov r11, rbp[n]
+
+#define SUB_FROM_DEREF_RAX_8_BIT_OFFSET 0x688148 // sub qword [byte rax + n], m
+
+#define MOV_RSI_TO_DEREF_RBP 0x758948 // mov rbp[n], rsi
+
+#define CMP_WITH_DEREF_RAX_8_BIT_OFFSET 0x788148 // cmp qword [byte rax + n], m
+
+#define CMP_DEREF_RAX_8_BIT_OFFSET_WITH_R10 0x50394c // cmp qword [byte rax + n], r10
+
+#define MOV_RDI_TO_DEREF_RBP 0x7d8948 // mov rbp[n], rdi
+#define MOV_RAX_TO_DEREF_RDI_32_BIT_OFFSET 0x878948 // mov rdi[n], rax
+
+#define MOV_RAX_TO_R8 0xc08949 // mov r8, rax
+
+#define SETB_AL 0xc0920f // setb al (set if below)
+#define SETAE_AL 0xc0930f // setae al (set if above or equal)
+#define SETE_AL 0xc0940f // sete al
+#define SETNE_AL 0xc0950f // setne al
+#define SETBE_AL 0xc0960f // setbe al (set if below or equal)
+#define SETA_AL 0xc0970f // seta al (set if above)
+#define SETGT_AL 0xc09f0f // setg al
+#define SETGE_AL 0xc09d0f // setge al
+#define SETLT_AL 0xc09c0f // setl al
+#define SETLE_AL 0xc09e0f // setle al
+
+// See this for an explanation of "ordered" vs. "unordered":
+// https://stackoverflow.com/a/8627368/13279557
+#define ORDERED_CMP_XMM0_WITH_XMM1 0xc12f0f // comiss xmm0, xmm1
+
+#define MOV_RAX_TO_RCX 0xc18948 // mov rcx, rax
+#define MOV_RAX_TO_R9 0xc18949 // mov r9, rax
+#define MOV_RAX_TO_RDX 0xc28948 // mov rdx, rax
+#define ADD_RSP_8_BITS 0xc48348 // add rsp, n
+#define MOV_RAX_TO_RSI 0xc68948 // mov rsi, rax
+#define MOV_RAX_TO_RDI 0xc78948 // mov rdi, rax
+#define MOV_RDX_TO_RAX 0xd08948 // mov rax, rdx
+#define ADD_R11_TO_RAX 0xd8014c // add rax, r11
+#define SUB_R11_FROM_RAX 0xd8294c // sub rax, r11
+#define CMP_RAX_WITH_R11 0xd8394c // cmp rax, r11
+#define NEGATE_RAX 0xd8f748 // neg rax
+#define TEST_R11_IS_ZERO 0xdb854d // test r11, r11
+#define MOV_R11_TO_RSI 0xde894c // mov rsi, r11
+
+#define MOV_RSP_TO_RBP 0xe58948 // mov rbp, rsp
+
+#define MUL_RAX_BY_R11 0xebf749 // imul r11
+
+#define SUB_RSP_8_BITS 0xec8348 // sub rsp, n
+#define SUB_RSP_32_BITS 0xec8148 // sub rsp, n
+
+#define MOV_RBP_TO_RSP 0xec8948 // mov rsp, rbp
+
+#define DIV_RAX_BY_R11 0xfbf749 // idiv r11
 
 #define MOV_XMM0_TO_DEREF_RBP 0x45110ff3 // movss rbp[n], xmm0
 #define MOV_XMM1_TO_DEREF_RBP 0x4d110ff3 // movss rbp[n], xmm1
@@ -5103,97 +5260,14 @@ static void fill_result_types(void) {
 #define MOV_XMM6_TO_DEREF_RBP 0x75110ff3 // movss rbp[n], xmm6
 #define MOV_XMM7_TO_DEREF_RBP 0x7d110ff3 // movss rbp[n], xmm7
 
-#define MOV_RDI_TO_DEREF_RBP 0x7d8948 // mov rbp[n], rdi
-#define MOV_RSI_TO_DEREF_RBP 0x758948 // mov rbp[n], rsi
-#define MOV_RDX_TO_DEREF_RBP 0x558948 // mov rbp[n], rdx
-#define MOV_RCX_TO_DEREF_RBP 0x4d8948 // mov rbp[n], rcx
-#define MOV_R8_TO_DEREF_RBP 0x45894c // mov rbp[n], r8
-#define MOV_R9_TO_DEREF_RBP 0x4d894c // mov rbp[n], r9
-
-#define DEREF_RBP_TO_EAX 0x458b // mov eax, rbp[n]
-#define DEREF_RBP_TO_RAX 0x458b48 // mov rax, rbp[n]
-#define DEREF_RBP_TO_R11 0x5d8b4c // mov r11, rbp[n]
-
-#define MOVABS_TO_RAX 0xb848 // mov rax, n
-
-#define CALL_DEREF_RAX 0x10ff // call [rax]
-
-#define MOV_GLOBAL_VARIABLE_TO_RAX 0x58b48 // mov rax, [rel foo wrt ..got]
-#define MOV_GLOBAL_VARIABLE_TO_RDI 0x3d8b48 // mov rdi, [rel foo wrt ..got]
-
-#define MOV_EAX_TO_DEREF_RBP 0x4589 // mov rbp[n], eax
-#define MOV_RAX_TO_DEREF_RBP 0x458948 // mov rbp[n], rax
-
-#define DEREF_RAX_TO_EAX 0x408b // mov eax, rax[n]
-#define DEREF_RAX_TO_RAX 0x408b48 // mov rax, rax[n]
-
-#define DEREF_RAX_TO_AL 0x8a // mov al, [rax]
-
-#define MOV_EAX_TO_DEREF_R11 0x438941 // mov r11[n], eax
-#define MOV_RAX_TO_DEREF_R11 0x438949 // mov r11[n], rax
-
-#define MOV_R11_TO_DEREF_RAX 0x18894c // mov [rax], r11
-
-#define MOV_RBP_TO_RSP 0xec8948 // mov rsp, rbp
-#define POP_RBP 0x5d // pop rbp
-
-#define ADD_R11_TO_RAX 0xd8014c // add rax, r11
-#define SUB_R11_FROM_RAX 0xd8294c // sub rax, r11
-#define MUL_RAX_BY_R11 0xebf749 // imul r11
-
-#define CQO_CLEAR_BEFORE_DIVISION 0x9948 // cqo
-#define DIV_RAX_BY_R11 0xfbf749 // idiv r11
-#define MOV_RDX_TO_RAX 0xd08948 // mov rax, rdx
-
-#define CMP_RAX_WITH_R11 0xd8394c // cmp rax, r11
-#define CMP_RSP_WITH_DEREF_RAX 0x203b48 // cmp rsp, [rax]
-
-// See this for an explanation of "ordered" vs. "unordered":
-// https://stackoverflow.com/a/8627368/13279557
-#define ORDERED_CMP_XMM0_WITH_XMM1 0xc12f0f // comiss xmm0, xmm1
-
-#define NEGATE_RAX 0xd8f748 // neg rax
-
-#define TEST_EAX_IS_ZERO 0xc085 // test eax, eax
-#define TEST_R11_IS_ZERO 0xdb854d // test r11, r11
-#define TEST_AL_IS_ZERO 0xc084 // test al, al
-
-#define JE_8_BIT_OFFSET 0x74 // je $+n
-#define JNE_8_BIT_OFFSET 0x75 // jne $+n
-#define JG_8_BIT_OFFSET 0x7f // jg $+n
-#define JE_32_BIT_OFFSET 0x840f // je strict $+n
-#define JMP_32_BIT_OFFSET 0xe9 // jmp $+n
-
-#define SETE_AL 0xc0940f // sete al
-#define SETNE_AL 0xc0950f // setne al
-#define SETGT_AL 0xc09f0f // setg al
-#define SETGE_AL 0xc09d0f // setge al
-#define SETLT_AL 0xc09c0f // setl al
-#define SETLE_AL 0xc09e0f // setle al
-
-#define SETA_AL 0xc0970f // seta al (set if above)
-#define SETAE_AL 0xc0930f // setae al (set if above or equal)
-#define SETB_AL 0xc0920f // setb al (set if below)
-#define SETBE_AL 0xc0960f // setbe al (set if below or equal)
-
-#define POP_RAX 0x58 // pop rax
-#define POP_R11 0x5b41 // pop r11
-
-#define POP_RDI 0x5f // pop rdi
-#define POP_RSI 0x5e // pop rsi
-#define POP_RDX 0x5a // pop rdx
-#define POP_RCX 0x59 // pop rcx
-#define POP_R8 0x5841 // pop r8
-#define POP_R9 0x5941 // pop r9
-
-#define XOR_EAX_BY_N 0x35 // xor eax, n
-#define XOR_CLEAR_EAX 0xc031 // xor eax, eax
-#define LEA_STRINGS_TO_RAX 0x58d48 // lea rax, strings[rel n]
-#define LEA_STRINGS_TO_RCX 0xd8d48 // lea rcx, strings[rel n]
-#define LEA_STRINGS_TO_RDX 0x158d48 // lea rdx, strings[rel n]
-#define LEA_STRINGS_TO_R11 0x1d8d4c // lea r11, strings[rel n]
-
 #define MOV_EAX_TO_XMM0 0xc06e0f66 // movd xmm0, eax
+#define MOV_XMM0_TO_EAX 0xc07e0f66 // movd eax, xmm0
+
+#define ADD_XMM1_TO_XMM0 0xc1580ff3 // addss xmm0, xmm1
+#define MUL_XMM0_WITH_XMM1 0xc1590ff3 // mulss xmm0, xmm1
+#define SUB_XMM1_FROM_XMM0 0xc15c0ff3 // subss xmm0, xmm1
+#define DIV_XMM0_BY_XMM1 0xc15e0ff3 // divss xmm0, xmm1
+
 #define MOV_EAX_TO_XMM1 0xc86e0f66 // movd xmm1, eax
 #define MOV_EAX_TO_XMM2 0xd06e0f66 // movd xmm2, eax
 #define MOV_EAX_TO_XMM3 0xd86e0f66 // movd xmm3, eax
@@ -5202,36 +5276,7 @@ static void fill_result_types(void) {
 #define MOV_EAX_TO_XMM6 0xf06e0f66 // movd xmm6, eax
 #define MOV_EAX_TO_XMM7 0xf86e0f66 // movd xmm7, eax
 
-#define MOV_RAX_TO_RDI 0xc78948 // mov rdi, rax
-#define MOV_RAX_TO_RSI 0xc68948 // mov rsi, rax
-#define MOV_RAX_TO_RDX 0xc28948 // mov rdx, rax
-#define MOV_RAX_TO_RCX 0xc18948 // mov rcx, rax
-#define MOV_RAX_TO_R8 0xc08949 // mov r8, rax
-#define MOV_RAX_TO_R9 0xc18949 // mov r9, rax
-
 #define MOV_R11D_TO_XMM1 0xcb6e0f4166 // movd xmm1, r11d
-
-#define MOV_R11_TO_RSI 0xde894c // mov rsi, r11
-
-#define ADD_XMM1_TO_XMM0 0xc1580ff3 // addss xmm0, xmm1
-#define SUB_XMM1_FROM_XMM0 0xc15c0ff3 // subss xmm0, xmm1
-#define MUL_XMM0_WITH_XMM1 0xc1590ff3 // mulss xmm0, xmm1
-#define DIV_XMM0_BY_XMM1 0xc15e0ff3 // divss xmm0, xmm1
-
-#define MOV_XMM0_TO_EAX 0xc07e0f66 // movd eax, xmm0
-
-#define MOV_TO_EAX 0xb8 // mov eax, n
-#define MOV_TO_ESI 0xbe // mov esi, n
-
-#define NOP_8_BITS 0x90 // nop
-#define NOP_32_BITS 0x401f0f // There isn't a nasm equivalent
-
-#define PUSH_REL 0x35ff // Not quite push qword [$+n]
-#define JMP_REL 0x25ff // Not quite jmp [$+n]
-
-#define DEC_EAX 0xc8ff // dec eax
-
-#define MOV_EAX_TO_EDI 0xc789 // mov edi, eax
 
 // End of code enums
 
@@ -5301,6 +5346,9 @@ static size_t entity_dependencies_size;
 
 static bool compiling_fast_mode;
 
+static bool is_max_rsp_used;
+static bool is_max_time_used;
+
 static void reset_compiling(void) {
 	codes_size = 0;
 	resource_strings_size = 0;
@@ -5317,6 +5365,8 @@ static void reset_compiling(void) {
 	resources_size = 0;
 	entity_dependencies_size = 0;
 	compiling_fast_mode = false;
+	is_max_rsp_used = false;
+	is_max_time_used = false;
 }
 
 static size_t get_helper_fn_offset(char *name) {
@@ -5556,7 +5606,14 @@ static void stack_pop_arguments(struct expr *fn_arguments, size_t argument_count
 	}
 }
 
-static void overwrite_jmp_address(size_t jump_address, size_t size) {
+static void overwrite_jmp_address_8(size_t jump_address, size_t size) {
+	assert(size > jump_address);
+	u8 n = size - (jump_address + 1);
+	codes[jump_address] = n;
+}
+
+static void overwrite_jmp_address_32(size_t jump_address, size_t size) {
+	assert(size > jump_address);
 	size_t byte_count = 4;
 	for (u32 n = size - (jump_address + byte_count); byte_count > 0; n >>= 8, byte_count--) {
 		codes[jump_address++] = n & 0xff; // Little-endian
@@ -5593,6 +5650,114 @@ static void compile_expr(struct expr expr);
 
 static void compile_statements(struct statement *statements_offset, size_t statement_count);
 
+static void push_used_extern_global_variable(char *variable_name, size_t codes_offset) {
+	grug_assert(used_extern_global_variables_size < MAX_USED_EXTERN_GLOBAL_VARIABLES, "There are more than %d usages of game global variables, exceeding MAX_USED_EXTERN_GLOBAL_VARIABLES", MAX_USED_EXTERN_GLOBAL_VARIABLES);
+
+	used_extern_global_variables[used_extern_global_variables_size++] = (struct used_extern_global_variable){
+		.variable_name = variable_name,
+		.codes_offset = codes_offset,
+	};
+}
+
+static void compile_longjmp(enum grug_runtime_error_type type) {
+	// mov esi, 1 + type:
+	// The `1 +` here is necessary for the longjmp()
+	// After the setjmp() we get the true value by decrementing it by 1
+	compile_byte(MOV_TO_ESI);
+	compile_32(1 + type);
+
+	// mov rdi, [rel grug_runtime_error_jmp_buffer wrt ..got]:
+	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RDI);
+	push_used_extern_global_variable("grug_runtime_error_jmp_buffer", codes_size);
+	compile_32(PLACEHOLDER_32);
+
+	// call longjmp wrt ..plt:
+	compile_byte(CALL);
+	push_system_fn_call("longjmp", codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+}
+
+static void compile_while_statement_time_limit_check(void) {
+	// mov rsi, [rel grug_current_time wrt ..got]:
+	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RSI);
+	push_used_extern_global_variable("grug_current_time", codes_size);
+	compile_32(PLACEHOLDER_32);
+
+	// push rsi:
+	compile_byte(PUSH_RSI);
+
+	// mov edi, CLOCK_PROCESS_CPUTIME_ID:
+	compile_byte(MOV_TO_EDI);
+	compile_32(CLOCK_PROCESS_CPUTIME_ID);
+
+	// call clock_gettime wrt ..plt:
+	compile_byte(CALL);
+	push_system_fn_call("clock_gettime", codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+
+	// pop rax:
+	compile_byte(POP_RAX);
+
+	// mov r11, [rel grug_max_time wrt ..got]:
+	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_R11);
+	push_used_extern_global_variable("grug_max_time", codes_size);
+	compile_32(PLACEHOLDER_32);
+
+	// ; This is what the below code does:
+	// ; cmp grug_current_time.sec, grug_max_time.sec
+	// ; jl skip
+	// ; jg take
+	// ; cmp grug_current_time.nsec, grug_max_time.nsec
+	// ; jg take
+	// ; jmp skip
+	// ; take: longjmp()
+	// ; skip: ...
+
+	// mov r10, [r11 + TV_SEC_OFFSET]:
+	compile_unpadded(MOV_R11_8_BIT_OFFSET_TO_R10);
+	compile_byte(offsetof(struct timespec, tv_sec));
+
+	// cmp [byte rax + TV_SEC_OFFSET], r10:
+	compile_unpadded(MOV_R10_TO_DEREF_RAX_8_BIT_OFFSET);
+	compile_byte(offsetof(struct timespec, tv_sec));
+
+	// jl $+0xn:
+	compile_byte(JL_8_BIT_OFFSET);
+	size_t skip_offset_1 = codes_size;
+	compile_byte(PLACEHOLDER_8);
+
+	// jg $+0xn:
+	compile_byte(JG_8_BIT_OFFSET);
+	size_t take_offset_1 = codes_size;
+	compile_byte(PLACEHOLDER_8);
+
+	// mov r10, [r11 + TV_NSEC_OFFSET]:
+	compile_unpadded(MOV_R11_8_BIT_OFFSET_TO_R10);
+	compile_byte(offsetof(struct timespec, tv_nsec));
+
+	// cmp [byte rax + TV_NSEC_OFFSET], r10:
+	compile_unpadded(CMP_DEREF_RAX_8_BIT_OFFSET_WITH_R10);
+	compile_byte(offsetof(struct timespec, tv_nsec));
+
+	// jg $+0xn:
+	compile_byte(JG_8_BIT_OFFSET);
+	size_t take_offset_2 = codes_size;
+	compile_byte(PLACEHOLDER_8);
+
+	// jmp $+0xn:
+	compile_byte(JMP_8_BIT_OFFSET);
+	size_t skip_offset_2 = codes_size;
+	compile_byte(PLACEHOLDER_8);
+
+	overwrite_jmp_address_8(take_offset_1, codes_size);
+	overwrite_jmp_address_8(take_offset_2, codes_size);
+
+	compile_longjmp(GRUG_ON_FN_TIME_LIMIT_EXCEEDED);
+
+	overwrite_jmp_address_8(skip_offset_1, codes_size);
+	overwrite_jmp_address_8(skip_offset_2, codes_size);
+}
+
 static void compile_while_statement(struct while_statement while_statement) {
 	size_t start_of_loop_jump_offset = codes_size;
 
@@ -5609,17 +5774,21 @@ static void compile_while_statement(struct while_statement while_statement) {
 
 	compile_statements(while_statement.body_statements, while_statement.body_statement_count);
 
+	if (!compiling_fast_mode) {
+		compile_while_statement_time_limit_check();
+	}
+
 	compile_unpadded(JMP_32_BIT_OFFSET);
 	compile_32(start_of_loop_jump_offset - (codes_size + NEXT_INSTRUCTION_OFFSET));
 
-	overwrite_jmp_address(end_jump_offset, codes_size);
+	overwrite_jmp_address_32(end_jump_offset, codes_size);
 
 	struct loop_break_statements *loop_break_statements = &loop_break_statements_stack[loop_depth - 1];
 
 	for (size_t i = 0; i < loop_break_statements->break_statements_size; i++) {
 		size_t break_statement_codes_offset = loop_break_statements->break_statements[i];
 
-		overwrite_jmp_address(break_statement_codes_offset, codes_size);
+		overwrite_jmp_address_32(break_statement_codes_offset, codes_size);
 	}
 
 	loop_depth--;
@@ -5644,13 +5813,13 @@ static void compile_if_statement(struct if_statement if_statement) {
 		size_t skip_else_jump_offset = codes_size;
 		compile_unpadded(PLACEHOLDER_32);
 
-		overwrite_jmp_address(else_or_end_jump_offset, codes_size);
+		overwrite_jmp_address_32(else_or_end_jump_offset, codes_size);
 
 		compile_statements(if_statement.else_body_statements, if_statement.else_body_statement_count);
 
-		overwrite_jmp_address(skip_else_jump_offset, codes_size);
+		overwrite_jmp_address_32(skip_else_jump_offset, codes_size);
 	} else {
-		overwrite_jmp_address(else_or_end_jump_offset, codes_size);
+		overwrite_jmp_address_32(else_or_end_jump_offset, codes_size);
 	}
 }
 
@@ -5661,15 +5830,6 @@ static void compile_if_statement(struct if_statement if_statement) {
 // 1 0001 => 0 1111
 static size_t get_padding(void) {
 	return -stack_frame_bytes & 0xf;
-}
-
-static void push_used_extern_global_variable(char *variable_name, size_t codes_offset) {
-	grug_assert(used_extern_global_variables_size < MAX_USED_EXTERN_GLOBAL_VARIABLES, "There are more than %d usages of game global variables, exceeding MAX_USED_EXTERN_GLOBAL_VARIABLES", MAX_USED_EXTERN_GLOBAL_VARIABLES);
-
-	used_extern_global_variables[used_extern_global_variables_size++] = (struct used_extern_global_variable){
-		.variable_name = variable_name,
-		.codes_offset = codes_offset,
-	};
 }
 
 static void compile_call_expr(struct call_expr call_expr) {
@@ -5751,7 +5911,7 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 			compile_unpadded(MOV_TO_EAX);
 			compile_32(0);
 			compile_unpadded(SETNE_AL);
-			overwrite_jmp_address(end_jump_offset, codes_size);
+			overwrite_jmp_address_32(end_jump_offset, codes_size);
 			break;
 		}
 		case OR_TOKEN: {
@@ -5769,33 +5929,12 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 			compile_unpadded(MOV_TO_EAX);
 			compile_32(0);
 			compile_unpadded(SETNE_AL);
-			overwrite_jmp_address(end_jump_offset, codes_size);
+			overwrite_jmp_address_32(end_jump_offset, codes_size);
 			break;
 		}
 		default:
 			grug_unreachable();
 	}
-}
-
-static void compile_longjmp(enum grug_runtime_error_type type) {
-	// Jumps over the longjmp()
-	compile_byte(0x11);
-
-	// mov esi, 1 + type:
-	// The `1 +` here is necessary for the longjmp()
-	// After the setjmp() we get the true value by decrementing it by 1
-	compile_byte(MOV_TO_ESI);
-	compile_32(1 + type);
-
-	// mov rdi, [rel grug_runtime_error_jmp_buffer wrt ..got]:
-	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RDI);
-	push_used_extern_global_variable("grug_runtime_error_jmp_buffer", codes_size);
-	compile_32(PLACEHOLDER_32);
-
-	// call longjmp wrt ..plt:
-	compile_byte(CALL);
-	push_system_fn_call("longjmp", codes_size);
-	compile_unpadded(PLACEHOLDER_32);
 }
 
 static void compile_binary_expr(struct expr expr) {
@@ -5842,8 +5981,14 @@ static void compile_binary_expr(struct expr expr) {
 			if (expr.result_type == type_i32) {
 				if (!compiling_fast_mode) {
 					compile_unpadded(TEST_R11_IS_ZERO);
+
 					compile_byte(JNE_8_BIT_OFFSET);
+					size_t skip_offset = codes_size;
+					compile_byte(PLACEHOLDER_8);
+
 					compile_longjmp(GRUG_ON_FN_DIVISION_BY_ZERO);
+
+					overwrite_jmp_address_8(skip_offset, codes_size);
 				}
 
 				compile_unpadded(CQO_CLEAR_BEFORE_DIVISION);
@@ -6299,8 +6444,6 @@ static void compile_statements(struct statement *group_statements, size_t statem
 	}
 }
 
-static void add_variables_in_statements(struct statement *statements_offset, size_t statement_count);
-
 static void add_variables_in_statements(struct statement *group_statements, size_t statement_count) {
 	for (size_t i = 0; i < statement_count; i++) {
 		struct statement statement = group_statements[i];
@@ -6341,7 +6484,7 @@ static size_t round_to_power_of_2(size_t n, size_t multiple) {
 	return (n + multiple - 1) & -multiple;
 }
 
-static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, bool is_on_fn, char *grug_path) {
+static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, bool is_on_fn, char *grug_path, bool on_fn_calls_helper_fn, bool on_fn_contains_while_loop) {
 	init_argument_variables(fn_arguments, argument_count);
 
 	add_variables_in_statements(body_statements, body_statement_count);
@@ -6480,17 +6623,71 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		// mov [rax], r11:
 		compile_unpadded(MOV_R11_TO_DEREF_RAX);
 
-		// mov rax, [rel grug_max_rsp wrt ..got]:
-		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
-		push_used_extern_global_variable("grug_max_rsp", codes_size);
-		compile_32(PLACEHOLDER_32);
+		if (on_fn_calls_helper_fn) {
+			is_max_rsp_used = true;
 
-		// mov [rax], rsp:
-		compile_unpadded(MOV_RSP_TO_DEREF_RAX);
+			// mov rax, [rel grug_max_rsp wrt ..got]:
+			compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
+			push_used_extern_global_variable("grug_max_rsp", codes_size);
+			compile_32(PLACEHOLDER_32);
 
-		// sub qword [rax], 0x10000:
-		compile_unpadded(SUB_DEREF_RAX_32_BITS);
-		compile_32(GRUG_STACK_LIMIT);
+			// mov [rax], rsp:
+			compile_unpadded(MOV_RSP_TO_DEREF_RAX);
+
+			// sub qword [rax], 0x10000:
+			compile_unpadded(SUB_DEREF_RAX_32_BITS);
+			compile_32(GRUG_STACK_LIMIT);
+		}
+
+		if (on_fn_contains_while_loop) {
+			is_max_time_used = true;
+
+			// mov rsi, [rel grug_max_time wrt ..got]:
+			compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RSI);
+			push_used_extern_global_variable("grug_max_time", codes_size);
+			compile_32(PLACEHOLDER_32);
+
+			// push rsi:
+			compile_byte(PUSH_RSI);
+
+			// mov edi, CLOCK_PROCESS_CPUTIME_ID:
+			compile_byte(MOV_TO_EDI);
+			compile_32(CLOCK_PROCESS_CPUTIME_ID);
+
+			// call clock_gettime wrt ..plt:
+			compile_byte(CALL);
+			push_system_fn_call("clock_gettime", codes_size);
+			compile_unpadded(PLACEHOLDER_32);
+
+			// pop rax:
+			compile_byte(POP_RAX);
+
+			// add qword [byte rax + TV_NSEC_OFFSET], GRUG_ON_FN_TIME_LIMIT_MS * NS_PER_MS:
+			compile_unpadded(MOV_TO_DEREF_RAX_8_BIT_OFFSET);
+			compile_byte(offsetof(struct timespec, tv_nsec));
+			compile_32(GRUG_ON_FN_TIME_LIMIT_MS * NS_PER_MS);
+
+			// cmp qword [byte rax + TV_NSEC_OFFSET], NS_PER_SEC:
+			compile_unpadded(CMP_WITH_DEREF_RAX_8_BIT_OFFSET);
+			compile_byte(offsetof(struct timespec, tv_nsec));
+			compile_32(NS_PER_SEC);
+
+			// jl $+0xd:
+			compile_byte(JL_8_BIT_OFFSET);
+			size_t skip_offset = codes_size;
+			compile_byte(PLACEHOLDER_8);
+
+			// sub qword [byte rax + TV_NSEC_OFFSET], NS_PER_SEC:
+			compile_unpadded(SUB_FROM_DEREF_RAX_8_BIT_OFFSET);
+			compile_byte(offsetof(struct timespec, tv_nsec));
+			compile_32(NS_PER_SEC);
+
+			// inc qword [byte rax + TV_SEC_OFFSET]:
+			compile_unpadded(INC_DEREF_RAX_8_BIT_OFFSET);
+			compile_byte(offsetof(struct timespec, tv_sec));
+
+			overwrite_jmp_address_8(skip_offset, codes_size);
+		}
 
 		// mov rdi, [rel grug_runtime_error_jmp_buffer wrt ..got]:
 		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RDI);
@@ -6505,10 +6702,10 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		// test eax, eax:
 		compile_unpadded(TEST_EAX_IS_ZERO);
 
-		// je strict $+0xn:
-		compile_unpadded(JE_32_BIT_OFFSET);
+		// je $+0xn:
+		compile_unpadded(JE_8_BIT_OFFSET);
 		size_t skip_runtime_handler_call_offset = codes_size;
-		compile_unpadded(PLACEHOLDER_32);
+		compile_byte(PLACEHOLDER_8);
 
 		// dec eax:
 		compile_unpadded(DEC_EAX);
@@ -6558,7 +6755,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 
 		compile_function_epilogue();
 
-		overwrite_jmp_address(skip_runtime_handler_call_offset, codes_size);
+		overwrite_jmp_address_8(skip_runtime_handler_call_offset, codes_size);
 	} else {
 		// mov rax, [rel grug_max_rsp wrt ..got]:
 		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
@@ -6570,7 +6767,12 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 
 		// jg $+0x17:
 		compile_byte(JG_8_BIT_OFFSET);
+		size_t skip_offset = codes_size;
+		compile_byte(PLACEHOLDER_8);
+
 		compile_longjmp(GRUG_ON_FN_STACK_OVERFLOW);
+
+		overwrite_jmp_address_8(skip_offset, codes_size);
 	}
 
 	compile_statements(body_statements, body_statement_count);
@@ -6578,7 +6780,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 	if (is_on_fn) {
 		compile_function_epilogue();
 
-		overwrite_jmp_address(skip_safe_code_offset, codes_size);
+		overwrite_jmp_address_32(skip_safe_code_offset, codes_size);
 
 		compiling_fast_mode = true;
 		compile_statements(body_statements, body_statement_count);
@@ -6589,11 +6791,11 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 }
 
 static void compile_on_fn(struct on_fn fn, char *grug_path) {
-	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, true, grug_path);
+	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, true, grug_path, fn.calls_helper_fn, fn.contains_while_loop);
 }
 
 static void compile_helper_fn(struct helper_fn fn) {
-	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, false, NULL);
+	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, false, NULL, false, false);
 }
 
 static void compile_init_globals_fn(void) {
@@ -6917,6 +7119,8 @@ static size_t entities_offset;
 static size_t entity_types_offset;
 
 USED_BY_MODS u64 grug_max_rsp;
+USED_BY_MODS struct timespec grug_current_time;
+USED_BY_MODS struct timespec grug_max_time;
 
 static void reset_generate_shared_object(void) {
 	symbols_size = 0;
@@ -7673,6 +7877,12 @@ static void push_got(void) {
 
 	size_t offset = 0;
 
+	if (is_max_time_used) {
+		push_global_variable_offset("grug_current_time", offset);
+		offset += sizeof(u64);
+		push_zeros(sizeof(u64));
+	}
+
 	push_global_variable_offset("grug_on_fns_in_safe_mode", offset);
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
@@ -7689,9 +7899,17 @@ static void push_got(void) {
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
 
-	push_global_variable_offset("grug_max_rsp", offset);
-	offset += sizeof(u64);
-	push_zeros(sizeof(u64));
+	if (is_max_rsp_used) {
+		push_global_variable_offset("grug_max_rsp", offset);
+		offset += sizeof(u64);
+		push_zeros(sizeof(u64));
+	}
+
+	if (is_max_time_used) {
+		push_global_variable_offset("grug_max_time", offset);
+		offset += sizeof(u64);
+		push_zeros(sizeof(u64));
+	}
 
 	push_global_variable_offset("grug_runtime_error_handler", offset);
 	offset += sizeof(u64);
@@ -7720,11 +7938,19 @@ static void push_dynamic(void) {
 		// This subtracts the future got_size set by push_got()
 		// TODO: Stop having these hardcoded here
 		dynamic_offset -= sizeof(u64); // grug_runtime_error_handler
-		dynamic_offset -= sizeof(u64); // grug_max_rsp
+		if (is_max_rsp_used) {
+			dynamic_offset -= sizeof(u64); // grug_max_rsp
+		}
+		if (is_max_time_used) {
+			dynamic_offset -= sizeof(u64); // grug_max_time
+		}
 		dynamic_offset -= sizeof(u64); // grug_on_fn_name
 		dynamic_offset -= sizeof(u64); // grug_runtime_error_jmp_buffer
 		dynamic_offset -= sizeof(u64); // grug_on_fn_path
 		dynamic_offset -= sizeof(u64); // grug_on_fns_in_safe_mode
+		if (is_max_time_used) {
+			dynamic_offset -= sizeof(u64); // grug_current_time
+		}
 	}
 #ifndef OLD_LD
 	dynamic_offset -= GOT_PLT_INTRO_SIZE;
@@ -8471,8 +8697,15 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 		push_symbol("grug_runtime_error_handler");
 		extern_data_symbols_size++;
 
-		push_symbol("grug_max_rsp");
-		extern_data_symbols_size++;
+		if (is_max_rsp_used) {
+			push_symbol("grug_max_rsp");
+			extern_data_symbols_size++;
+		}
+
+		if (is_max_time_used) {
+			push_symbol("grug_max_time");
+			extern_data_symbols_size++;
+		}
 
 		push_symbol("grug_on_fn_name");
 		extern_data_symbols_size++;
@@ -8485,6 +8718,11 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 
 		push_symbol("grug_on_fns_in_safe_mode");
 		extern_data_symbols_size++;
+
+		if (is_max_time_used) {
+			push_symbol("grug_current_time");
+			extern_data_symbols_size++;
+		}
 	}
 
 	first_used_extern_fn_symbol_index = first_extern_data_symbol_index + extern_data_symbols_size;
