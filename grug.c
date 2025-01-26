@@ -221,9 +221,8 @@ static void *get_dll_symbol(void *dll, char *symbol_name) {
 
 //// RUNTIME ERROR HANDLING
 
-// TODO: Assert `GRUG_ON_FN_TIME_LIMIT_MS >= 1 && GRUG_ON_FN_TIME_LIMIT_MS <= 999`
-// TODO: This is necessary to simplify the generated machine code
 #define GRUG_ON_FN_TIME_LIMIT_MS 10
+static_assert(GRUG_ON_FN_TIME_LIMIT_MS >= 1 && GRUG_ON_FN_TIME_LIMIT_MS <= 999, "This simplifies the generated machine code");
 
 USED_BY_MODS jmp_buf grug_runtime_error_jmp_buffer;
 
@@ -5168,7 +5167,7 @@ static void fill_result_types(void) {
 #define CMP_RSP_WITH_DEREF_RAX 0x203b48 // cmp rsp, [rax]
 #define MOV_RSP_TO_DEREF_RAX 0x208948 // mov [rax], rsp
 
-#define SUB_DEREF_RAX_32_BITS 0x288148 // sub qword [rax], 0x10000
+#define SUB_DEREF_RAX_32_BITS 0x288148 // sub qword [rax], n
 
 #define MOV_GLOBAL_VARIABLE_TO_RSI 0x358b48 // mov rsi, [rel foo wrt ..got]
 #define MOV_RSI_TO_DEREF_RDI 0x378948 // mov rdi[0x0], rsi
@@ -6634,7 +6633,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 			// mov [rax], rsp:
 			compile_unpadded(MOV_RSP_TO_DEREF_RAX);
 
-			// sub qword [rax], 0x10000:
+			// sub qword [rax], GRUG_STACK_LIMIT:
 			compile_unpadded(SUB_DEREF_RAX_32_BITS);
 			compile_32(GRUG_STACK_LIMIT);
 		}
