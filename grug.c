@@ -2952,23 +2952,10 @@ static void reach_binary_expr(struct binary_expr binary_expr) {
 	reach_expr(*binary_expr.left_expr);
 }
 
-static void reach_unary_expr(struct unary_expr unary_expr) {
-	switch (unary_expr.operator) {
-		case MINUS_TOKEN:
-			reach_expr(*unary_expr.expr);
-			break;
-		case NOT_TOKEN:
-			reach_expr(*unary_expr.expr);
-			break;
-		default:
-			grug_unreachable();
-	}
-}
-
 static void reach_expr(struct expr expr) {
 	switch (expr.type) {
 		case UNARY_EXPR:
-			reach_unary_expr(expr.unary);
+			reach_expr(*expr.unary.expr);
 			break;
 		case BINARY_EXPR:
 			reach_binary_expr(expr.binary);
