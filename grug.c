@@ -2942,7 +2942,7 @@ static void reach_if_statement(struct if_statement if_statement) {
 }
 
 static void reach_call_expr(struct call_expr call_expr) {
-	if (get_helper_fn(call_expr.fn_name) && !seen_called_helper_fn_name(call_expr.fn_name)) {
+	if (get_helper_fn(call_expr.fn_name)) {
 		add_called_helper_fn_name(call_expr.fn_name);
 	}
 }
