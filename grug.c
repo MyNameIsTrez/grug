@@ -8035,14 +8035,14 @@ static void push_got(void) {
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
 
-	if (is_max_rsp_used) {
-		push_global_variable_offset("grug_max_rsp", offset);
+	if (is_max_time_used) {
+		push_global_variable_offset("grug_max_time", offset);
 		offset += sizeof(u64);
 		push_zeros(sizeof(u64));
 	}
 
-	if (is_max_time_used) {
-		push_global_variable_offset("grug_max_time", offset);
+	if (is_max_rsp_used) {
+		push_global_variable_offset("grug_max_rsp", offset);
 		offset += sizeof(u64);
 		push_zeros(sizeof(u64));
 	}
