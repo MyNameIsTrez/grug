@@ -104,7 +104,7 @@ static bool streq(char *a, char *b);
 }
 #else
 #define grug_unreachable() {\
-	grug_error("This line of code is supposed to be unreachable. Please report this bug to the grug developers!");\
+	grug_error("This line of code in grug.c:%d is supposed to be unreachable. Please report this bug to the grug developers!", __LINE__);\
 }
 #endif
 
@@ -5203,6 +5203,8 @@ static void fill_result_types(void) {
 #define MAX_DEFINE_FN_NAME_CHARACTERS 420
 #define MAX_LOOP_DEPTH 420
 #define MAX_BREAK_STATEMENTS_PER_LOOP 420
+#define MAX_HELPER_FN_MODE_NAMES_CHARACTERS 420
+
 #define NEXT_INSTRUCTION_OFFSET sizeof(u32)
 
 // 0xDEADBEEF in little-endian
@@ -5485,6 +5487,9 @@ static bool compiling_fast_mode;
 static bool is_max_rsp_used;
 static bool is_max_time_used;
 
+static char helper_fn_mode_names[MAX_HELPER_FN_MODE_NAMES_CHARACTERS];
+static size_t helper_fn_mode_names_size;
+
 static void reset_compiling(void) {
 	codes_size = 0;
 	resource_strings_size = 0;
@@ -5503,6 +5508,31 @@ static void reset_compiling(void) {
 	compiling_fast_mode = false;
 	is_max_rsp_used = false;
 	is_max_time_used = false;
+	helper_fn_mode_names_size = 0;
+}
+
+static char *get_helper_fn_mode_name(char *name, bool safe) {
+	size_t length = strlen(name);
+
+	grug_assert(helper_fn_mode_names_size + length + (sizeof("_safe") - 1) < MAX_HELPER_FN_MODE_NAMES_CHARACTERS, "There are more than %d characters in the helper_fn_mode_names array, exceeding MAX_HELPER_FN_MODE_NAMES_CHARACTERS", MAX_HELPER_FN_MODE_NAMES_CHARACTERS);
+
+	char *mode_name = helper_fn_mode_names + helper_fn_mode_names_size;
+
+	memcpy(helper_fn_mode_names + helper_fn_mode_names_size, name, length);
+	helper_fn_mode_names_size += length;
+
+	memcpy(helper_fn_mode_names + helper_fn_mode_names_size, safe ? "_safe" : "_fast", 6);
+	helper_fn_mode_names_size += 6;
+
+	return mode_name;
+}
+
+static char *get_fast_helper_fn_name(char *name) {
+	return get_helper_fn_mode_name(name, false);
+}
+
+static char *get_safe_helper_fn_name(char *name) {
+	return get_helper_fn_mode_name(name, true);
 }
 
 static size_t get_helper_fn_offset(char *name) {
@@ -5973,7 +6003,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 	struct grug_game_function *game_fn = get_grug_game_fn(fn_name);
 
 	bool gets_global_variables_pointer = false;
-	if (get_helper_fn(call_expr.fn_name)) {
+	if (get_helper_fn(fn_name)) {
 		// Push the secret global variables pointer argument
 		compile_unpadded(DEREF_RBP_TO_RAX);
 		compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
@@ -6012,7 +6042,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 	} else {
 		struct helper_fn *helper_fn = get_helper_fn(fn_name);
 		if (helper_fn) {
-			push_helper_fn_call(fn_name, codes_size);
+			push_helper_fn_call(get_helper_fn_mode_name(fn_name, !compiling_fast_mode), codes_size);
 			returns_float = helper_fn->return_type == type_f32;
 		} else {
 			grug_unreachable();
@@ -6892,7 +6922,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		compile_function_epilogue();
 
 		overwrite_jmp_address_8(skip_runtime_handler_call_offset, codes_size);
-	} else {
+	} else if (!compiling_fast_mode) {
 		// mov rax, [rel grug_max_rsp wrt ..got]:
 		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
 		push_used_extern_global_variable("grug_max_rsp", codes_size);
@@ -7102,13 +7132,26 @@ static void compile(char *grug_path) {
 	}
 
 	for (size_t helper_fn_index = 0; helper_fn_index < helper_fns_size; helper_fn_index++) {
-		start_codes_size = codes_size;
-
 		struct helper_fn fn = helper_fns[helper_fn_index];
 
-		push_helper_fn_offset(fn.fn_name, codes_size);
+		start_codes_size = codes_size;
+
+		push_helper_fn_offset(get_safe_helper_fn_name(fn.fn_name), codes_size);
 
 		compile_helper_fn(fn);
+
+		text_offsets[text_offset_index++] = text_offset;
+		text_offset += codes_size - start_codes_size;
+
+		// The same, but for fast mode:
+
+		start_codes_size = codes_size;
+
+		push_helper_fn_offset(get_fast_helper_fn_name(fn.fn_name), codes_size);
+
+		compiling_fast_mode = true;
+		compile_helper_fn(fn);
+		compiling_fast_mode = false;
 
 		text_offsets[text_offset_index++] = text_offset;
 		text_offset += codes_size - start_codes_size;
@@ -8864,7 +8907,8 @@ static void generate_shared_object(char *dll_path) {
 	}
 
 	for (size_t i = 0; i < helper_fns_size; i++) {
-		push_symbol(helper_fns[i].fn_name);
+		push_symbol(get_safe_helper_fn_name(helper_fns[i].fn_name));
+		push_symbol(get_fast_helper_fn_name(helper_fns[i].fn_name));
 	}
 
 	init_symbol_name_dynstr_offsets();
