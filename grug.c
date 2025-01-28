@@ -7829,14 +7829,12 @@ static void push_shstrtab(void) {
 	push_alignment(8);
 }
 
-static void push_strtab(char *grug_path) {
+static void push_strtab(void) {
 	grug_log_section(".strtab");
 
 	strtab_offset = bytes_size;
 
 	push_byte(0);
-	push_string_bytes(grug_path);
-
 	push_string_bytes("_DYNAMIC");
 	push_string_bytes("_GLOBAL_OFFSET_TABLE_");
 
@@ -7876,7 +7874,7 @@ static void push_symbol_entry(u32 name, u16 info, u16 shndx, u32 offset) {
 	push_zeros(SYMTAB_ENTRY_SIZE - sizeof(u32) - sizeof(u16) - sizeof(u16) - sizeof(u32));
 }
 
-static void push_symtab(char *grug_path) {
+static void push_symtab(void) {
 	grug_log_section(".symtab");
 
 	symtab_offset = bytes_size;
@@ -7887,17 +7885,8 @@ static void push_symtab(char *grug_path) {
 	push_symbol_entry(0, ELF32_ST_INFO(STB_LOCAL, STT_NOTYPE), SHN_UNDEF, 0);
 	pushed_symbol_entries++;
 
-	// "<some_path>.s" entry
-	push_symbol_entry(1, ELF32_ST_INFO(STB_LOCAL, STT_FILE), SHN_ABS, 0);
-	pushed_symbol_entries++;
-
-	// TODO: ? entry
-	push_symbol_entry(0, ELF32_ST_INFO(STB_LOCAL, STT_FILE), SHN_ABS, 0);
-	pushed_symbol_entries++;
-
-	// TODO: Let this use path of the .grug file, instead of the .s that's used purely for testing purposes
-	// The `1 +` is to skip the 0 byte that .strtab always starts with
-	size_t name_offset = 1 + strlen(grug_path) + 1;
+	// The `1 +` skips the 0 byte that .strtab always starts with
+	size_t name_offset = 1;
 
 	// "_DYNAMIC" entry
 	push_symbol_entry(name_offset, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT), shindex_dynamic, dynamic_offset);
@@ -8571,7 +8560,7 @@ static void push_elf_header(void) {
 	push_byte(0);
 }
 
-static void push_bytes(char *grug_path) {
+static void push_bytes(void) {
 	// 0x0 to 0x40
 	push_elf_header();
 
@@ -8607,9 +8596,9 @@ static void push_bytes(char *grug_path) {
 
 	push_data();
 
-	push_symtab(grug_path);
+	push_symtab();
 
-	push_strtab(grug_path);
+	push_strtab();
 
 	push_shstrtab();
 
@@ -8784,7 +8773,7 @@ static void init_section_header_indices(void) {
 	shindex_shstrtab = shindex++;
 }
 
-static void generate_shared_object(char *grug_path, char *dll_path) {
+static void generate_shared_object(char *dll_path) {
 	text_size = codes_size;
 
 	reset_generate_shared_object();
@@ -8888,7 +8877,7 @@ static void generate_shared_object(char *grug_path, char *dll_path) {
 
 	hash_on_fns();
 
-	push_bytes(grug_path);
+	push_bytes();
 
 	patch_bytes();
 
@@ -9027,7 +9016,7 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 	compile(grug_path);
 
 	grug_log("\n# Section offsets\n");
-	generate_shared_object(grug_path, dll_path);
+	generate_shared_object(dll_path);
 
 	grug_loading_error_in_grug_file = false;
 }
