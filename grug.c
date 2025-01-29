@@ -5843,7 +5843,7 @@ static void compile_longjmp(enum grug_runtime_error_type type) {
 	compile_unpadded(PLACEHOLDER_32);
 }
 
-static void compile_while_statement_time_limit_check(void) {
+static void compile_check_time_limit_exceeded(void) {
 	// mov rsi, [rel grug_current_time wrt ..got]:
 	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RSI);
 	push_used_extern_global_variable("grug_current_time", codes_size);
@@ -5924,6 +5924,54 @@ static void compile_while_statement_time_limit_check(void) {
 	overwrite_jmp_address_8(skip_offset_2, codes_size);
 }
 
+static void compile_set_time_limit(void) {
+	// mov rsi, [rel grug_max_time wrt ..got]:
+	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RSI);
+	push_used_extern_global_variable("grug_max_time", codes_size);
+	compile_32(PLACEHOLDER_32);
+
+	// push rsi:
+	compile_byte(PUSH_RSI);
+
+	// mov edi, CLOCK_PROCESS_CPUTIME_ID:
+	compile_byte(MOV_TO_EDI);
+	compile_32(CLOCK_PROCESS_CPUTIME_ID);
+
+	// call clock_gettime wrt ..plt:
+	compile_byte(CALL);
+	push_system_fn_call("clock_gettime", codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+
+	// pop rax:
+	compile_byte(POP_RAX);
+
+	// add qword [byte rax + TV_NSEC_OFFSET], GRUG_ON_FN_TIME_LIMIT_MS * NS_PER_MS:
+	compile_unpadded(MOV_TO_DEREF_RAX_8_BIT_OFFSET);
+	compile_byte(offsetof(struct timespec, tv_nsec));
+	compile_32(GRUG_ON_FN_TIME_LIMIT_MS * NS_PER_MS);
+
+	// cmp qword [byte rax + TV_NSEC_OFFSET], NS_PER_SEC:
+	compile_unpadded(CMP_WITH_DEREF_RAX_8_BIT_OFFSET);
+	compile_byte(offsetof(struct timespec, tv_nsec));
+	compile_32(NS_PER_SEC);
+
+	// jl $+0xd:
+	compile_byte(JL_8_BIT_OFFSET);
+	size_t skip_offset = codes_size;
+	compile_byte(PLACEHOLDER_8);
+
+	// sub qword [byte rax + TV_NSEC_OFFSET], NS_PER_SEC:
+	compile_unpadded(SUB_FROM_DEREF_RAX_8_BIT_OFFSET);
+	compile_byte(offsetof(struct timespec, tv_nsec));
+	compile_32(NS_PER_SEC);
+
+	// inc qword [byte rax + TV_SEC_OFFSET]:
+	compile_unpadded(INC_DEREF_RAX_8_BIT_OFFSET);
+	compile_byte(offsetof(struct timespec, tv_sec));
+
+	overwrite_jmp_address_8(skip_offset, codes_size);
+}
+
 static void compile_while_statement(struct while_statement while_statement) {
 	size_t start_of_loop_jump_offset = codes_size;
 
@@ -5941,7 +5989,7 @@ static void compile_while_statement(struct while_statement while_statement) {
 	compile_statements(while_statement.body_statements, while_statement.body_statement_count);
 
 	if (!compiling_fast_mode) {
-		compile_while_statement_time_limit_check();
+		compile_check_time_limit_exceeded();
 	}
 
 	compile_unpadded(JMP_32_BIT_OFFSET);
@@ -6599,6 +6647,9 @@ static void compile_statements(struct statement *group_statements, size_t statem
 				compile_unpadded(PLACEHOLDER_32);
 				break;
 			case CONTINUE_STATEMENT:
+				if (!compiling_fast_mode) {
+					compile_check_time_limit_exceeded();
+				}
 				compile_unpadded(JMP_32_BIT_OFFSET);
 				size_t start_of_loop_jump_offset = start_of_loop_jump_offsets[loop_depth - 1];
 				compile_32(start_of_loop_jump_offset - (codes_size + NEXT_INSTRUCTION_OFFSET));
@@ -6808,51 +6859,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		if (on_fn_contains_while_loop) {
 			is_max_time_used = true;
 
-			// mov rsi, [rel grug_max_time wrt ..got]:
-			compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RSI);
-			push_used_extern_global_variable("grug_max_time", codes_size);
-			compile_32(PLACEHOLDER_32);
-
-			// push rsi:
-			compile_byte(PUSH_RSI);
-
-			// mov edi, CLOCK_PROCESS_CPUTIME_ID:
-			compile_byte(MOV_TO_EDI);
-			compile_32(CLOCK_PROCESS_CPUTIME_ID);
-
-			// call clock_gettime wrt ..plt:
-			compile_byte(CALL);
-			push_system_fn_call("clock_gettime", codes_size);
-			compile_unpadded(PLACEHOLDER_32);
-
-			// pop rax:
-			compile_byte(POP_RAX);
-
-			// add qword [byte rax + TV_NSEC_OFFSET], GRUG_ON_FN_TIME_LIMIT_MS * NS_PER_MS:
-			compile_unpadded(MOV_TO_DEREF_RAX_8_BIT_OFFSET);
-			compile_byte(offsetof(struct timespec, tv_nsec));
-			compile_32(GRUG_ON_FN_TIME_LIMIT_MS * NS_PER_MS);
-
-			// cmp qword [byte rax + TV_NSEC_OFFSET], NS_PER_SEC:
-			compile_unpadded(CMP_WITH_DEREF_RAX_8_BIT_OFFSET);
-			compile_byte(offsetof(struct timespec, tv_nsec));
-			compile_32(NS_PER_SEC);
-
-			// jl $+0xd:
-			compile_byte(JL_8_BIT_OFFSET);
-			size_t skip_offset = codes_size;
-			compile_byte(PLACEHOLDER_8);
-
-			// sub qword [byte rax + TV_NSEC_OFFSET], NS_PER_SEC:
-			compile_unpadded(SUB_FROM_DEREF_RAX_8_BIT_OFFSET);
-			compile_byte(offsetof(struct timespec, tv_nsec));
-			compile_32(NS_PER_SEC);
-
-			// inc qword [byte rax + TV_SEC_OFFSET]:
-			compile_unpadded(INC_DEREF_RAX_8_BIT_OFFSET);
-			compile_byte(offsetof(struct timespec, tv_sec));
-
-			overwrite_jmp_address_8(skip_offset, codes_size);
+			compile_set_time_limit();
 		}
 
 		// mov rdi, [rel grug_runtime_error_jmp_buffer wrt ..got]:
