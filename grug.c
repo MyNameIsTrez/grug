@@ -7292,7 +7292,6 @@ static size_t global_variable_offsets_size;
 static u32 buckets_global_variable_offsets[MAX_GLOBAL_VARIABLE_OFFSETS];
 static u32 chains_global_variable_offsets[MAX_GLOBAL_VARIABLE_OFFSETS];
 
-static size_t strings_offset;
 static size_t resources_offset;
 static size_t entities_offset;
 static size_t entity_types_offset;
@@ -7981,11 +7980,9 @@ static void push_data(void) {
 		}
 	}
 
-	// "strings" symbol
-	strings_offset = bytes_size;
+	// data strings
 	for (size_t i = 0; i < data_strings_size; i++) {
-		char *string = data_strings[i];
-		push_string_bytes(string);
+		push_string_bytes(data_strings[i]);
 	}
 
 	// "resources_size" symbol
@@ -8672,8 +8669,7 @@ static void init_data_offsets(void) {
 		}
 	}
 
-	// "strings" symbol
-	data_offsets[i++] = offset;
+	// data strings
 	for (size_t string_index = 0; string_index < data_strings_size; string_index++) {
 		data_string_offsets[string_index] = offset;
 		char *string = data_strings[string_index];
@@ -8833,9 +8829,6 @@ static void generate_shared_object(char *dll_path) {
 		push_symbol("on_fns");
 		data_symbols_size++;
 	}
-
-	push_symbol("strings");
-	data_symbols_size++;
 
 	push_symbol("resources_size");
 	data_symbols_size++;
