@@ -1835,6 +1835,7 @@ struct on_fn {
 	size_t body_statement_count;
 	bool calls_helper_fn;
 	bool contains_while_loop;
+	bool contains_integer_division;
 };
 static struct on_fn on_fns[MAX_ON_FNS];
 static size_t on_fns_size;
@@ -1867,11 +1868,6 @@ static size_t called_helper_fn_names_size;
 
 static u32 buckets_called_helper_fn_names[MAX_CALLED_HELPER_FN_NAMES];
 static u32 chains_called_helper_fn_names[MAX_CALLED_HELPER_FN_NAMES];
-
-static bool parsing_on_fn;
-
-static bool *parsed_on_fn_calls_helper_fn_ptr;
-static bool *parsed_on_fn_contains_while_loop_ptr;
 
 static void reset_parsing(void) {
 	exprs_size = 0;
@@ -2163,10 +2159,6 @@ static struct expr parse_call(size_t *i) {
 
 	if (starts_with(expr.call.fn_name, "helper_")) {
 		add_called_helper_fn_name(expr.call.fn_name);
-
-		if (parsing_on_fn) {
-			*parsed_on_fn_calls_helper_fn_ptr = true;
-		}
 	}
 
 	expr.call.argument_count = 0;
@@ -2486,11 +2478,6 @@ static struct statement parse_statement(size_t *i) {
 		case WHILE_TOKEN:
 			(*i)++;
 			statement = parse_while_statement(i);
-
-			if (parsing_on_fn) {
-				*parsed_on_fn_contains_while_loop_ptr = true;
-			}
-
 			break;
 		case BREAK_TOKEN:
 			(*i)++;
@@ -2654,8 +2641,6 @@ static struct helper_fn parse_helper_fn(size_t *i) {
 		grug_assert(fn.return_type != type_entity, "The helper function '%s' can't have 'entity' as its return type", fn.fn_name);
 	}
 
-	parsing_on_fn = false;
-
 	indentation = 0;
 	fn.body_statements = parse_statements(i, &fn.body_statement_count);
 
@@ -2676,11 +2661,6 @@ static struct on_fn parse_on_fn(size_t *i) {
 	}
 
 	consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
-
-	parsing_on_fn = true;
-
-	parsed_on_fn_calls_helper_fn_ptr = &fn.calls_helper_fn;
-	parsed_on_fn_contains_while_loop_ptr = &fn.contains_while_loop;
 
 	indentation = 0;
 	fn.body_statements = parse_statements(i, &fn.body_statement_count);
@@ -4457,6 +4437,12 @@ static size_t data_strings_size;
 static u32 buckets_data_strings[MAX_DATA_STRINGS];
 static u32 chains_data_strings[MAX_DATA_STRINGS];
 
+static bool parsing_on_fn;
+
+static bool *parsed_on_fn_calls_helper_fn_ptr;
+static bool *parsed_on_fn_contains_while_loop_ptr;
+static bool *parsed_on_fn_contains_integer_division_ptr;
+
 static void reset_filling(void) {
 	global_variables_size = 0;
 	globals_bytes = 0;
@@ -4626,6 +4612,12 @@ static void fill_call_expr(struct expr *expr) {
 
 	char *name = expr->call.fn_name;
 
+	if (starts_with(name, "helper_")) {
+		if (parsing_on_fn) {
+			*parsed_on_fn_calls_helper_fn_ptr = true;
+		}
+	}
+
 	struct helper_fn *helper_fn = get_helper_fn(name);
 	if (helper_fn) {
 		expr->result_type = helper_fn->return_type;
@@ -4693,6 +4685,11 @@ static void fill_binary_expr(struct expr *expr) {
 		case DIVISION_TOKEN:
 			grug_assert(binary_expr.left_expr->result_type == type_i32 || binary_expr.left_expr->result_type == type_f32, "'%s' operator expects i32 or f32", get_token_type_str[binary_expr.operator]);
 			expr->result_type = binary_expr.left_expr->result_type;
+
+			if (parsing_on_fn && expr->binary.operator == DIVISION_TOKEN && expr->result_type == type_i32) {
+				*parsed_on_fn_contains_integer_division_ptr = true;
+			}
+
 			break;
 
 		case REMAINDER_TOKEN:
@@ -4932,6 +4929,10 @@ static void fill_statements(struct statement *group_statements, size_t statement
 
 				fill_statements(statement.while_statement.body_statements, statement.while_statement.body_statement_count);
 
+				if (parsing_on_fn) {
+					*parsed_on_fn_contains_while_loop_ptr = true;
+				}
+
 				break;
 			case BREAK_STATEMENT:
 			case CONTINUE_STATEMENT:
@@ -4963,6 +4964,8 @@ static void fill_helper_fns(void) {
 		filled_fn_name = fn.fn_name;
 
 		init_argument_variables(fn.arguments, fn.argument_count);
+
+		parsing_on_fn = false;
 
 		fill_statements(fn.body_statements, fn.body_statement_count);
 
@@ -5018,17 +5021,17 @@ static void fill_on_fns(void) {
 	fn_return_type = type_void;
 
 	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
-		struct on_fn fn = on_fns[fn_index];
+		struct on_fn *fn = &on_fns[fn_index];
 
-		char *name = fn.fn_name;
+		char *name = fn->fn_name;
 		filled_fn_name = name;
 
 		struct grug_on_function *define_on_fn = get_define_on_fn(on_fns[fn_index].fn_name);
 
 		grug_assert(define_on_fn, "The function '%s' was not was not declared by entity '%s' in mod_api.json", on_fns[fn_index].fn_name, define_fn.return_type);
 
-		struct argument *args = fn.arguments;
-		size_t arg_count = fn.argument_count;
+		struct argument *args = fn->arguments;
+		size_t arg_count = fn->argument_count;
 
 		struct argument *params = define_on_fn->arguments;
 		size_t param_count = define_on_fn->argument_count;
@@ -5046,7 +5049,13 @@ static void fill_on_fns(void) {
 
 		init_argument_variables(args, arg_count);
 
-		fill_statements(fn.body_statements, fn.body_statement_count);
+		parsing_on_fn = true;
+
+		parsed_on_fn_calls_helper_fn_ptr = &fn->calls_helper_fn;
+		parsed_on_fn_contains_while_loop_ptr = &fn->contains_while_loop;
+		parsed_on_fn_contains_integer_division_ptr = &fn->contains_integer_division;
+
+		fill_statements(fn->body_statements, fn->body_statement_count);
 	}
 }
 
@@ -5490,6 +5499,7 @@ static size_t entity_dependencies_size;
 
 static bool compiling_fast_mode;
 
+static bool is_error_handler_used;
 static bool is_max_rsp_used;
 static bool is_max_time_used;
 
@@ -5512,6 +5522,7 @@ static void reset_compiling(void) {
 	resources_size = 0;
 	entity_dependencies_size = 0;
 	compiling_fast_mode = false;
+	is_error_handler_used = false;
 	is_max_rsp_used = false;
 	is_max_time_used = false;
 	helper_fn_mode_names_size = 0;
@@ -5930,6 +5941,82 @@ static void compile_check_time_limit_exceeded(void) {
 	overwrite_jmp_address_8(skip_offset_2, codes_size);
 }
 
+static void compile_function_epilogue(void) {
+	compile_unpadded(MOV_RBP_TO_RSP);
+	compile_byte(POP_RBP);
+	compile_byte(RET);
+}
+
+static void compile_error_handling(char *grug_path, char *fn_name) {
+	// mov rdi, [rel grug_runtime_error_jmp_buffer wrt ..got]:
+	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RDI);
+	push_used_extern_global_variable("grug_runtime_error_jmp_buffer", codes_size);
+	compile_32(PLACEHOLDER_32);
+
+	// call setjmp wrt ..plt:
+	compile_byte(CALL);
+	push_system_fn_call("setjmp", codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+
+	// test eax, eax:
+	compile_unpadded(TEST_EAX_IS_ZERO);
+
+	// je $+0xn:
+	compile_unpadded(JE_8_BIT_OFFSET);
+	size_t skip_runtime_handler_call_offset = codes_size;
+	compile_byte(PLACEHOLDER_8);
+
+	// dec eax:
+	compile_unpadded(DEC_EAX);
+
+	// push rax:
+	compile_byte(PUSH_RAX);
+
+	// mov edi, eax:
+	compile_unpadded(MOV_EAX_TO_EDI);
+
+	// sub rsp, 8:
+	compile_unpadded(SUB_RSP_8_BITS);
+	compile_byte(8);
+
+	// call grug_get_runtime_error_reason wrt ..plt:
+	compile_byte(CALL);
+	push_system_fn_call("grug_get_runtime_error_reason", codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+
+	// add rsp, 8:
+	compile_unpadded(ADD_RSP_8_BITS);
+	compile_byte(8);
+
+	// mov rdi, rax:
+	compile_unpadded(MOV_RAX_TO_RDI);
+
+	// lea rcx, strings[rel n]:
+	compile_unpadded(LEA_STRINGS_TO_RCX);
+	push_data_string_code(grug_path, codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+
+	// lea rdx, strings[rel n]:
+	compile_unpadded(LEA_STRINGS_TO_RDX);
+	push_data_string_code(fn_name, codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+
+	// pop rsi:
+	compile_byte(POP_RSI);
+
+	// mov rax, [rel grug_runtime_error_handler wrt ..got]:
+	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
+	push_used_extern_global_variable("grug_runtime_error_handler", codes_size);
+	compile_32(PLACEHOLDER_32);
+
+	// call [rax]:
+	compile_unpadded(CALL_DEREF_RAX);
+
+	compile_function_epilogue();
+
+	overwrite_jmp_address_8(skip_runtime_handler_call_offset, codes_size);
+}
+
 static void compile_set_time_limit(void) {
 	// mov rsi, [rel grug_max_time wrt ..got]:
 	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RSI);
@@ -6012,12 +6099,6 @@ static void compile_while_statement(struct while_statement while_statement) {
 	}
 
 	loop_depth--;
-}
-
-static void compile_function_epilogue(void) {
-	compile_unpadded(MOV_RBP_TO_RSP);
-	compile_byte(POP_RBP);
-	compile_byte(RET);
 }
 
 static void compile_if_statement(struct if_statement if_statement) {
@@ -6707,7 +6788,7 @@ static size_t round_to_power_of_2(size_t n, size_t multiple) {
 	return (n + multiple - 1) & -multiple;
 }
 
-static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, bool is_on_fn, char *grug_path, bool on_fn_calls_helper_fn, bool on_fn_contains_while_loop) {
+static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, bool is_on_fn, char *grug_path, bool on_fn_calls_helper_fn, bool on_fn_contains_while_loop, bool on_fn_contains_integer_division) {
 	init_argument_variables(fn_arguments, argument_count);
 
 	add_variables_in_statements(body_statements, body_statement_count);
@@ -6868,73 +6949,11 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 			compile_set_time_limit();
 		}
 
-		// mov rdi, [rel grug_runtime_error_jmp_buffer wrt ..got]:
-		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RDI);
-		push_used_extern_global_variable("grug_runtime_error_jmp_buffer", codes_size);
-		compile_32(PLACEHOLDER_32);
+		if (on_fn_calls_helper_fn || on_fn_contains_while_loop || on_fn_contains_integer_division) {
+			is_error_handler_used = true;
 
-		// call setjmp wrt ..plt:
-		compile_byte(CALL);
-		push_system_fn_call("setjmp", codes_size);
-		compile_unpadded(PLACEHOLDER_32);
-
-		// test eax, eax:
-		compile_unpadded(TEST_EAX_IS_ZERO);
-
-		// je $+0xn:
-		compile_unpadded(JE_8_BIT_OFFSET);
-		size_t skip_runtime_handler_call_offset = codes_size;
-		compile_byte(PLACEHOLDER_8);
-
-		// dec eax:
-		compile_unpadded(DEC_EAX);
-
-		// push rax:
-		compile_byte(PUSH_RAX);
-
-		// mov edi, eax:
-		compile_unpadded(MOV_EAX_TO_EDI);
-
-		// sub rsp, 8:
-		compile_unpadded(SUB_RSP_8_BITS);
-		compile_byte(8);
-
-		// call grug_get_runtime_error_reason wrt ..plt:
-		compile_byte(CALL);
-		push_system_fn_call("grug_get_runtime_error_reason", codes_size);
-		compile_unpadded(PLACEHOLDER_32);
-
-		// add rsp, 8:
-		compile_unpadded(ADD_RSP_8_BITS);
-		compile_byte(8);
-
-		// mov rdi, rax:
-		compile_unpadded(MOV_RAX_TO_RDI);
-
-		// lea rcx, strings[rel n]:
-		compile_unpadded(LEA_STRINGS_TO_RCX);
-		push_data_string_code(grug_path, codes_size);
-		compile_unpadded(PLACEHOLDER_32);
-
-		// lea rdx, strings[rel n]:
-		compile_unpadded(LEA_STRINGS_TO_RDX);
-		push_data_string_code(fn_name, codes_size);
-		compile_unpadded(PLACEHOLDER_32);
-
-		// pop rsi:
-		compile_byte(POP_RSI);
-
-		// mov rax, [rel grug_runtime_error_handler wrt ..got]:
-		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
-		push_used_extern_global_variable("grug_runtime_error_handler", codes_size);
-		compile_32(PLACEHOLDER_32);
-
-		// call [rax]:
-		compile_unpadded(CALL_DEREF_RAX);
-
-		compile_function_epilogue();
-
-		overwrite_jmp_address_8(skip_runtime_handler_call_offset, codes_size);
+			compile_error_handling(grug_path, fn_name);
+		}
 	} else if (!compiling_fast_mode) {
 		// mov rax, [rel grug_max_rsp wrt ..got]:
 		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
@@ -6970,11 +6989,11 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 }
 
 static void compile_on_fn(struct on_fn fn, char *grug_path) {
-	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, true, grug_path, fn.calls_helper_fn, fn.contains_while_loop);
+	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, true, grug_path, fn.calls_helper_fn, fn.contains_while_loop, fn.contains_integer_division);
 }
 
 static void compile_helper_fn(struct helper_fn fn) {
-	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, false, NULL, false, false);
+	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, false, NULL, false, false, false);
 }
 
 static void compile_init_globals_fn(void) {
@@ -8069,9 +8088,11 @@ static void push_got(void) {
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
 
-	push_global_variable_offset("grug_runtime_error_jmp_buffer", offset);
-	offset += sizeof(u64);
-	push_zeros(sizeof(u64));
+	if (is_error_handler_used) {
+		push_global_variable_offset("grug_runtime_error_jmp_buffer", offset);
+		offset += sizeof(u64);
+		push_zeros(sizeof(u64));
+	}
 
 	push_global_variable_offset("grug_on_fn_name", offset);
 	offset += sizeof(u64);
@@ -8089,9 +8110,11 @@ static void push_got(void) {
 		push_zeros(sizeof(u64));
 	}
 
-	push_global_variable_offset("grug_runtime_error_handler", offset);
-	offset += sizeof(u64);
-	push_zeros(sizeof(u64));
+	if (is_error_handler_used) {
+		push_global_variable_offset("grug_runtime_error_handler", offset);
+		offset += sizeof(u64);
+		push_zeros(sizeof(u64));
+	}
 
 	hash_global_variable_offsets();
 
@@ -8115,7 +8138,9 @@ static void push_dynamic(void) {
 	if (has_got()) {
 		// This subtracts the future got_size set by push_got()
 		// TODO: Stop having these hardcoded here
-		dynamic_offset -= sizeof(u64); // grug_runtime_error_handler
+		if (is_error_handler_used) {
+			dynamic_offset -= sizeof(u64); // grug_runtime_error_handler
+		}
 		if (is_max_rsp_used) {
 			dynamic_offset -= sizeof(u64); // grug_max_rsp
 		}
@@ -8123,7 +8148,9 @@ static void push_dynamic(void) {
 			dynamic_offset -= sizeof(u64); // grug_max_time
 		}
 		dynamic_offset -= sizeof(u64); // grug_on_fn_name
-		dynamic_offset -= sizeof(u64); // grug_runtime_error_jmp_buffer
+		if (is_error_handler_used) {
+			dynamic_offset -= sizeof(u64); // grug_runtime_error_jmp_buffer
+		}
 		dynamic_offset -= sizeof(u64); // grug_on_fn_path
 		dynamic_offset -= sizeof(u64); // grug_on_fns_in_safe_mode
 		if (is_max_time_used) {
@@ -8868,8 +8895,10 @@ static void generate_shared_object(char *dll_path) {
 
 	first_extern_data_symbol_index = data_symbols_size;
 	if (on_fns_size > 0) {
-		push_symbol("grug_runtime_error_handler");
-		extern_data_symbols_size++;
+		if (is_error_handler_used) {
+			push_symbol("grug_runtime_error_handler");
+			extern_data_symbols_size++;
+		}
 
 		if (is_max_rsp_used) {
 			push_symbol("grug_max_rsp");
@@ -8884,8 +8913,10 @@ static void generate_shared_object(char *dll_path) {
 		push_symbol("grug_on_fn_name");
 		extern_data_symbols_size++;
 
-		push_symbol("grug_runtime_error_jmp_buffer");
-		extern_data_symbols_size++;
+		if (is_error_handler_used) {
+			push_symbol("grug_runtime_error_jmp_buffer");
+			extern_data_symbols_size++;
+		}
 
 		push_symbol("grug_on_fn_path");
 		extern_data_symbols_size++;
