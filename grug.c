@@ -2936,6 +2936,8 @@ static void reach_while_statement(struct while_statement while_statement) {
 static void reach_if_statement(struct if_statement if_statement) {
 	reach_expr(if_statement.condition);
 
+	reach_statements(if_statement.if_body_statements, if_statement.if_body_statement_count);
+
 	if (if_statement.else_body_statement_count > 0) {
 		reach_statements(if_statement.else_body_statements, if_statement.else_body_statement_count);
 	}
@@ -2944,6 +2946,10 @@ static void reach_if_statement(struct if_statement if_statement) {
 static void reach_call_expr(struct call_expr call_expr) {
 	if (get_helper_fn(call_expr.fn_name)) {
 		add_called_helper_fn_name(call_expr.fn_name);
+	}
+
+	for (size_t i = 0; i < call_expr.argument_count; i++) {
+		reach_expr(call_expr.arguments[i]);
 	}
 }
 
