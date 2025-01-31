@@ -2888,6 +2888,7 @@ static void parse(void) {
 
 //// HELPER FN REACHABILITY
 
+// TODO: A hash table could be used to make this O(1)
 static void check_helper_fn_is_called_cyclic(struct helper_fn fn) {
 	for (size_t i = 0; i < called_helper_fn_names_size; i++) {
 		if (streq(called_helper_fn_names[i], fn.fn_name)) {
@@ -3000,6 +3001,7 @@ static void reach_statements(struct statement *group_statements, size_t statemen
 
 static void check_cyclic(void) {
 	called_helper_fn_names_size = 0;
+	memset(buckets_called_helper_fn_names, 0xff, sizeof(buckets_called_helper_fn_names));
 
 	for (size_t i = 0; i < on_fns_size; i++) {
 		struct on_fn fn = on_fns[i];
