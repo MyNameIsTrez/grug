@@ -4688,7 +4688,7 @@ static void fill_binary_expr(struct expr *expr) {
 			grug_assert(binary_expr.left_expr->result_type == type_i32 || binary_expr.left_expr->result_type == type_f32, "'%s' operator expects i32 or f32", get_token_type_str[binary_expr.operator]);
 			expr->result_type = binary_expr.left_expr->result_type;
 
-			if (parsing_on_fn && expr->binary.operator == DIVISION_TOKEN && expr->result_type == type_i32) {
+			if (expr->binary.operator == DIVISION_TOKEN && parsing_on_fn && expr->result_type == type_i32) {
 				*parsed_on_fn_contains_integer_division_ptr = true;
 			}
 
@@ -4697,6 +4697,11 @@ static void fill_binary_expr(struct expr *expr) {
 		case REMAINDER_TOKEN:
 			grug_assert(binary_expr.left_expr->result_type == type_i32, "'%%' operator expects i32");
 			expr->result_type = type_i32;
+
+			if (parsing_on_fn && expr->result_type == type_i32) {
+				*parsed_on_fn_contains_integer_division_ptr = true;
+			}
+
 			break;
 
 		case OPEN_PARENTHESIS_TOKEN:
@@ -6304,6 +6309,18 @@ static void compile_binary_expr(struct expr expr) {
 			}
 			break;
 		case REMAINDER_TOKEN:
+			if (!compiling_fast_mode) {
+				compile_unpadded(TEST_R11_IS_ZERO);
+
+				compile_byte(JNE_8_BIT_OFFSET);
+				size_t skip_offset = codes_size;
+				compile_byte(PLACEHOLDER_8);
+
+				compile_longjmp(GRUG_ON_FN_DIVISION_BY_ZERO);
+
+				overwrite_jmp_address_8(skip_offset, codes_size);
+			}
+
 			compile_unpadded(CQO_CLEAR_BEFORE_DIVISION);
 			compile_unpadded(DIV_RAX_BY_R11);
 			compile_unpadded(MOV_RDX_TO_RAX);
