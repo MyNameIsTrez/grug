@@ -19,13 +19,12 @@
 // 7. READING
 // 8. TOKENIZATION
 // 9. PARSING
-// 10. HELPER FN REACHABILITY
-// 11. DUMPING AST
-// 12. APPLYING AST
-// 13. TYPE PROPAGATION
-// 14. COMPILING
-// 15. LINKING
-// 16. HOT RELOADING
+// 10. DUMPING AST
+// 11. APPLYING AST
+// 12. TYPE PROPAGATION
+// 13. COMPILING
+// 14. LINKING
+// 15. HOT RELOADING
 //
 // ## Programs showcasing grug
 //
@@ -2622,6 +2621,10 @@ static struct helper_fn parse_helper_fn(size_t *i) {
 
 	struct token token = consume_token(i);
 	fn.fn_name = token.str;
+	
+	if (!seen_called_helper_fn_name(fn.fn_name)) {
+		grug_error("%s() is defined before the first time it gets called", fn.fn_name);
+	}
 
 	consume_token_type(i, OPEN_PARENTHESIS_TOKEN);
 
@@ -2810,6 +2813,7 @@ static void parse(void) {
 			consume_token_type(&i, NEWLINE_TOKEN);
 		} else if (type == WORD_TOKEN && starts_with(token.str, "on_") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
 			grug_assert(seen_define_fn, "Move the on_ function '%s' below the define function", token.str);
+			grug_assert(helper_fns_size == 0, "%s() must be defined before all helper_ functions", token.str);
 			grug_assert(!newline_required, "Expected an empty line, on line %zu", get_token_line_number(i));
 
 			struct on_fn fn = parse_on_fn(&i);
@@ -2884,153 +2888,6 @@ static void parse(void) {
 	grug_assert(seen_define_fn, "Every grug file requires exactly one define function");
 
 	hash_helper_fns();
-}
-
-//// HELPER FN REACHABILITY
-
-// TODO: A hash table could be used to make this O(1)
-static void check_helper_fn_is_called_cyclic(struct helper_fn fn) {
-	for (size_t i = 0; i < called_helper_fn_names_size; i++) {
-		if (streq(called_helper_fn_names[i], fn.fn_name)) {
-			return;
-		}
-	}
-
-	grug_error("%s() is not used by any on_ function", fn.fn_name);
-}
-
-static void check_that_every_helper_fn_is_called_cyclic(void) {
-	for (size_t i = 0; i < helper_fns_size; i++) {
-		check_helper_fn_is_called_cyclic(helper_fns[i]);
-	}
-}
-
-static void reach_expr(struct expr expr);
-static void reach_statements(struct statement *group_statements, size_t statement_count);
-
-static void reach_while_statement(struct while_statement while_statement) {
-	reach_expr(while_statement.condition);
-
-	reach_statements(while_statement.body_statements, while_statement.body_statement_count);
-}
-
-static void reach_if_statement(struct if_statement if_statement) {
-	reach_expr(if_statement.condition);
-
-	reach_statements(if_statement.if_body_statements, if_statement.if_body_statement_count);
-
-	if (if_statement.else_body_statement_count > 0) {
-		reach_statements(if_statement.else_body_statements, if_statement.else_body_statement_count);
-	}
-}
-
-static void reach_call_expr(struct call_expr call_expr) {
-	if (get_helper_fn(call_expr.fn_name)) {
-		add_called_helper_fn_name(call_expr.fn_name);
-	}
-
-	for (size_t i = 0; i < call_expr.argument_count; i++) {
-		reach_expr(call_expr.arguments[i]);
-	}
-}
-
-static void reach_binary_expr(struct binary_expr binary_expr) {
-	reach_expr(*binary_expr.right_expr);
-	reach_expr(*binary_expr.left_expr);
-}
-
-static void reach_expr(struct expr expr) {
-	switch (expr.type) {
-		case UNARY_EXPR:
-			reach_expr(*expr.unary.expr);
-			break;
-		case BINARY_EXPR:
-			reach_binary_expr(expr.binary);
-			break;
-		case LOGICAL_EXPR:
-			reach_binary_expr(expr.binary);
-			break;
-		case CALL_EXPR:
-			reach_call_expr(expr.call);
-			break;
-		case PARENTHESIZED_EXPR:
-			reach_expr(*expr.parenthesized);
-			break;
-		case TRUE_EXPR:
-		case FALSE_EXPR:
-		case STRING_EXPR:
-		case RESOURCE_EXPR:
-		case ENTITY_EXPR:
-		case IDENTIFIER_EXPR:
-		case I32_EXPR:
-		case F32_EXPR:
-			break;
-	}
-}
-
-static void reach_statements(struct statement *group_statements, size_t statement_count) {
-	for (size_t i = 0; i < statement_count; i++) {
-		struct statement statement = group_statements[i];
-
-		switch (statement.type) {
-			case VARIABLE_STATEMENT:
-				reach_expr(*statement.variable_statement.assignment_expr);
-				break;
-			case CALL_STATEMENT:
-				reach_call_expr(statement.call_statement.expr->call);
-				break;
-			case IF_STATEMENT:
-				reach_if_statement(statement.if_statement);
-				break;
-			case RETURN_STATEMENT:
-				if (statement.return_statement.has_value) {
-					reach_expr(*statement.return_statement.value);
-				}
-				break;
-			case WHILE_STATEMENT:
-				reach_while_statement(statement.while_statement);
-				break;
-			case BREAK_STATEMENT:
-			case CONTINUE_STATEMENT:
-			case EMPTY_LINE_STATEMENT:
-			case COMMENT_STATEMENT:
-				break;
-		}
-	}
-}
-
-static void check_cyclic(void) {
-	called_helper_fn_names_size = 0;
-	memset(buckets_called_helper_fn_names, 0xff, sizeof(buckets_called_helper_fn_names));
-
-	for (size_t i = 0; i < on_fns_size; i++) {
-		struct on_fn fn = on_fns[i];
-
-		reach_statements(fn.body_statements, fn.body_statement_count);
-	}
-
-	check_that_every_helper_fn_is_called_cyclic();
-}
-
-static void check_helper_fn_is_called(struct helper_fn fn) {
-	for (size_t i = 0; i < called_helper_fn_names_size; i++) {
-		if (streq(called_helper_fn_names[i], fn.fn_name)) {
-			return;
-		}
-	}
-
-	grug_error("%s() is not used by any on_ nor helper_ function", fn.fn_name);
-}
-
-static void check_that_every_helper_fn_is_called(void) {
-	for (size_t i = 0; i < helper_fns_size; i++) {
-		check_helper_fn_is_called(helper_fns[i]);
-	}
-}
-
-static void check_helper_fns_are_called(void) {
-	check_that_every_helper_fn_is_called();
-	check_cyclic();
 }
 
 //// DUMPING AST
@@ -9109,7 +8966,6 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 #endif
 
 	parse();
-	check_helper_fns_are_called();
 	fill_result_types();
 	grug_log("\n# AST (throw this into a JSON formatter)\n");
 
