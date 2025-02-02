@@ -5124,7 +5124,7 @@ static void fill_result_types(void) {
 #define JL_8_BIT_OFFSET 0x7c // jl $+0n
 #define JG_8_BIT_OFFSET 0x7f // jg $+n
 
-#define DEREF_RAX_TO_AL 0x8a // mov al, [rax]
+#define MOV_DEREF_RAX_TO_AL 0x8a // mov al, [rax]
 
 #define NOP_8_BITS 0x90 // nop
 
@@ -5144,10 +5144,11 @@ static void fill_result_types(void) {
 #define JMP_REL 0x25ff // Not quite jmp [$+n]
 #define PUSH_REL 0x35ff // Not quite push qword [$+n]
 
-#define DEREF_RAX_TO_EAX 0x408b // mov eax, rax[n]
-#define DEREF_RBP_TO_EAX 0x458b // mov eax, rbp[n]
+#define MOV_DEREF_RAX_TO_EAX_8_BIT_OFFSET 0x408b // mov eax, rax[n]
+#define MOV_DEREF_RBP_TO_EAX_8_BIT_OFFSET 0x458b // mov eax, rbp[n]
+#define MOV_DEREF_RBP_TO_EAX_32_BIT_OFFSET 0x858b // mov eax, rbp[n]
 
-#define MOV_EAX_TO_DEREF_RBP 0x4589 // mov rbp[n], eax
+#define MOV_EAX_TO_DEREF_RBP_8_BIT_OFFSET 0x4589 // mov rbp[n], eax
 #define MOV_EAX_TO_DEREF_RDI_8_BIT_OFFSET 0x4789 // mov rdi[n], eax
 #define MOV_ECX_TO_DEREF_RBP 0x4d89 // mov rbp[n], ecx
 #define MOV_EDX_TO_DEREF_RBP 0x5589 // mov rbp[n], edx
@@ -5157,7 +5158,9 @@ static void fill_result_types(void) {
 #define POP_R11 0x5b41 // pop r11
 
 #define MOV_ESI_TO_DEREF_RBP 0x7589 // mov rbp[n], esi
+#define MOV_DEREF_RAX_TO_EAX_32_BIT_OFFSET 0x808b // mov eax, rax[n]
 #define JE_32_BIT_OFFSET 0x840f // je strict $+n
+#define MOV_EAX_TO_DEREF_RBP_32_BIT_OFFSET 0x8589 // mov rbp[n], eax
 #define MOV_EAX_TO_DEREF_RDI_32_BIT_OFFSET 0x8789 // mov rdi[n], eax
 #define CQO_CLEAR_BEFORE_DIVISION 0x9948 // cqo
 #define MOVABS_TO_RAX 0xb848 // mov rax, n
@@ -5194,7 +5197,7 @@ static void fill_result_types(void) {
 #define NOP_32_BITS 0x401f0f // There isn't a nasm equivalent
 
 #define MOV_TO_DEREF_RAX_8_BIT_OFFSET 0x408148 // add qword [byte rax + n], m
-#define DEREF_RAX_TO_RAX 0x408b48 // mov rax, rax[n]
+#define MOV_DEREF_RAX_TO_RAX 0x408b48 // mov rax, rax[n]
 
 #define INC_DEREF_RAX_8_BIT_OFFSET 0x40ff48 // inc qword [byte rax + n]
 
@@ -5204,7 +5207,7 @@ static void fill_result_types(void) {
 #define MOV_RAX_TO_DEREF_R11 0x438949 // mov r11[n], rax
 #define MOV_R8_TO_DEREF_RBP 0x45894c // mov rbp[n], r8
 
-#define DEREF_RBP_TO_RAX 0x458b48 // mov rax, rbp[n]
+#define MOV_DEREF_RBP_TO_RAX 0x458b48 // mov rax, rbp[n]
 
 #define MOV_RAX_TO_DEREF_RDI_8_BIT_OFFSET 0x478948 // mov rdi[n], rax
 #define MOV_R9D_TO_DEREF_RBP 0x4d8944 // mov rbp[n], r9d
@@ -5213,7 +5216,7 @@ static void fill_result_types(void) {
 #define MOV_R10_TO_DEREF_RAX_8_BIT_OFFSET 0x50394c // cmp [byte rax + n], r10
 #define MOV_RDX_TO_DEREF_RBP 0x558948 // mov rbp[n], rdx
 
-#define DEREF_RBP_TO_R11 0x5d8b4c // mov r11, rbp[n]
+#define MOV_DEREF_RBP_TO_R11 0x5d8b4c // mov r11, rbp[n]
 
 #define SUB_FROM_DEREF_RAX_8_BIT_OFFSET 0x688148 // sub qword [byte rax + n], m
 
@@ -6004,7 +6007,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 	bool gets_global_variables_pointer = false;
 	if (get_helper_fn(fn_name)) {
 		// Push the secret global variables pointer argument
-		compile_unpadded(DEREF_RBP_TO_RAX);
+		compile_unpadded(MOV_DEREF_RBP_TO_RAX);
 		compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 		stack_push_rax();
 
@@ -6451,19 +6454,27 @@ static void compile_expr(struct expr expr) {
 					case type_bool:
 					case type_i32:
 					case type_f32:
-						compile_unpadded(DEREF_RBP_TO_EAX);
+						if (var->offset <= 0x80) {
+							compile_unpadded(MOV_DEREF_RBP_TO_EAX_8_BIT_OFFSET);
+						} else {
+							compile_unpadded(MOV_DEREF_RBP_TO_EAX_32_BIT_OFFSET);
+						}
 						break;
 					case type_string:
 					case type_id:
-						compile_unpadded(DEREF_RBP_TO_RAX);
+						compile_unpadded(MOV_DEREF_RBP_TO_RAX);
 						break;
 				}
 
-				compile_byte(-var->offset);
+				if (var->offset <= 0x80) {
+					compile_byte(-var->offset);
+				} else {
+					compile_32(-var->offset);
+				}
 				return;
 			}
 
-			compile_unpadded(DEREF_RBP_TO_RAX);
+			compile_unpadded(MOV_DEREF_RBP_TO_RAX);
 			compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 
 			// TODO: Support any 32 bit offset, instead of only 8 bits
@@ -6476,15 +6487,23 @@ static void compile_expr(struct expr expr) {
 				case type_bool:
 				case type_i32:
 				case type_f32:
-					compile_unpadded(DEREF_RAX_TO_EAX);
+					if (var->offset < 0x80) {
+						compile_unpadded(MOV_DEREF_RAX_TO_EAX_8_BIT_OFFSET);
+					} else {
+						compile_unpadded(MOV_DEREF_RAX_TO_EAX_32_BIT_OFFSET);
+					}
 					break;
 				case type_string:
 				case type_id:
-					compile_unpadded(DEREF_RAX_TO_RAX);
+					compile_unpadded(MOV_DEREF_RAX_TO_RAX);
 					break;
 			}
 
-			compile_byte(var->offset);
+			if (var->offset < 0x80) {
+				compile_byte(var->offset);
+			} else {
+				compile_32(var->offset);
+			}
 			break;
 		}
 		case I32_EXPR: {
@@ -6536,7 +6555,6 @@ static void compile_variable_statement(struct variable_statement variable_statem
 
 	struct variable *var = get_local_variable(variable_statement.name);
 	if (var) {
-		// TODO: Support any 32 bit offset, instead of only 8 bits
 		switch (var->type) {
 			case type_void:
 			case type_resource:
@@ -6545,7 +6563,11 @@ static void compile_variable_statement(struct variable_statement variable_statem
 			case type_bool:
 			case type_i32:
 			case type_f32:
-				compile_unpadded(MOV_EAX_TO_DEREF_RBP);
+				if (var->offset <= 0x80) {
+					compile_unpadded(MOV_EAX_TO_DEREF_RBP_8_BIT_OFFSET);
+				} else {
+					compile_unpadded(MOV_EAX_TO_DEREF_RBP_32_BIT_OFFSET);
+				}
 				break;
 			case type_string:
 			case type_id:
@@ -6553,11 +6575,15 @@ static void compile_variable_statement(struct variable_statement variable_statem
 				break;
 		}
 
-		compile_byte(-var->offset);
+		if (var->offset <= 0x80) {
+			compile_byte(-var->offset);
+		} else {
+			compile_32(-var->offset);
+		}
 		return;
 	}
 
-	compile_unpadded(DEREF_RBP_TO_R11);
+	compile_unpadded(MOV_DEREF_RBP_TO_R11);
 	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 
 	// TODO: Support any 32 bit offset, instead of only 8 bits
@@ -6765,7 +6791,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		compile_32(PLACEHOLDER_32);
 
 		// mov al, [rax]:
-		compile_padded(DEREF_RAX_TO_AL, 2);
+		compile_padded(MOV_DEREF_RAX_TO_AL, 2);
 
 		// test al, al:
 		compile_unpadded(TEST_AL_IS_ZERO);
