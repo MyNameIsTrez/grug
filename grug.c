@@ -5690,7 +5690,7 @@ static void stack_push_rax(void) {
 }
 
 static void push_break_statement_jump_address_offset(size_t offset) {
-	grug_assert(loop_depth > 0, "One of the break statements isn't inside of a while loop");
+	grug_assert(loop_depth > 0, "There is a break statement that isn't inside of a while loop");
 
 	struct loop_break_statements *loop_break_statements = &loop_break_statements_stack[loop_depth - 1];
 
@@ -5809,6 +5809,16 @@ static void compile_check_time_limit_exceeded(void) {
 
 	overwrite_jmp_address_8(skip_offset_1, codes_size);
 	overwrite_jmp_address_8(skip_offset_2, codes_size);
+}
+
+static void compile_continue_statement(void) {
+	grug_assert(loop_depth > 0, "There is a continue statement that isn't inside of a while loop");
+	if (!compiling_fast_mode) {
+		compile_check_time_limit_exceeded();
+	}
+	compile_unpadded(JMP_32_BIT_OFFSET);
+	size_t start_of_loop_jump_offset = start_of_loop_jump_offsets[loop_depth - 1];
+	compile_32(start_of_loop_jump_offset - (codes_size + NEXT_INSTRUCTION_OFFSET));
 }
 
 static void compile_function_epilogue(void) {
@@ -6662,12 +6672,7 @@ static void compile_statements(struct statement *group_statements, size_t statem
 				compile_unpadded(PLACEHOLDER_32);
 				break;
 			case CONTINUE_STATEMENT:
-				if (!compiling_fast_mode) {
-					compile_check_time_limit_exceeded();
-				}
-				compile_unpadded(JMP_32_BIT_OFFSET);
-				size_t start_of_loop_jump_offset = start_of_loop_jump_offsets[loop_depth - 1];
-				compile_32(start_of_loop_jump_offset - (codes_size + NEXT_INSTRUCTION_OFFSET));
+				compile_continue_statement();
 				break;
 			case EMPTY_LINE_STATEMENT:
 			case COMMENT_STATEMENT:
