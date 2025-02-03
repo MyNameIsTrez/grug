@@ -5197,17 +5197,17 @@ static void fill_result_types(void) {
 #define NOP_32_BITS 0x401f0f // There isn't a nasm equivalent
 
 #define MOV_TO_DEREF_RAX_8_BIT_OFFSET 0x408148 // add qword [byte rax + n], m
-#define MOV_DEREF_RAX_TO_RAX 0x408b48 // mov rax, rax[n]
+#define MOV_DEREF_RAX_TO_RAX_8_BIT_OFFSET 0x408b48 // mov rax, rax[n]
 
 #define INC_DEREF_RAX_8_BIT_OFFSET 0x40ff48 // inc qword [byte rax + n]
 
 #define MOV_EAX_TO_DEREF_R11_8_BIT_OFFSET 0x438941 // mov r11[n], eax
 #define MOV_R8D_TO_DEREF_RBP 0x458944 // mov rbp[n], r8d
-#define MOV_RAX_TO_DEREF_RBP 0x458948 // mov rbp[n], rax
-#define MOV_RAX_TO_DEREF_R11 0x438949 // mov r11[n], rax
+#define MOV_RAX_TO_DEREF_RBP_8_BIT_OFFSET 0x458948 // mov rbp[n], rax
+#define MOV_RAX_TO_DEREF_R11_8_BIT_OFFSET 0x438949 // mov r11[n], rax
 #define MOV_R8_TO_DEREF_RBP 0x45894c // mov rbp[n], r8
 
-#define MOV_DEREF_RBP_TO_RAX 0x458b48 // mov rax, rbp[n]
+#define MOV_DEREF_RBP_TO_RAX_8_BIT_OFFSET 0x458b48 // mov rax, rbp[n]
 
 #define MOV_RAX_TO_DEREF_RDI_8_BIT_OFFSET 0x478948 // mov rdi[n], rax
 #define MOV_R9D_TO_DEREF_RBP 0x4d8944 // mov rbp[n], r9d
@@ -5225,7 +5225,11 @@ static void fill_result_types(void) {
 #define CMP_WITH_DEREF_RAX_8_BIT_OFFSET 0x788148 // cmp qword [byte rax + n], m
 
 #define MOV_RDI_TO_DEREF_RBP 0x7d8948 // mov rbp[n], rdi
+#define MOV_DEREF_RAX_TO_RAX_32_BIT_OFFSET 0x808b48 // mov rax, rax[n]
 #define MOV_EAX_TO_DEREF_R11_32_BIT_OFFSET 0x838941 // mov r11[n], eax
+#define MOV_RAX_TO_DEREF_R11_32_BIT_OFFSET 0x838949 // mov r11[n], rax
+#define MOV_RAX_TO_DEREF_RBP_32_BIT_OFFSET 0x858948 // mov rbp[n], rax
+#define MOV_DEREF_RBP_TO_RAX_32_BIT_OFFSET 0x858b48 // mov rax, rbp[n]
 #define MOV_RAX_TO_DEREF_RDI_32_BIT_OFFSET 0x878948 // mov rdi[n], rax
 
 #define MOV_RAX_TO_R8 0xc08949 // mov r8, rax
@@ -6006,7 +6010,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 	bool gets_global_variables_pointer = false;
 	if (get_helper_fn(fn_name)) {
 		// Push the secret global variables pointer argument
-		compile_unpadded(MOV_DEREF_RBP_TO_RAX);
+		compile_unpadded(MOV_DEREF_RBP_TO_RAX_8_BIT_OFFSET);
 		compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 		stack_push_rax();
 
@@ -6461,7 +6465,11 @@ static void compile_expr(struct expr expr) {
 						break;
 					case type_string:
 					case type_id:
-						compile_unpadded(MOV_DEREF_RBP_TO_RAX);
+						if (var->offset <= 0x80) {
+							compile_unpadded(MOV_DEREF_RBP_TO_RAX_8_BIT_OFFSET);
+						} else {
+							compile_unpadded(MOV_DEREF_RBP_TO_RAX_32_BIT_OFFSET);
+						}
 						break;
 				}
 
@@ -6473,7 +6481,7 @@ static void compile_expr(struct expr expr) {
 				return;
 			}
 
-			compile_unpadded(MOV_DEREF_RBP_TO_RAX);
+			compile_unpadded(MOV_DEREF_RBP_TO_RAX_8_BIT_OFFSET);
 			compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 
 			// TODO: Support any 32 bit offset, instead of only 8 bits
@@ -6494,7 +6502,11 @@ static void compile_expr(struct expr expr) {
 					break;
 				case type_string:
 				case type_id:
-					compile_unpadded(MOV_DEREF_RAX_TO_RAX);
+					if (var->offset < 0x80) {
+						compile_unpadded(MOV_DEREF_RAX_TO_RAX_8_BIT_OFFSET);
+					} else {
+						compile_unpadded(MOV_DEREF_RAX_TO_RAX_32_BIT_OFFSET);
+					}
 					break;
 			}
 
@@ -6570,7 +6582,11 @@ static void compile_variable_statement(struct variable_statement variable_statem
 				break;
 			case type_string:
 			case type_id:
-				compile_unpadded(MOV_RAX_TO_DEREF_RBP);
+				if (var->offset <= 0x80) {
+					compile_unpadded(MOV_RAX_TO_DEREF_RBP_8_BIT_OFFSET);
+				} else {
+					compile_unpadded(MOV_RAX_TO_DEREF_RBP_32_BIT_OFFSET);
+				}
 				break;
 		}
 
@@ -6602,7 +6618,11 @@ static void compile_variable_statement(struct variable_statement variable_statem
 			break;
 		case type_string:
 		case type_id:
-			compile_unpadded(MOV_RAX_TO_DEREF_R11);
+			if (var->offset < 0x80) {
+				compile_unpadded(MOV_RAX_TO_DEREF_R11_8_BIT_OFFSET);
+			} else {
+				compile_unpadded(MOV_RAX_TO_DEREF_R11_32_BIT_OFFSET);
+			}
 			break;
 	}
 
