@@ -5201,7 +5201,7 @@ static void fill_result_types(void) {
 
 #define INC_DEREF_RAX_8_BIT_OFFSET 0x40ff48 // inc qword [byte rax + n]
 
-#define MOV_EAX_TO_DEREF_R11 0x438941 // mov r11[n], eax
+#define MOV_EAX_TO_DEREF_R11_8_BIT_OFFSET 0x438941 // mov r11[n], eax
 #define MOV_R8D_TO_DEREF_RBP 0x458944 // mov rbp[n], r8d
 #define MOV_RAX_TO_DEREF_RBP 0x458948 // mov rbp[n], rax
 #define MOV_RAX_TO_DEREF_R11 0x438949 // mov r11[n], rax
@@ -5213,7 +5213,7 @@ static void fill_result_types(void) {
 #define MOV_R9D_TO_DEREF_RBP 0x4d8944 // mov rbp[n], r9d
 #define MOV_RCX_TO_DEREF_RBP 0x4d8948 // mov rbp[n], rcx
 #define MOV_R9_TO_DEREF_RBP 0x4d894c // mov rbp[n], r9
-#define MOV_R10_TO_DEREF_RAX_8_BIT_OFFSET 0x50394c // cmp [byte rax + n], r10
+#define CMP_DEREF_RAX_8_BIT_OFFSET_WITH_R10 0x50394c // cmp qword [byte rax + n], r10
 #define MOV_RDX_TO_DEREF_RBP 0x558948 // mov rbp[n], rdx
 
 #define MOV_DEREF_RBP_TO_R11 0x5d8b4c // mov r11, rbp[n]
@@ -5224,9 +5224,8 @@ static void fill_result_types(void) {
 
 #define CMP_WITH_DEREF_RAX_8_BIT_OFFSET 0x788148 // cmp qword [byte rax + n], m
 
-#define CMP_DEREF_RAX_8_BIT_OFFSET_WITH_R10 0x50394c // cmp qword [byte rax + n], r10
-
 #define MOV_RDI_TO_DEREF_RBP 0x7d8948 // mov rbp[n], rdi
+#define MOV_EAX_TO_DEREF_R11_32_BIT_OFFSET 0x838941 // mov r11[n], eax
 #define MOV_RAX_TO_DEREF_RDI_32_BIT_OFFSET 0x878948 // mov rdi[n], rax
 
 #define MOV_RAX_TO_R8 0xc08949 // mov r8, rax
@@ -5768,7 +5767,7 @@ static void compile_check_time_limit_exceeded(void) {
 	compile_byte(offsetof(struct timespec, tv_sec));
 
 	// cmp [byte rax + TV_SEC_OFFSET], r10:
-	compile_unpadded(MOV_R10_TO_DEREF_RAX_8_BIT_OFFSET);
+	compile_unpadded(CMP_DEREF_RAX_8_BIT_OFFSET_WITH_R10);
 	compile_byte(offsetof(struct timespec, tv_sec));
 
 	// jl $+0xn:
@@ -6586,7 +6585,6 @@ static void compile_variable_statement(struct variable_statement variable_statem
 	compile_unpadded(MOV_DEREF_RBP_TO_R11);
 	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 
-	// TODO: Support any 32 bit offset, instead of only 8 bits
 	var = get_global_variable(variable_statement.name);
 	switch (var->type) {
 		case type_void:
@@ -6596,7 +6594,11 @@ static void compile_variable_statement(struct variable_statement variable_statem
 		case type_bool:
 		case type_i32:
 		case type_f32:
-			compile_unpadded(MOV_EAX_TO_DEREF_R11);
+			if (var->offset < 0x80) {
+				compile_unpadded(MOV_EAX_TO_DEREF_R11_8_BIT_OFFSET);
+			} else {
+				compile_unpadded(MOV_EAX_TO_DEREF_R11_32_BIT_OFFSET);
+			}
 			break;
 		case type_string:
 		case type_id:
@@ -6604,7 +6606,11 @@ static void compile_variable_statement(struct variable_statement variable_statem
 			break;
 	}
 
-	compile_byte(var->offset);
+	if (var->offset < 0x80) {
+		compile_byte(var->offset);
+	} else {
+		compile_32(var->offset);
+	}
 }
 
 static void compile_statements(struct statement *group_statements, size_t statement_count) {
