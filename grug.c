@@ -6996,9 +6996,6 @@ static char *get_define_fn_name(void) {
 }
 
 static void compile_define_fn(void) {
-	compile_unpadded(SUB_RSP_8_BITS);
-	compile_byte(8);
-
 	size_t field_count = define_fn.returned_compound_literal.field_count;
 
 	// `integer` here refers to the classification type:
@@ -7019,6 +7016,18 @@ static void compile_define_fn(void) {
 	}
 
 	size_t pushes = 0;
+	if (float_field_count > 8) {
+		pushes += float_field_count - 8;
+	}
+	if (integer_field_count > 6) {
+		pushes += integer_field_count - 6;
+	}
+
+	bool subbing = pushes % 2 == 0;
+	if (subbing) {
+		compile_unpadded(SUB_RSP_8_BITS);
+		compile_byte(8);
+	}
 
 	for (size_t i = field_count; i > 0;) {
 		struct expr field = define_fn.returned_compound_literal.fields[--i].expr_value;
@@ -7041,7 +7050,6 @@ static void compile_define_fn(void) {
 				compile_unpadded(movs[--float_field_count]);
 			} else {
 				compile_unpadded(PUSH_RAX);
-				pushes++;
 				float_field_count--;
 			}
 		} else {
@@ -7058,7 +7066,6 @@ static void compile_define_fn(void) {
 				compile_unpadded(movs[--integer_field_count]);
 			} else {
 				compile_unpadded(PUSH_RAX);
-				pushes++;
 				integer_field_count--;
 			}
 		}
@@ -7069,7 +7076,11 @@ static void compile_define_fn(void) {
 	compile_unpadded(PLACEHOLDER_32);
 
 	compile_unpadded(ADD_RSP_8_BITS);
-	compile_byte(8 + 8 * pushes);
+	size_t offset = 8 * pushes;
+	if (subbing) {
+		offset += 8;
+	}
+	compile_byte(offset);
 
 	compile_byte(RET);
 }
