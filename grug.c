@@ -6974,65 +6974,6 @@ static void compile_init_globals_fn(void) {
 	compile_byte(RET);
 }
 
-static void compile_define_fn_returned_fields(void) {
-	size_t field_count = define_fn.returned_compound_literal.field_count;
-
-	// `integer` here refers to the classification type:
-	// "integer types and pointers which use the general purpose registers"
-	// See https://stackoverflow.com/a/57861992/13279557
-	size_t integer_field_count = 0;
-
-	size_t float_field_count = 0;
-
-	for (size_t i = 0; i < field_count; i++) {
-		struct expr field = define_fn.returned_compound_literal.fields[i].expr_value;
-
-		if (field.result_type == type_f32) {
-			float_field_count++;
-		} else {
-			integer_field_count++;
-		}
-	}
-
-	// TODO: Add tests for these
-	grug_assert(integer_field_count <= 6, "Currently grug only supports returning up to six bool/i32/string fields from the define function");
-	grug_assert(float_field_count <= 8, "Currently grug only supports returning up to eight f32 fields from the define function");
-
-	// TODO: Does padding have to be added before and subtracted after the call?
-
-	for (size_t i = field_count; i > 0;) {
-		struct expr field = define_fn.returned_compound_literal.fields[--i].expr_value;
-
-		compile_expr(field);
-
-		if (field.result_type == type_f32) {
-			static u32 movs[] = {
-				MOV_EAX_TO_XMM0,
-				MOV_EAX_TO_XMM1,
-				MOV_EAX_TO_XMM2,
-				MOV_EAX_TO_XMM3,
-				MOV_EAX_TO_XMM4,
-				MOV_EAX_TO_XMM5,
-				MOV_EAX_TO_XMM6,
-				MOV_EAX_TO_XMM7,
-			};
-
-			compile_unpadded(movs[--float_field_count]);
-		} else {
-			static u32 movs[] = {
-				MOV_RAX_TO_RDI,
-				MOV_RAX_TO_RSI,
-				MOV_RAX_TO_RDX,
-				MOV_RAX_TO_RCX,
-				MOV_RAX_TO_R8,
-				MOV_RAX_TO_R9,
-			};
-
-			compile_unpadded(movs[--integer_field_count]);
-		}
-	}
-}
-
 static char *get_define_fn_name(void) {
 	char *name = grug_define_entity->name;
 
@@ -7058,14 +6999,77 @@ static void compile_define_fn(void) {
 	compile_unpadded(SUB_RSP_8_BITS);
 	compile_byte(8);
 
-	compile_define_fn_returned_fields();
+	size_t field_count = define_fn.returned_compound_literal.field_count;
+
+	// `integer` here refers to the classification type:
+	// "integer types and pointers which use the general purpose registers"
+	// See https://stackoverflow.com/a/57861992/13279557
+	size_t integer_field_count = 0;
+
+	size_t float_field_count = 0;
+
+	for (size_t i = 0; i < field_count; i++) {
+		struct expr field = define_fn.returned_compound_literal.fields[i].expr_value;
+
+		if (field.result_type == type_f32) {
+			float_field_count++;
+		} else {
+			integer_field_count++;
+		}
+	}
+
+	size_t pushes = 0;
+
+	for (size_t i = field_count; i > 0;) {
+		struct expr field = define_fn.returned_compound_literal.fields[--i].expr_value;
+
+		compile_expr(field);
+
+		if (field.result_type == type_f32) {
+			if (float_field_count <= 8) {
+				static u32 movs[] = {
+					MOV_EAX_TO_XMM0,
+					MOV_EAX_TO_XMM1,
+					MOV_EAX_TO_XMM2,
+					MOV_EAX_TO_XMM3,
+					MOV_EAX_TO_XMM4,
+					MOV_EAX_TO_XMM5,
+					MOV_EAX_TO_XMM6,
+					MOV_EAX_TO_XMM7,
+				};
+
+				compile_unpadded(movs[--float_field_count]);
+			} else {
+				compile_unpadded(PUSH_RAX);
+				pushes++;
+				float_field_count--;
+			}
+		} else {
+			if (integer_field_count <= 6) {
+				static u32 movs[] = {
+					MOV_RAX_TO_RDI,
+					MOV_RAX_TO_RSI,
+					MOV_RAX_TO_RDX,
+					MOV_RAX_TO_RCX,
+					MOV_RAX_TO_R8,
+					MOV_RAX_TO_R9,
+				};
+
+				compile_unpadded(movs[--integer_field_count]);
+			} else {
+				compile_unpadded(PUSH_RAX);
+				pushes++;
+				integer_field_count--;
+			}
+		}
+	}
 
 	compile_byte(CALL);
 	push_game_fn_call(get_define_fn_name(), codes_size);
 	compile_unpadded(PLACEHOLDER_32);
 
 	compile_unpadded(ADD_RSP_8_BITS);
-	compile_byte(8);
+	compile_byte(8 + 8 * pushes);
 
 	compile_byte(RET);
 }
