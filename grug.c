@@ -5581,84 +5581,6 @@ static void compile_unpadded(u64 n) {
 	}
 }
 
-static void stack_pop_arguments(struct expr *fn_arguments, size_t argument_count, bool gets_global_variables_pointer) {
-	if (!gets_global_variables_pointer && argument_count == 0) {
-		return;
-	}
-
-	// `integer` here refers to the classification type:
-	// "integer types and pointers which use the general purpose registers"
-	// See https://stackoverflow.com/a/57861992/13279557
-	size_t integer_argument_count = 0;
-	if (gets_global_variables_pointer) {
-		integer_argument_count++;
-	}
-
-	size_t float_argument_count = 0;
-
-	for (size_t i = 0; i < argument_count; i++) {
-		struct expr argument = fn_arguments[i];
-
-		if (argument.result_type == type_f32) {
-			float_argument_count++;
-		} else {
-			integer_argument_count++;
-		}
-	}
-
-	// TODO: This should be `<= 5` for helper fns
-	grug_assert(integer_argument_count <= 6, "Currently grug only supports up to six bool/i32/string arguments");
-	grug_assert(float_argument_count <= 8, "Currently grug only supports up to eight f32 arguments");
-
-	size_t argument_count_including_globals_ptr = argument_count;
-	if (gets_global_variables_pointer) {
-		argument_count_including_globals_ptr++;
-	}
-
-	assert(stack_size >= argument_count_including_globals_ptr);
-	stack_size -= argument_count_including_globals_ptr;
-
-	// u64 is the size of the RAX register that gets pushed for every argument
-	stack_frame_bytes -= sizeof(u64) * argument_count_including_globals_ptr;
-
-	for (size_t i = argument_count; i > 0;) {
-		struct expr argument = fn_arguments[--i];
-
-		if (argument.result_type == type_f32) {
-			compile_byte(POP_RAX);
-
-			static u32 movs[] = {
-				MOV_EAX_TO_XMM0,
-				MOV_EAX_TO_XMM1,
-				MOV_EAX_TO_XMM2,
-				MOV_EAX_TO_XMM3,
-				MOV_EAX_TO_XMM4,
-				MOV_EAX_TO_XMM5,
-				MOV_EAX_TO_XMM6,
-				MOV_EAX_TO_XMM7,
-			};
-
-			compile_unpadded(movs[--float_argument_count]);
-		} else {
-			static u16 pops[] = {
-				POP_RDI,
-				POP_RSI,
-				POP_RDX,
-				POP_RCX,
-				POP_R8,
-				POP_R9,
-			};
-
-			compile_unpadded(pops[--integer_argument_count]);
-		}
-	}
-
-	if (gets_global_variables_pointer) {
-		// Pop the secret global variables pointer argument
-		compile_byte(POP_RDI);
-	}
-}
-
 static void overwrite_jmp_address_8(size_t jump_address, size_t size) {
 	assert(size > jump_address);
 	u8 n = size - (jump_address + 1);
@@ -6017,35 +5939,155 @@ static void compile_call_expr(struct call_expr call_expr) {
 	char *fn_name = call_expr.fn_name;
 	struct grug_game_function *game_fn = get_grug_game_fn(fn_name);
 
-	bool gets_global_variables_pointer = false;
+	bool gets_globals_ptr = false;
 	if (get_helper_fn(fn_name)) {
+		gets_globals_ptr = true;
+	}
+
+	// `integer` here refers to the classification type:
+	// "integer types and pointers which use the general purpose registers"
+	// See https://stackoverflow.com/a/57861992/13279557
+	size_t integer_argument_count = 0;
+	if (gets_globals_ptr) {
+		integer_argument_count++;
+	}
+
+	size_t float_argument_count = 0;
+
+	for (size_t i = 0; i < call_expr.argument_count; i++) {
+		struct expr argument = call_expr.arguments[i];
+
+		if (argument.result_type == type_f32) {
+			float_argument_count++;
+		} else {
+			integer_argument_count++;
+		}
+	}
+
+	size_t pushes = 0;
+	if (float_argument_count > 8) {
+		pushes += float_argument_count - 8;
+	}
+	if (integer_argument_count > 6) {
+		pushes += integer_argument_count - 6;
+	}
+
+	// Ensures the call will be 16-byte aligned, even when there are local variables
+	// We multiply by `pushes` instead of `argument_count`,
+	// because the arguments that don't spill onto the stack will get popped
+	// into their registers (rdi, rsi, etc.) before the CALL instruction
+	stack_frame_bytes += pushes * sizeof(u64);
+	size_t padding = get_padding();
+	stack_frame_bytes -= pushes * sizeof(u64);
+
+	if (padding > 0) {
+		compile_unpadded(SUB_RSP_8_BITS);
+		compile_byte(padding);
+		stack_frame_bytes += padding;
+	}
+
+	// These are 1-based indices that ensure
+	// we don't push the args twice that end up on the stack
+	// See tests/ok/stack_pass_args_to_game_fn/input.s in the grug-tests repository,
+	// as it calls motherload(1, 2, 3, 4, 5, 6, 7, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 8, 10.0)
+	size_t float_pos = call_expr.argument_count;
+	size_t integer_pos = call_expr.argument_count;
+
+	// Pushing the args that spill onto the stack
+	for (size_t i = call_expr.argument_count; i > 0; i--) {
+		struct expr argument = call_expr.arguments[i - 1];
+
+		if (argument.result_type == type_f32) {
+			if (float_argument_count > 8) {
+				float_argument_count--;
+				float_pos = i - 1;
+				compile_expr(argument);
+				stack_push_rax();
+			}
+		} else if (integer_argument_count > 6) {
+			integer_argument_count--;
+			integer_pos = i - 1;
+			compile_expr(argument);
+			stack_push_rax();
+		}
+	}
+	assert(integer_argument_count <= 6);
+	assert(float_argument_count <= 8);
+
+	// Pushing the args that *don't* spill onto the stack
+	for (size_t i = call_expr.argument_count; i > 0; i--) {
+		struct expr argument = call_expr.arguments[i - 1];
+
+		if (argument.result_type == type_f32) {
+			if (i <= float_pos) {
+				compile_expr(argument);
+				stack_push_rax();
+			}
+		} else if (i <= integer_pos) {
+			compile_expr(argument);
+			stack_push_rax();
+		}
+	}
+
+	if (gets_globals_ptr) {
 		// Push the secret global variables pointer argument
 		compile_unpadded(MOV_DEREF_RBP_TO_RAX_8_BIT_OFFSET);
 		compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 		stack_push_rax();
+	}
 
-		// The secret global variables pointer argument will need to get popped
-		gets_global_variables_pointer = true;
+	size_t popped_argument_count = integer_argument_count + float_argument_count;
+
+	// The reason we need to decrement stack_size and stack_frame_bytes here manually,
+	// rather than having pop_rax(), pop_rdi(), etc. do it for us,
+	// is because we use the lookup tables movs[] and pops[] below here
+	assert(stack_size >= popped_argument_count);
+	stack_size -= popped_argument_count;
+
+	// u64 is the size of the RAX register that gets pushed for every argument
+	stack_frame_bytes -= sizeof(u64) * popped_argument_count;
+
+	size_t popped_floats_count = 0;
+	size_t popped_integers_count = 0;
+
+	if (gets_globals_ptr) {
+		// Pop the secret global variables pointer argument
+		compile_byte(POP_RDI);
+		popped_integers_count++;
 	}
 
 	for (size_t i = 0; i < call_expr.argument_count; i++) {
 		struct expr argument = call_expr.arguments[i];
 
-		// TODO: Verify that the argument has the same type as the one in grug_define_entity
-		// TODO: This should be done when the AST gets created, not during compilation!
+		if (argument.result_type == type_f32) {
+			if (popped_floats_count < float_argument_count) {
+				compile_byte(POP_RAX);
 
-		compile_expr(argument);
-		stack_push_rax();
-	}
+				static u32 movs[] = {
+					MOV_EAX_TO_XMM0,
+					MOV_EAX_TO_XMM1,
+					MOV_EAX_TO_XMM2,
+					MOV_EAX_TO_XMM3,
+					MOV_EAX_TO_XMM4,
+					MOV_EAX_TO_XMM5,
+					MOV_EAX_TO_XMM6,
+					MOV_EAX_TO_XMM7,
+				};
 
-	stack_pop_arguments(call_expr.arguments, call_expr.argument_count, gets_global_variables_pointer);
+				compile_unpadded(movs[popped_floats_count++]);
+			}
+		} else if (popped_integers_count < integer_argument_count) {
+			static u16 pops[] = {
+				POP_RDI,
+				POP_RSI,
+				POP_RDX,
+				POP_RCX,
+				POP_R8,
+				POP_R9,
+			};
 
-	// Ensures the call will be 16-byte aligned
-	size_t padding = get_padding();
-	if (padding > 0) {
-		compile_unpadded(SUB_RSP_8_BITS);
-		compile_byte(padding);
-		stack_frame_bytes += padding;
+			compile_unpadded(pops[popped_integers_count++]);
+		}
 	}
 
 	compile_byte(CALL);
@@ -6068,10 +6110,12 @@ static void compile_call_expr(struct call_expr call_expr) {
 	// Ensures the top of the stack is where it was before the alignment,
 	// which is important during nested expressions, since they expect
 	// the top of the stack to hold their intermediate values
-	if (padding > 0) {
+	size_t offset = padding + pushes * sizeof(u64);
+	if (offset > 0) {
+		// TODO: Add a test that pushes so many args, that this needs to do ADD_RSP_32_BITS
 		compile_unpadded(ADD_RSP_8_BITS);
-		compile_byte(padding);
-		stack_frame_bytes += padding;
+		compile_byte(offset);
+		stack_frame_bytes += offset;
 	}
 
 	if (returns_float) {
@@ -6458,7 +6502,6 @@ static void compile_expr(struct expr expr) {
 
 			struct variable *var = get_local_variable(expr.literal.string);
 			if (var) {
-				// TODO: Support any 32 bit offset, instead of only 8 bits
 				switch (var->type) {
 					case type_void:
 					case type_resource:
@@ -6494,7 +6537,6 @@ static void compile_expr(struct expr expr) {
 			compile_unpadded(MOV_DEREF_RBP_TO_RAX_8_BIT_OFFSET);
 			compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 
-			// TODO: Support any 32 bit offset, instead of only 8 bits
 			var = get_global_variable(expr.literal.string);
 			switch (var->type) {
 				case type_void:
@@ -6755,8 +6797,6 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 	size_t integer_argument_index = 0;
 	size_t float_argument_index = 0;
 
-	// TODO: Add err and ok test for max i32 and f32 arguments
-
 	// Move the rest of the arguments
 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
 		struct argument arg = fn_arguments[argument_index];
@@ -6802,7 +6842,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		}
 
 		size_t offset = get_local_variable(arg.name)->offset;
-		// TODO: Support offset >= 256 bytes, and add a test for it
+		// TODO: Support offset >= 256 bytes, and add err and ok tests for max i32 and f32 arguments
 		grug_assert(offset < 256, "Currently grug doesn't allow function arguments to use more than 256 bytes in the function's stack frame, so use fewer arguments for the time being");
 		compile_byte(-offset);
 
@@ -7026,7 +7066,7 @@ static void compile_define_fn(void) {
 	bool subbing = pushes % 2 == 0;
 	if (subbing) {
 		compile_unpadded(SUB_RSP_8_BITS);
-		compile_byte(8);
+		compile_byte(sizeof(u64));
 	}
 
 	for (size_t i = field_count; i > 0;) {
@@ -7076,9 +7116,9 @@ static void compile_define_fn(void) {
 	compile_unpadded(PLACEHOLDER_32);
 
 	compile_unpadded(ADD_RSP_8_BITS);
-	size_t offset = 8 * pushes;
+	size_t offset = pushes * sizeof(u64);
 	if (subbing) {
-		offset += 8;
+		offset += sizeof(u64);
 	}
 	compile_byte(offset);
 
@@ -8131,7 +8171,7 @@ static void push_dynamic(void) {
 	// From https://docs.oracle.com/cd/E23824_01/html/819-0690/chapter6-42444.html
 	push_dynamic_entry(DT_NULL, 0);
 
-	// TODO: I have no clue where this 5 comes from
+	// TODO: I have no clue what this 5 represents
 	size_t padding = 5 * entry_size;
 
 	size_t count = 0;
