@@ -121,6 +121,10 @@ static bool streq(char *a, char *b);
 #define USED_BY_MODS
 #define USED_BY_PROGRAMS
 
+#define BFD_HASH_BUCKET_SIZE 4051 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l345
+
+//// UTILS
+
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef int32_t i32;
@@ -134,11 +138,7 @@ bool grug_loading_error_in_grug_file;
 struct grug_error previous_grug_error;
 static jmp_buf error_jmp_buffer;
 
-//// UTILS
-
 static char global_mods_dir_path[STUPID_MAX_PATH];
-
-#define BFD_HASH_BUCKET_SIZE 4051 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l345
 
 static bool streq(char *a, char *b) {
 	return strcmp(a, b) == 0;
