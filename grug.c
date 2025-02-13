@@ -5150,14 +5150,14 @@ static void fill_result_types(void) {
 
 #define MOV_EAX_TO_DEREF_RBP_8_BIT_OFFSET 0x4589 // mov rbp[n], eax
 #define MOV_EAX_TO_DEREF_RDI_8_BIT_OFFSET 0x4789 // mov rdi[n], eax
-#define MOV_ECX_TO_DEREF_RBP 0x4d89 // mov rbp[n], ecx
-#define MOV_EDX_TO_DEREF_RBP 0x5589 // mov rbp[n], edx
+#define MOV_ECX_TO_DEREF_RBP_8_BIT_OFFSET 0x4d89 // mov rbp[n], ecx
+#define MOV_EDX_TO_DEREF_RBP_8_BIT_OFFSET 0x5589 // mov rbp[n], edx
 
 #define POP_R8 0x5841 // pop r8
 #define POP_R9 0x5941 // pop r9
 #define POP_R11 0x5b41 // pop r11
 
-#define MOV_ESI_TO_DEREF_RBP 0x7589 // mov rbp[n], esi
+#define MOV_ESI_TO_DEREF_RBP_8_BIT_OFFSET 0x7589 // mov rbp[n], esi
 #define MOV_DEREF_RAX_TO_EAX_32_BIT_OFFSET 0x808b // mov eax, rax[n]
 #define JE_32_BIT_OFFSET 0x840f // je strict $+n
 #define MOV_EAX_TO_DEREF_RBP_32_BIT_OFFSET 0x8589 // mov rbp[n], eax
@@ -5202,25 +5202,25 @@ static void fill_result_types(void) {
 #define INC_DEREF_RAX_8_BIT_OFFSET 0x40ff48 // inc qword [byte rax + n]
 
 #define MOV_EAX_TO_DEREF_R11_8_BIT_OFFSET 0x438941 // mov r11[n], eax
-#define MOV_R8D_TO_DEREF_RBP 0x458944 // mov rbp[n], r8d
+#define MOV_R8D_TO_DEREF_RBP_8_BIT_OFFSET 0x458944 // mov rbp[n], r8d
 #define MOV_RAX_TO_DEREF_RBP_8_BIT_OFFSET 0x458948 // mov rbp[n], rax
 #define MOV_RAX_TO_DEREF_R11_8_BIT_OFFSET 0x438949 // mov r11[n], rax
-#define MOV_R8_TO_DEREF_RBP 0x45894c // mov rbp[n], r8
+#define MOV_R8_TO_DEREF_RBP_8_BIT_OFFSET 0x45894c // mov rbp[n], r8
 
 #define MOV_DEREF_RBP_TO_RAX_8_BIT_OFFSET 0x458b48 // mov rax, rbp[n]
 
 #define MOV_RAX_TO_DEREF_RDI_8_BIT_OFFSET 0x478948 // mov rdi[n], rax
-#define MOV_R9D_TO_DEREF_RBP 0x4d8944 // mov rbp[n], r9d
-#define MOV_RCX_TO_DEREF_RBP 0x4d8948 // mov rbp[n], rcx
-#define MOV_R9_TO_DEREF_RBP 0x4d894c // mov rbp[n], r9
+#define MOV_R9D_TO_DEREF_RBP_8_BIT_OFFSET 0x4d8944 // mov rbp[n], r9d
+#define MOV_RCX_TO_DEREF_RBP_8_BIT_OFFSET 0x4d8948 // mov rbp[n], rcx
+#define MOV_R9_TO_DEREF_RBP_8_BIT_OFFSET 0x4d894c // mov rbp[n], r9
 #define CMP_DEREF_RAX_8_BIT_OFFSET_WITH_R10 0x50394c // cmp qword [byte rax + n], r10
-#define MOV_RDX_TO_DEREF_RBP 0x558948 // mov rbp[n], rdx
+#define MOV_RDX_TO_DEREF_RBP_8_BIT_OFFSET 0x558948 // mov rbp[n], rdx
 
 #define MOV_DEREF_RBP_TO_R11 0x5d8b4c // mov r11, rbp[n]
 
 #define SUB_FROM_DEREF_RAX_8_BIT_OFFSET 0x688148 // sub qword [byte rax + n], m
 
-#define MOV_RSI_TO_DEREF_RBP 0x758948 // mov rbp[n], rsi
+#define MOV_RSI_TO_DEREF_RBP_8_BIT_OFFSET 0x758948 // mov rbp[n], rsi
 
 #define CMP_WITH_DEREF_RAX_8_BIT_OFFSET 0x788148 // cmp qword [byte rax + n], m
 
@@ -5274,14 +5274,14 @@ static void fill_result_types(void) {
 
 #define DIV_RAX_BY_R11 0xfbf749 // idiv r11
 
-#define MOV_XMM0_TO_DEREF_RBP 0x45110ff3 // movss rbp[n], xmm0
-#define MOV_XMM1_TO_DEREF_RBP 0x4d110ff3 // movss rbp[n], xmm1
-#define MOV_XMM2_TO_DEREF_RBP 0x55110ff3 // movss rbp[n], xmm2
-#define MOV_XMM3_TO_DEREF_RBP 0x5d110ff3 // movss rbp[n], xmm3
-#define MOV_XMM4_TO_DEREF_RBP 0x65110ff3 // movss rbp[n], xmm4
-#define MOV_XMM5_TO_DEREF_RBP 0x6d110ff3 // movss rbp[n], xmm5
-#define MOV_XMM6_TO_DEREF_RBP 0x75110ff3 // movss rbp[n], xmm6
-#define MOV_XMM7_TO_DEREF_RBP 0x7d110ff3 // movss rbp[n], xmm7
+#define MOV_XMM0_TO_DEREF_RBP_8_BIT_OFFSET 0x45110ff3 // movss rbp[n], xmm0
+#define MOV_XMM1_TO_DEREF_RBP_8_BIT_OFFSET 0x4d110ff3 // movss rbp[n], xmm1
+#define MOV_XMM2_TO_DEREF_RBP_8_BIT_OFFSET 0x55110ff3 // movss rbp[n], xmm2
+#define MOV_XMM3_TO_DEREF_RBP_8_BIT_OFFSET 0x5d110ff3 // movss rbp[n], xmm3
+#define MOV_XMM4_TO_DEREF_RBP_8_BIT_OFFSET 0x65110ff3 // movss rbp[n], xmm4
+#define MOV_XMM5_TO_DEREF_RBP_8_BIT_OFFSET 0x6d110ff3 // movss rbp[n], xmm5
+#define MOV_XMM6_TO_DEREF_RBP_8_BIT_OFFSET 0x75110ff3 // movss rbp[n], xmm6
+#define MOV_XMM7_TO_DEREF_RBP_8_BIT_OFFSET 0x7d110ff3 // movss rbp[n], xmm7
 
 #define MOV_EAX_TO_XMM0 0xc06e0f66 // movd xmm0, eax
 #define MOV_XMM0_TO_EAX 0xc07e0f66 // movd eax, xmm0
@@ -6112,10 +6112,13 @@ static void compile_call_expr(struct call_expr call_expr) {
 	// the top of the stack to hold their intermediate values
 	size_t offset = padding + pushes * sizeof(u64);
 	if (offset > 0) {
-		// TODO: Add a test that pushes so many args, that this needs to do ADD_RSP_32_BITS
-		compile_unpadded(ADD_RSP_8_BITS);
-		compile_byte(offset);
-		stack_frame_bytes += offset;
+		if (offset < 0x80) {
+			compile_unpadded(ADD_RSP_8_BITS);
+			compile_byte(offset);
+			stack_frame_bytes += offset;
+		} else {
+			assert(false); // TODO: Add a test that pushes so many args, that this needs to do ADD_RSP_32_BITS
+		}
 	}
 
 	if (returns_float) {
@@ -6788,7 +6791,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		compile_32(stack_frame_bytes);
 	}
 
-	// We need to push the secret global variables pointer to the function call's stack frame,
+	// We need to move the secret global variables pointer to this function's stack frame,
 	// because the RDI register will get clobbered when this function calls another function:
 	// https://stackoverflow.com/a/55387707/13279557
 	compile_unpadded(MOV_RDI_TO_DEREF_RBP);
@@ -6797,9 +6800,16 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 	size_t integer_argument_index = 0;
 	size_t float_argument_index = 0;
 
+	// Every function starts with `push rbp`, `mov rbp, rsp`,
+	// so because calling a function always pushes the return address (8 bytes),
+	// and the `push rbp` also pushes 8 bytes, the spilled args start at `rbp-16`
+	size_t spill_offset = 16;
+
 	// Move the rest of the arguments
 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
 		struct argument arg = fn_arguments[argument_index];
+
+		size_t offset = get_local_variable(arg.name)->offset;
 
 		// We skip EDI/RDI, since that is reserved by the secret global variables pointer
 		switch (arg.type) {
@@ -6809,47 +6819,90 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 				grug_unreachable();
 			case type_bool:
 			case type_i32:
-				compile_unpadded((u32[]){
-					MOV_ESI_TO_DEREF_RBP,
-					MOV_EDX_TO_DEREF_RBP,
-					MOV_ECX_TO_DEREF_RBP,
-					MOV_R8D_TO_DEREF_RBP,
-					MOV_R9D_TO_DEREF_RBP,
-				}[integer_argument_index]);
+				if (integer_argument_index < 5) {
+					compile_unpadded((u32[]){
+						MOV_ESI_TO_DEREF_RBP_8_BIT_OFFSET,
+						MOV_EDX_TO_DEREF_RBP_8_BIT_OFFSET,
+						MOV_ECX_TO_DEREF_RBP_8_BIT_OFFSET,
+						MOV_R8D_TO_DEREF_RBP_8_BIT_OFFSET,
+						MOV_R9D_TO_DEREF_RBP_8_BIT_OFFSET,
+					}[integer_argument_index++]);
+
+					// TODO: Support offset >= 256 bytes, and add err and ok tests for max i32 and f32 arguments
+					grug_assert(offset < 256, "Currently grug doesn't allow function arguments to use more than 256 bytes in the function's stack frame, so use fewer arguments for the time being");
+					compile_byte(-offset);
+				} else if (spill_offset <= 0x80) {
+					compile_unpadded(MOV_DEREF_RBP_TO_EAX_8_BIT_OFFSET);
+					compile_byte(spill_offset);
+					spill_offset += sizeof(u64);
+
+					compile_unpadded(MOV_EAX_TO_DEREF_RBP_8_BIT_OFFSET);
+					compile_byte(-offset);
+				} else {
+					assert(false); // TODO: Support
+
+					compile_unpadded(MOV_DEREF_RBP_TO_EAX_32_BIT_OFFSET);
+					compile_32(spill_offset);
+					spill_offset += sizeof(u64);
+
+					compile_unpadded(MOV_EAX_TO_DEREF_RBP_32_BIT_OFFSET);
+					compile_32(-offset);
+				}
 				break;
 			case type_f32:
-				compile_unpadded((u32[]){
-					MOV_XMM0_TO_DEREF_RBP,
-					MOV_XMM1_TO_DEREF_RBP,
-					MOV_XMM2_TO_DEREF_RBP,
-					MOV_XMM3_TO_DEREF_RBP,
-					MOV_XMM4_TO_DEREF_RBP,
-					MOV_XMM5_TO_DEREF_RBP,
-					MOV_XMM6_TO_DEREF_RBP,
-					MOV_XMM7_TO_DEREF_RBP,
-				}[float_argument_index]);
+				if (float_argument_index < 8) {
+					compile_unpadded((u32[]){
+						MOV_XMM0_TO_DEREF_RBP_8_BIT_OFFSET,
+						MOV_XMM1_TO_DEREF_RBP_8_BIT_OFFSET,
+						MOV_XMM2_TO_DEREF_RBP_8_BIT_OFFSET,
+						MOV_XMM3_TO_DEREF_RBP_8_BIT_OFFSET,
+						MOV_XMM4_TO_DEREF_RBP_8_BIT_OFFSET,
+						MOV_XMM5_TO_DEREF_RBP_8_BIT_OFFSET,
+						MOV_XMM6_TO_DEREF_RBP_8_BIT_OFFSET,
+						MOV_XMM7_TO_DEREF_RBP_8_BIT_OFFSET,
+					}[float_argument_index++]);
+
+					// TODO: Support offset >= 256 bytes, and add err and ok tests for max i32 and f32 arguments
+					grug_assert(offset < 256, "Currently grug doesn't allow function arguments to use more than 256 bytes in the function's stack frame, so use fewer arguments for the time being");
+					compile_byte(-offset);
+				} else if (spill_offset <= 0x80) {
+					compile_unpadded(MOV_DEREF_RBP_TO_EAX_8_BIT_OFFSET);
+					compile_byte(spill_offset);
+					spill_offset += sizeof(u64);
+
+					compile_unpadded(MOV_EAX_TO_DEREF_RBP_8_BIT_OFFSET);
+					compile_byte(-offset);
+				} else {
+					assert(false); // TODO: Support
+
+					compile_unpadded(MOV_DEREF_RBP_TO_EAX_32_BIT_OFFSET);
+					compile_32(spill_offset);
+					spill_offset += sizeof(u64);
+
+					compile_unpadded(MOV_EAX_TO_DEREF_RBP_32_BIT_OFFSET);
+					compile_32(-offset);
+				}
 				break;
 			case type_string:
 			case type_id:
-				compile_unpadded((u32[]){
-					MOV_RSI_TO_DEREF_RBP,
-					MOV_RDX_TO_DEREF_RBP,
-					MOV_RCX_TO_DEREF_RBP,
-					MOV_R8_TO_DEREF_RBP,
-					MOV_R9_TO_DEREF_RBP,
-				}[integer_argument_index]);
+				if (integer_argument_index < 5) {
+					compile_unpadded((u32[]){
+						MOV_RSI_TO_DEREF_RBP_8_BIT_OFFSET,
+						MOV_RDX_TO_DEREF_RBP_8_BIT_OFFSET,
+						MOV_RCX_TO_DEREF_RBP_8_BIT_OFFSET,
+						MOV_R8_TO_DEREF_RBP_8_BIT_OFFSET,
+						MOV_R9_TO_DEREF_RBP_8_BIT_OFFSET,
+					}[integer_argument_index++]);
+
+					// TODO: Support offset >= 256 bytes, and add err and ok tests for max i32 and f32 arguments
+					grug_assert(offset < 256, "Currently grug doesn't allow function arguments to use more than 256 bytes in the function's stack frame, so use fewer arguments for the time being");
+					compile_byte(-offset);
+				} else if (spill_offset <= 0x80) {
+					assert(false); // TODO: Modify tests/ok/stack_pass_args_to_helper_fn such that this is hit, and then support this
+				} else {
+					assert(false); // TODO: Support
+				}
 				break;
-		}
-
-		size_t offset = get_local_variable(arg.name)->offset;
-		// TODO: Support offset >= 256 bytes, and add err and ok tests for max i32 and f32 arguments
-		grug_assert(offset < 256, "Currently grug doesn't allow function arguments to use more than 256 bytes in the function's stack frame, so use fewer arguments for the time being");
-		compile_byte(-offset);
-
-		if (arg.type == type_f32) {
-			float_argument_index++;
-		} else {
-			integer_argument_index++;
 		}
 	}
 
