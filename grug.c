@@ -5989,7 +5989,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 	// These are 1-based indices that ensure
 	// we don't push the args twice that end up on the stack
 	// See tests/ok/stack_pass_args_to_game_fn/input.s in the grug-tests repository,
-	// as it calls motherload(1, 2, 3, 4, 5, 6, 7, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 8, 10.0)
+	// as it calls motherload(1, 2, 3, 4, 5, 6, 7, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, me, 9.0)
 	size_t float_pos = call_expr.argument_count;
 	size_t integer_pos = call_expr.argument_count;
 
@@ -6898,7 +6898,12 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 					grug_assert(offset < 256, "Currently grug doesn't allow function arguments to use more than 256 bytes in the function's stack frame, so use fewer arguments for the time being");
 					compile_byte(-offset);
 				} else if (spill_offset <= 0x80) {
-					assert(false); // TODO: Modify tests/ok/stack_pass_args_to_helper_fn such that this is hit, and then support this
+					compile_unpadded(MOV_DEREF_RBP_TO_RAX_8_BIT_OFFSET);
+					compile_byte(spill_offset);
+					spill_offset += sizeof(u64);
+
+					compile_unpadded(MOV_RAX_TO_DEREF_RBP_8_BIT_OFFSET);
+					compile_byte(-offset);
 				} else {
 					assert(false); // TODO: Support
 				}
