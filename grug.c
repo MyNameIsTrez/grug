@@ -5283,6 +5283,15 @@ static void fill_result_types(void) {
 #define MOV_XMM6_TO_DEREF_RBP_8_BIT_OFFSET 0x75110ff3 // movss rbp[n], xmm6
 #define MOV_XMM7_TO_DEREF_RBP_8_BIT_OFFSET 0x7d110ff3 // movss rbp[n], xmm7
 
+#define MOV_XMM0_TO_DEREF_RBP_32_BIT_OFFSET 0x85110ff3 // movss rbp[n], xmm0
+#define MOV_XMM1_TO_DEREF_RBP_32_BIT_OFFSET 0x8d110ff3 // movss rbp[n], xmm1
+#define MOV_XMM2_TO_DEREF_RBP_32_BIT_OFFSET 0x95110ff3 // movss rbp[n], xmm2
+#define MOV_XMM3_TO_DEREF_RBP_32_BIT_OFFSET 0x9d110ff3 // movss rbp[n], xmm3
+#define MOV_XMM4_TO_DEREF_RBP_32_BIT_OFFSET 0xa5110ff3 // movss rbp[n], xmm4
+#define MOV_XMM5_TO_DEREF_RBP_32_BIT_OFFSET 0xad110ff3 // movss rbp[n], xmm5
+#define MOV_XMM6_TO_DEREF_RBP_32_BIT_OFFSET 0xb5110ff3 // movss rbp[n], xmm6
+#define MOV_XMM7_TO_DEREF_RBP_32_BIT_OFFSET 0xbd110ff3 // movss rbp[n], xmm7
+
 #define MOV_EAX_TO_XMM0 0xc06e0f66 // movd xmm0, eax
 #define MOV_XMM0_TO_EAX 0xc07e0f66 // movd eax, xmm0
 
@@ -6783,7 +6792,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 	// Make space in the stack for the arguments and variables
 	// The System V ABI requires 16-byte stack alignment: https://stackoverflow.com/q/49391001/13279557
 	stack_frame_bytes = round_to_power_of_2(stack_frame_bytes, 0x10);
-	if (stack_frame_bytes < 0xff) {
+	if (stack_frame_bytes < 0x80) {
 		compile_unpadded(SUB_RSP_8_BITS);
 		compile_byte(stack_frame_bytes);
 	} else {
@@ -6830,8 +6839,9 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 						}[integer_argument_index++]);
 						compile_byte(-offset);
 					} else {
-						// TODO: Add a test that hits this with `helper_foo(1.0, ..., 30.0, 1)`
-						assert(false);
+						// Reached by spill_args_to_helper_fn_32_bit_i32
+
+						assert(false); // TODO:
 					}
 				} else {
 					// Reached by tests/ok/spill_args_to_helper_fn
@@ -6859,8 +6869,19 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 						}[float_argument_index++]);
 						compile_byte(-offset);
 					} else {
-						// TODO: Add a test that hits this with `helper_foo("1", ..., "15", 1.0)`
-						assert(false);
+						// Reached by spill_args_to_helper_fn_32_bit_f32
+
+						compile_unpadded((u32[]){
+							MOV_XMM0_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_XMM1_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_XMM2_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_XMM3_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_XMM4_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_XMM5_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_XMM6_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_XMM7_TO_DEREF_RBP_32_BIT_OFFSET,
+						}[float_argument_index++]);
+						compile_32(-offset);
 					}
 				} else {
 					// Reached by tests/ok/spill_args_to_helper_fn
@@ -6886,8 +6907,9 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 						}[integer_argument_index++]);
 						compile_byte(-offset);
 					} else {
-						// TODO: Add a test that hits this with `helper_foo(1.0, ..., 30.0, "1")`
-						assert(false);
+						// Reached by spill_args_to_helper_fn_32_bit_string
+
+						assert(false); // TODO:
 					}
 				} else {
 					// Reached by tests/ok/spill_args_to_helper_fn
