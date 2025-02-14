@@ -6830,12 +6830,11 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 						}[integer_argument_index++]);
 						compile_byte(-offset);
 					} else {
-						// TODO: Add a test that hits this with `helper_foo("1", "2", ..., "16", 1)`
+						// TODO: Add a test that hits this with `helper_foo(1.0, ..., 30.0, 1)`
 						assert(false);
 					}
 				} else {
-					// TODO: Add a test that hits this with `helper_foo(1, 2, 3, 4, 5, 6)`
-					assert(false);
+					// Reached by tests/ok/spill_args_to_helper_fn
 
 					compile_unpadded(MOV_DEREF_RBP_TO_EAX_32_BIT_OFFSET);
 					compile_32(spill_offset);
@@ -6860,12 +6859,11 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 						}[float_argument_index++]);
 						compile_byte(-offset);
 					} else {
-						// TODO: Add a test that hits this with `helper_foo("1", "2", ..., "16", 1.0)`
+						// TODO: Add a test that hits this with `helper_foo("1", ..., "15", 1.0)`
 						assert(false);
 					}
 				} else {
-					// TODO: Add a test that hits this with `helper_foo(1.0, 2.0, ..., 9.0)`
-					assert(false);
+					// Reached by tests/ok/spill_args_to_helper_fn
 
 					compile_unpadded(MOV_DEREF_RBP_TO_EAX_32_BIT_OFFSET);
 					compile_32(spill_offset);
@@ -6888,12 +6886,11 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 						}[integer_argument_index++]);
 						compile_byte(-offset);
 					} else {
-						// TODO: Add a test that hits this with `helper_foo(1, 2, ..., 32, "1")`
+						// TODO: Add a test that hits this with `helper_foo(1.0, ..., 30.0, "1")`
 						assert(false);
 					}
 				} else {
-					// TODO: Add a test that hits this with `helper_foo("1", "2", ..., "20")` (5 for rsi to r9 + 14 for 0x70/8)
-					assert(false);
+					// Reached by tests/ok/spill_args_to_helper_fn
 
 					compile_unpadded(MOV_DEREF_RBP_TO_RAX_32_BIT_OFFSET);
 					compile_32(spill_offset);
