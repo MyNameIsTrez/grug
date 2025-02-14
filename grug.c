@@ -6802,8 +6802,8 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 
 	// Every function starts with `push rbp`, `mov rbp, rsp`,
 	// so because calling a function always pushes the return address (8 bytes),
-	// and the `push rbp` also pushes 8 bytes, the spilled args start at `rbp-16`
-	size_t spill_offset = 16;
+	// and the `push rbp` also pushes 8 bytes, the spilled args start at `rbp-0x10`
+	size_t spill_offset = 0x10;
 
 	// Move the rest of the arguments
 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
@@ -6820,26 +6820,39 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 			case type_bool:
 			case type_i32:
 				if (integer_argument_index < 5) {
-					compile_unpadded((u32[]){
-						MOV_ESI_TO_DEREF_RBP_8_BIT_OFFSET,
-						MOV_EDX_TO_DEREF_RBP_8_BIT_OFFSET,
-						MOV_ECX_TO_DEREF_RBP_8_BIT_OFFSET,
-						MOV_R8D_TO_DEREF_RBP_8_BIT_OFFSET,
-						MOV_R9D_TO_DEREF_RBP_8_BIT_OFFSET,
-					}[integer_argument_index++]);
-
-					// TODO: Support offset >= 256 bytes, and add err and ok tests for max i32 and f32 arguments
-					grug_assert(offset < 256, "Currently grug doesn't allow function arguments to use more than 256 bytes in the function's stack frame, so use fewer arguments for the time being");
-					compile_byte(-offset);
+					if (offset <= 0x80) {
+						compile_unpadded((u32[]){
+							MOV_ESI_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_EDX_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_ECX_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_R8D_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_R9D_TO_DEREF_RBP_8_BIT_OFFSET,
+						}[integer_argument_index++]);
+						compile_byte(-offset);
+					} else {
+						// TODO: Add a test that hits this with `helper_foo("1", "2", ..., "16", 1)`
+						assert(false);
+					}
 				} else if (spill_offset <= 0x80) {
 					compile_unpadded(MOV_DEREF_RBP_TO_EAX_8_BIT_OFFSET);
 					compile_byte(spill_offset);
 					spill_offset += sizeof(u64);
 
-					compile_unpadded(MOV_EAX_TO_DEREF_RBP_8_BIT_OFFSET);
-					compile_byte(-offset);
+					if (offset <= 0x80) {
+						compile_unpadded(MOV_EAX_TO_DEREF_RBP_8_BIT_OFFSET);
+						compile_byte(-offset);
+					} else {
+						/* TODO:
+						Add a test that hits this with `helper_foo("1", "2", ... "15", 1)`:
+						5 string arguments for esi to r9d, with a starting offset of -0x8, gets `offset` to total -0x30
+						+ to get to -0x80, we need to spill (0x80-0x30)/8 => 10 extra arguments
+						*/
+						assert(false);
+					}
 				} else {
-					assert(false); // TODO: Add a test that hits this
+					assert(offset > 0x80);
+
+					assert(false); // TODO: Add a test that hits this with `helper_foo(1, 2, ..., 20)` (5 for esi to r9d + 14 for 0x70/8)
 
 					compile_unpadded(MOV_DEREF_RBP_TO_EAX_32_BIT_OFFSET);
 					compile_32(spill_offset);
@@ -6851,29 +6864,42 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 				break;
 			case type_f32:
 				if (float_argument_index < 8) {
-					compile_unpadded((u32[]){
-						MOV_XMM0_TO_DEREF_RBP_8_BIT_OFFSET,
-						MOV_XMM1_TO_DEREF_RBP_8_BIT_OFFSET,
-						MOV_XMM2_TO_DEREF_RBP_8_BIT_OFFSET,
-						MOV_XMM3_TO_DEREF_RBP_8_BIT_OFFSET,
-						MOV_XMM4_TO_DEREF_RBP_8_BIT_OFFSET,
-						MOV_XMM5_TO_DEREF_RBP_8_BIT_OFFSET,
-						MOV_XMM6_TO_DEREF_RBP_8_BIT_OFFSET,
-						MOV_XMM7_TO_DEREF_RBP_8_BIT_OFFSET,
-					}[float_argument_index++]);
-
-					// TODO: Support offset >= 256 bytes, and add err and ok tests for max i32 and f32 arguments
-					grug_assert(offset < 256, "Currently grug doesn't allow function arguments to use more than 256 bytes in the function's stack frame, so use fewer arguments for the time being");
-					compile_byte(-offset);
+					if (offset <= 0x80) {
+						compile_unpadded((u32[]){
+							MOV_XMM0_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_XMM1_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_XMM2_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_XMM3_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_XMM4_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_XMM5_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_XMM6_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_XMM7_TO_DEREF_RBP_8_BIT_OFFSET,
+						}[float_argument_index++]);
+						compile_byte(-offset);
+					} else {
+						// TODO: Add a test that hits this with `helper_foo("1", "2", ..., "16", 1.0)`
+						assert(false);
+					}
 				} else if (spill_offset <= 0x80) {
 					compile_unpadded(MOV_DEREF_RBP_TO_EAX_8_BIT_OFFSET);
 					compile_byte(spill_offset);
 					spill_offset += sizeof(u64);
 
-					compile_unpadded(MOV_EAX_TO_DEREF_RBP_8_BIT_OFFSET);
-					compile_byte(-offset);
+					if (offset <= 0x80) {
+						compile_unpadded(MOV_EAX_TO_DEREF_RBP_8_BIT_OFFSET);
+						compile_byte(-offset);
+					} else {
+						/* TODO:
+						Add a test that hits this with `helper_foo("1", "2", ... "15", 1.0)`:
+						5 string arguments for esi to r9d, with a starting offset of -0x8, gets `offset` to total -0x30
+						+ to get to -0x80, we need to spill (0x80-0x30)/8 => 10 extra arguments
+						*/
+						assert(false);
+					}
 				} else {
-					assert(false); // TODO: Add a test that hits this
+					assert(offset > 0x80);
+
+					assert(false); // TODO: Add a test that hits this with `helper_foo(1.0, 2.0, ..., 23.0)` (8 for xmm0 to xmm7 + 14 for 0x70/8)
 
 					compile_unpadded(MOV_DEREF_RBP_TO_EAX_32_BIT_OFFSET);
 					compile_32(spill_offset);
@@ -6886,26 +6912,39 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 			case type_string:
 			case type_id:
 				if (integer_argument_index < 5) {
-					compile_unpadded((u32[]){
-						MOV_RSI_TO_DEREF_RBP_8_BIT_OFFSET,
-						MOV_RDX_TO_DEREF_RBP_8_BIT_OFFSET,
-						MOV_RCX_TO_DEREF_RBP_8_BIT_OFFSET,
-						MOV_R8_TO_DEREF_RBP_8_BIT_OFFSET,
-						MOV_R9_TO_DEREF_RBP_8_BIT_OFFSET,
-					}[integer_argument_index++]);
-
-					// TODO: Support offset >= 256 bytes, and add err and ok tests for max i32 and f32 arguments
-					grug_assert(offset < 256, "Currently grug doesn't allow function arguments to use more than 256 bytes in the function's stack frame, so use fewer arguments for the time being");
-					compile_byte(-offset);
+					if (offset <= 0x80) {
+						compile_unpadded((u32[]){
+							MOV_RSI_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_RDX_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_RCX_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_R8_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_R9_TO_DEREF_RBP_8_BIT_OFFSET,
+						}[integer_argument_index++]);
+						compile_byte(-offset);
+					} else {
+						// TODO: Add a test that hits this with `helper_foo(1, 2, ..., 32, "1")`
+						assert(false);
+					}
 				} else if (spill_offset <= 0x80) {
 					compile_unpadded(MOV_DEREF_RBP_TO_RAX_8_BIT_OFFSET);
 					compile_byte(spill_offset);
 					spill_offset += sizeof(u64);
 
-					compile_unpadded(MOV_RAX_TO_DEREF_RBP_8_BIT_OFFSET);
-					compile_byte(-offset);
+					if (offset <= 0x80) {
+						compile_unpadded(MOV_RAX_TO_DEREF_RBP_8_BIT_OFFSET);
+						compile_byte(-offset);
+					} else {
+						/* TODO:
+						Add a test that hits this with `helper_foo("1", "2", ... "16")`:
+						5 string arguments for esi to r9d, with a starting offset of -0x8, gets `offset` to total -0x30
+						+ to get to -0x80, we need to spill (0x80-0x30)/8 => 10 extra arguments
+						*/
+						assert(false);
+					}
 				} else {
-					assert(false); // TODO: Add a test that hits this
+					assert(offset > 0x80);
+
+					assert(false); // TODO: Add a test that hits this with `helper_foo("1", "2", ..., "20")` (5 for rsi to r9 + 14 for 0x70/8)
 
 					compile_unpadded(MOV_DEREF_RBP_TO_RAX_32_BIT_OFFSET);
 					compile_32(spill_offset);
