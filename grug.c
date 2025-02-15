@@ -7218,12 +7218,20 @@ static void compile_define_fn(void) {
 	push_game_fn_call(get_define_fn_name(), codes_size);
 	compile_unpadded(PLACEHOLDER_32);
 
-	compile_unpadded(ADD_RSP_8_BITS);
 	size_t offset = pushes * sizeof(u64);
 	if (subbing) {
 		offset += sizeof(u64);
 	}
-	compile_byte(offset);
+
+	if (offset < 0x80) {
+		compile_unpadded(ADD_RSP_8_BITS);
+		compile_byte(offset);
+	} else {
+		// Reached by tests/ok/spill_args_to_define_fn_32_bit_add
+
+		compile_unpadded(ADD_RSP_32_BITS);
+		compile_32(offset);
+	}
 
 	compile_byte(RET);
 }
