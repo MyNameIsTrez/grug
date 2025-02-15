@@ -5162,7 +5162,10 @@ static void fill_result_types(void) {
 #define JE_32_BIT_OFFSET 0x840f // je strict $+n
 #define MOV_EAX_TO_DEREF_RBP_32_BIT_OFFSET 0x8589 // mov rbp[n], eax
 #define MOV_EAX_TO_DEREF_RDI_32_BIT_OFFSET 0x8789 // mov rdi[n], eax
+#define MOV_ECX_TO_DEREF_RBP_32_BIT_OFFSET 0x8d89 // mov rbp[n], ecx
+#define MOV_EDX_TO_DEREF_RBP_32_BIT_OFFSET 0x9589 // mov rbp[n], edx
 #define CQO_CLEAR_BEFORE_DIVISION 0x9948 // cqo
+#define MOV_ESI_TO_DEREF_RBP_32_BIT_OFFSET 0xb589 // mov rbp[n], esi
 #define MOVABS_TO_RAX 0xb848 // mov rax, n
 #define XOR_CLEAR_EAX 0xc031 // xor eax, eax
 
@@ -5228,9 +5231,11 @@ static void fill_result_types(void) {
 #define MOV_DEREF_RAX_TO_RAX_32_BIT_OFFSET 0x808b48 // mov rax, rax[n]
 #define MOV_EAX_TO_DEREF_R11_32_BIT_OFFSET 0x838941 // mov r11[n], eax
 #define MOV_RAX_TO_DEREF_R11_32_BIT_OFFSET 0x838949 // mov r11[n], rax
+#define MOV_R8D_TO_DEREF_RBP_32_BIT_OFFSET 0x858944 // mov rbp[n], r8d
 #define MOV_RAX_TO_DEREF_RBP_32_BIT_OFFSET 0x858948 // mov rbp[n], rax
 #define MOV_DEREF_RBP_TO_RAX_32_BIT_OFFSET 0x858b48 // mov rax, rbp[n]
 #define MOV_RAX_TO_DEREF_RDI_32_BIT_OFFSET 0x878948 // mov rdi[n], rax
+#define MOV_R9D_TO_DEREF_RBP_32_BIT_OFFSET 0x8d8944 // mov rbp[n], r9d
 
 #define MOV_RAX_TO_R8 0xc08949 // mov r8, rax
 
@@ -5252,6 +5257,7 @@ static void fill_result_types(void) {
 #define MOV_RAX_TO_RCX 0xc18948 // mov rcx, rax
 #define MOV_RAX_TO_R9 0xc18949 // mov r9, rax
 #define MOV_RAX_TO_RDX 0xc28948 // mov rdx, rax
+#define ADD_RSP_32_BITS 0xc48148 // add rsp, n
 #define ADD_RSP_8_BITS 0xc48348 // add rsp, n
 #define MOV_RAX_TO_RSI 0xc68948 // mov rsi, rax
 #define MOV_RAX_TO_RDI 0xc78948 // mov rdi, rax
@@ -6124,10 +6130,13 @@ static void compile_call_expr(struct call_expr call_expr) {
 		if (offset < 0x80) {
 			compile_unpadded(ADD_RSP_8_BITS);
 			compile_byte(offset);
-			stack_frame_bytes += offset;
 		} else {
-			assert(false); // TODO: Add a test that pushes so many args, that this needs to do ADD_RSP_32_BITS
+			// Reached by tests/ok/spill_args_to_helper_fn_32_bit_i32
+
+			compile_unpadded(ADD_RSP_32_BITS);
+			compile_32(offset);
 		}
+		stack_frame_bytes += offset;
 	}
 
 	if (returns_float) {
@@ -6839,9 +6848,16 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 						}[integer_argument_index++]);
 						compile_byte(-offset);
 					} else {
-						// Reached by spill_args_to_helper_fn_32_bit_i32
+						// Reached by tests/ok/spill_args_to_helper_fn_32_bit_i32
 
-						assert(false); // TODO:
+						compile_unpadded((u32[]){
+							MOV_ESI_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_EDX_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_ECX_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_R8D_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_R9D_TO_DEREF_RBP_32_BIT_OFFSET,
+						}[integer_argument_index++]);
+						compile_32(-offset);
 					}
 				} else {
 					// Reached by tests/ok/spill_args_to_helper_fn
@@ -6869,7 +6885,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 						}[float_argument_index++]);
 						compile_byte(-offset);
 					} else {
-						// Reached by spill_args_to_helper_fn_32_bit_f32
+						// Reached by tests/ok/spill_args_to_helper_fn_32_bit_f32
 
 						compile_unpadded((u32[]){
 							MOV_XMM0_TO_DEREF_RBP_32_BIT_OFFSET,
@@ -6907,7 +6923,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 						}[integer_argument_index++]);
 						compile_byte(-offset);
 					} else {
-						// Reached by spill_args_to_helper_fn_32_bit_string
+						// Reached by tests/ok/spill_args_to_helper_fn_32_bit_string
 
 						assert(false); // TODO:
 					}
