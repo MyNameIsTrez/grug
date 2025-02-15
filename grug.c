@@ -5631,6 +5631,140 @@ static void stack_push_rax(void) {
 	stack_frame_bytes += sizeof(u64);
 }
 
+static void move_arguments(struct argument *fn_arguments, size_t argument_count) {
+	size_t integer_argument_index = 0;
+	size_t float_argument_index = 0;
+
+	// Every function starts with `push rbp`, `mov rbp, rsp`,
+	// so because calling a function always pushes the return address (8 bytes),
+	// and the `push rbp` also pushes 8 bytes, the spilled args start at `rbp-0x10`
+	size_t spill_offset = 0x10;
+
+	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
+		struct argument arg = fn_arguments[argument_index];
+
+		size_t offset = get_local_variable(arg.name)->offset;
+
+		// We skip EDI/RDI, since that is reserved by the secret global variables pointer
+		switch (arg.type) {
+			case type_void:
+			case type_resource:
+			case type_entity:
+				grug_unreachable();
+			case type_bool:
+			case type_i32:
+				if (integer_argument_index < 5) {
+					if (offset <= 0x80) {
+						compile_unpadded((u32[]){
+							MOV_ESI_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_EDX_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_ECX_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_R8D_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_R9D_TO_DEREF_RBP_8_BIT_OFFSET,
+						}[integer_argument_index++]);
+						compile_byte(-offset);
+					} else {
+						// Reached by tests/ok/spill_args_to_helper_fn_32_bit_i32
+
+						compile_unpadded((u32[]){
+							MOV_ESI_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_EDX_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_ECX_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_R8D_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_R9D_TO_DEREF_RBP_32_BIT_OFFSET,
+						}[integer_argument_index++]);
+						compile_32(-offset);
+					}
+				} else {
+					// Reached by tests/ok/spill_args_to_helper_fn
+
+					compile_unpadded(MOV_DEREF_RBP_TO_EAX_32_BIT_OFFSET);
+					compile_32(spill_offset);
+					spill_offset += sizeof(u64);
+
+					compile_unpadded(MOV_EAX_TO_DEREF_RBP_32_BIT_OFFSET);
+					compile_32(-offset);
+				}
+				break;
+			case type_f32:
+				if (float_argument_index < 8) {
+					if (offset <= 0x80) {
+						compile_unpadded((u32[]){
+							MOV_XMM0_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_XMM1_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_XMM2_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_XMM3_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_XMM4_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_XMM5_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_XMM6_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_XMM7_TO_DEREF_RBP_8_BIT_OFFSET,
+						}[float_argument_index++]);
+						compile_byte(-offset);
+					} else {
+						// Reached by tests/ok/spill_args_to_helper_fn_32_bit_f32
+
+						compile_unpadded((u32[]){
+							MOV_XMM0_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_XMM1_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_XMM2_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_XMM3_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_XMM4_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_XMM5_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_XMM6_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_XMM7_TO_DEREF_RBP_32_BIT_OFFSET,
+						}[float_argument_index++]);
+						compile_32(-offset);
+					}
+				} else {
+					// Reached by tests/ok/spill_args_to_helper_fn
+
+					compile_unpadded(MOV_DEREF_RBP_TO_EAX_32_BIT_OFFSET);
+					compile_32(spill_offset);
+					spill_offset += sizeof(u64);
+
+					compile_unpadded(MOV_EAX_TO_DEREF_RBP_32_BIT_OFFSET);
+					compile_32(-offset);
+				}
+				break;
+			case type_string:
+			case type_id:
+				if (integer_argument_index < 5) {
+					if (offset <= 0x80) {
+						compile_unpadded((u32[]){
+							MOV_RSI_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_RDX_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_RCX_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_R8_TO_DEREF_RBP_8_BIT_OFFSET,
+							MOV_R9_TO_DEREF_RBP_8_BIT_OFFSET,
+						}[integer_argument_index++]);
+						compile_byte(-offset);
+					} else {
+						// Reached by tests/ok/spill_args_to_helper_fn_32_bit_string
+
+						compile_unpadded((u32[]){
+							MOV_RSI_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_RDX_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_RCX_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_R8_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_R9_TO_DEREF_RBP_32_BIT_OFFSET,
+						}[integer_argument_index++]);
+						compile_32(-offset);
+					}
+				} else {
+					// Reached by tests/ok/spill_args_to_helper_fn
+
+					compile_unpadded(MOV_DEREF_RBP_TO_RAX_32_BIT_OFFSET);
+					compile_32(spill_offset);
+					spill_offset += sizeof(u64);
+
+					compile_unpadded(MOV_RAX_TO_DEREF_RBP_32_BIT_OFFSET);
+					compile_32(-offset);
+				}
+				break;
+		}
+	}
+}
+
 static void push_break_statement_jump_address_offset(size_t offset) {
 	grug_assert(loop_depth > 0, "There is a break statement that isn't inside of a while loop");
 
@@ -6820,138 +6954,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 	compile_unpadded(MOV_RDI_TO_DEREF_RBP);
 	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 
-	size_t integer_argument_index = 0;
-	size_t float_argument_index = 0;
-
-	// Every function starts with `push rbp`, `mov rbp, rsp`,
-	// so because calling a function always pushes the return address (8 bytes),
-	// and the `push rbp` also pushes 8 bytes, the spilled args start at `rbp-0x10`
-	size_t spill_offset = 0x10;
-
-	// Move the rest of the arguments
-	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
-		struct argument arg = fn_arguments[argument_index];
-
-		size_t offset = get_local_variable(arg.name)->offset;
-
-		// We skip EDI/RDI, since that is reserved by the secret global variables pointer
-		switch (arg.type) {
-			case type_void:
-			case type_resource:
-			case type_entity:
-				grug_unreachable();
-			case type_bool:
-			case type_i32:
-				if (integer_argument_index < 5) {
-					if (offset <= 0x80) {
-						compile_unpadded((u32[]){
-							MOV_ESI_TO_DEREF_RBP_8_BIT_OFFSET,
-							MOV_EDX_TO_DEREF_RBP_8_BIT_OFFSET,
-							MOV_ECX_TO_DEREF_RBP_8_BIT_OFFSET,
-							MOV_R8D_TO_DEREF_RBP_8_BIT_OFFSET,
-							MOV_R9D_TO_DEREF_RBP_8_BIT_OFFSET,
-						}[integer_argument_index++]);
-						compile_byte(-offset);
-					} else {
-						// Reached by tests/ok/spill_args_to_helper_fn_32_bit_i32
-
-						compile_unpadded((u32[]){
-							MOV_ESI_TO_DEREF_RBP_32_BIT_OFFSET,
-							MOV_EDX_TO_DEREF_RBP_32_BIT_OFFSET,
-							MOV_ECX_TO_DEREF_RBP_32_BIT_OFFSET,
-							MOV_R8D_TO_DEREF_RBP_32_BIT_OFFSET,
-							MOV_R9D_TO_DEREF_RBP_32_BIT_OFFSET,
-						}[integer_argument_index++]);
-						compile_32(-offset);
-					}
-				} else {
-					// Reached by tests/ok/spill_args_to_helper_fn
-
-					compile_unpadded(MOV_DEREF_RBP_TO_EAX_32_BIT_OFFSET);
-					compile_32(spill_offset);
-					spill_offset += sizeof(u64);
-
-					compile_unpadded(MOV_EAX_TO_DEREF_RBP_32_BIT_OFFSET);
-					compile_32(-offset);
-				}
-				break;
-			case type_f32:
-				if (float_argument_index < 8) {
-					if (offset <= 0x80) {
-						compile_unpadded((u32[]){
-							MOV_XMM0_TO_DEREF_RBP_8_BIT_OFFSET,
-							MOV_XMM1_TO_DEREF_RBP_8_BIT_OFFSET,
-							MOV_XMM2_TO_DEREF_RBP_8_BIT_OFFSET,
-							MOV_XMM3_TO_DEREF_RBP_8_BIT_OFFSET,
-							MOV_XMM4_TO_DEREF_RBP_8_BIT_OFFSET,
-							MOV_XMM5_TO_DEREF_RBP_8_BIT_OFFSET,
-							MOV_XMM6_TO_DEREF_RBP_8_BIT_OFFSET,
-							MOV_XMM7_TO_DEREF_RBP_8_BIT_OFFSET,
-						}[float_argument_index++]);
-						compile_byte(-offset);
-					} else {
-						// Reached by tests/ok/spill_args_to_helper_fn_32_bit_f32
-
-						compile_unpadded((u32[]){
-							MOV_XMM0_TO_DEREF_RBP_32_BIT_OFFSET,
-							MOV_XMM1_TO_DEREF_RBP_32_BIT_OFFSET,
-							MOV_XMM2_TO_DEREF_RBP_32_BIT_OFFSET,
-							MOV_XMM3_TO_DEREF_RBP_32_BIT_OFFSET,
-							MOV_XMM4_TO_DEREF_RBP_32_BIT_OFFSET,
-							MOV_XMM5_TO_DEREF_RBP_32_BIT_OFFSET,
-							MOV_XMM6_TO_DEREF_RBP_32_BIT_OFFSET,
-							MOV_XMM7_TO_DEREF_RBP_32_BIT_OFFSET,
-						}[float_argument_index++]);
-						compile_32(-offset);
-					}
-				} else {
-					// Reached by tests/ok/spill_args_to_helper_fn
-
-					compile_unpadded(MOV_DEREF_RBP_TO_EAX_32_BIT_OFFSET);
-					compile_32(spill_offset);
-					spill_offset += sizeof(u64);
-
-					compile_unpadded(MOV_EAX_TO_DEREF_RBP_32_BIT_OFFSET);
-					compile_32(-offset);
-				}
-				break;
-			case type_string:
-			case type_id:
-				if (integer_argument_index < 5) {
-					if (offset <= 0x80) {
-						compile_unpadded((u32[]){
-							MOV_RSI_TO_DEREF_RBP_8_BIT_OFFSET,
-							MOV_RDX_TO_DEREF_RBP_8_BIT_OFFSET,
-							MOV_RCX_TO_DEREF_RBP_8_BIT_OFFSET,
-							MOV_R8_TO_DEREF_RBP_8_BIT_OFFSET,
-							MOV_R9_TO_DEREF_RBP_8_BIT_OFFSET,
-						}[integer_argument_index++]);
-						compile_byte(-offset);
-					} else {
-						// Reached by tests/ok/spill_args_to_helper_fn_32_bit_string
-
-						compile_unpadded((u32[]){
-							MOV_RSI_TO_DEREF_RBP_32_BIT_OFFSET,
-							MOV_RDX_TO_DEREF_RBP_32_BIT_OFFSET,
-							MOV_RCX_TO_DEREF_RBP_32_BIT_OFFSET,
-							MOV_R8_TO_DEREF_RBP_32_BIT_OFFSET,
-							MOV_R9_TO_DEREF_RBP_32_BIT_OFFSET,
-						}[integer_argument_index++]);
-						compile_32(-offset);
-					}
-				} else {
-					// Reached by tests/ok/spill_args_to_helper_fn
-
-					compile_unpadded(MOV_DEREF_RBP_TO_RAX_32_BIT_OFFSET);
-					compile_32(spill_offset);
-					spill_offset += sizeof(u64);
-
-					compile_unpadded(MOV_RAX_TO_DEREF_RBP_32_BIT_OFFSET);
-					compile_32(-offset);
-				}
-				break;
-		}
-	}
+	move_arguments(fn_arguments, argument_count);
 
 	size_t skip_safe_code_offset;
 
