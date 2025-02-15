@@ -5233,9 +5233,14 @@ static void fill_result_types(void) {
 #define MOV_RAX_TO_DEREF_R11_32_BIT_OFFSET 0x838949 // mov r11[n], rax
 #define MOV_R8D_TO_DEREF_RBP_32_BIT_OFFSET 0x858944 // mov rbp[n], r8d
 #define MOV_RAX_TO_DEREF_RBP_32_BIT_OFFSET 0x858948 // mov rbp[n], rax
+#define MOV_R8_TO_DEREF_RBP_32_BIT_OFFSET 0x85894c // mov rbp[n], r8
 #define MOV_DEREF_RBP_TO_RAX_32_BIT_OFFSET 0x858b48 // mov rax, rbp[n]
 #define MOV_RAX_TO_DEREF_RDI_32_BIT_OFFSET 0x878948 // mov rdi[n], rax
 #define MOV_R9D_TO_DEREF_RBP_32_BIT_OFFSET 0x8d8944 // mov rbp[n], r9d
+#define MOV_RCX_TO_DEREF_RBP_32_BIT_OFFSET 0x8d8948 // mov rbp[n], rcx
+#define MOV_R9_TO_DEREF_RBP_32_BIT_OFFSET 0x8d894c // mov rbp[n], r9
+#define MOV_RDX_TO_DEREF_RBP_32_BIT_OFFSET 0x958948 // mov rbp[n], rdx
+#define MOV_RSI_TO_DEREF_RBP_32_BIT_OFFSET 0xb58948 // mov rbp[n], rsi
 
 #define MOV_RAX_TO_R8 0xc08949 // mov r8, rax
 
@@ -6925,7 +6930,14 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 					} else {
 						// Reached by tests/ok/spill_args_to_helper_fn_32_bit_string
 
-						assert(false); // TODO:
+						compile_unpadded((u32[]){
+							MOV_RSI_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_RDX_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_RCX_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_R8_TO_DEREF_RBP_32_BIT_OFFSET,
+							MOV_R9_TO_DEREF_RBP_32_BIT_OFFSET,
+						}[integer_argument_index++]);
+						compile_32(-offset);
 					}
 				} else {
 					// Reached by tests/ok/spill_args_to_helper_fn
