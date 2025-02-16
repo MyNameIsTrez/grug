@@ -243,6 +243,10 @@ char *grug_get_runtime_error_reason(enum grug_runtime_error_type type) {
 
 			return temp;
 		}
+		case GRUG_ON_FN_OVERFLOW:
+			return "i32 overflow";
+		case GRUG_ON_FN_UNDERFLOW:
+			return "i32 underflow";
 	}
 	grug_unreachable();
 }
@@ -1834,7 +1838,7 @@ struct on_fn {
 	size_t body_statement_count;
 	bool calls_helper_fn;
 	bool contains_while_loop;
-	bool contains_integer_division;
+	bool contains_i32_operation;
 };
 static struct on_fn on_fns[MAX_ON_FNS];
 static size_t on_fns_size;
@@ -4300,7 +4304,7 @@ static bool parsing_on_fn;
 
 static bool *parsed_on_fn_calls_helper_fn_ptr;
 static bool *parsed_on_fn_contains_while_loop_ptr;
-static bool *parsed_on_fn_contains_integer_division_ptr;
+static bool *parsed_on_fn_contains_i32_operation_ptr;
 
 static void reset_filling(void) {
 	global_variables_size = 0;
@@ -4545,8 +4549,8 @@ static void fill_binary_expr(struct expr *expr) {
 			grug_assert(binary_expr.left_expr->result_type == type_i32 || binary_expr.left_expr->result_type == type_f32, "'%s' operator expects i32 or f32", get_token_type_str[binary_expr.operator]);
 			expr->result_type = binary_expr.left_expr->result_type;
 
-			if (expr->binary.operator == DIVISION_TOKEN && parsing_on_fn && expr->result_type == type_i32) {
-				*parsed_on_fn_contains_integer_division_ptr = true;
+			if (parsing_on_fn && expr->result_type == type_i32) {
+				*parsed_on_fn_contains_i32_operation_ptr = true;
 			}
 
 			break;
@@ -4556,7 +4560,7 @@ static void fill_binary_expr(struct expr *expr) {
 			expr->result_type = type_i32;
 
 			if (parsing_on_fn && expr->result_type == type_i32) {
-				*parsed_on_fn_contains_integer_division_ptr = true;
+				*parsed_on_fn_contains_i32_operation_ptr = true;
 			}
 
 			break;
@@ -4917,14 +4921,14 @@ static void fill_on_fns(void) {
 
 		parsed_on_fn_calls_helper_fn_ptr = &fn->calls_helper_fn;
 		parsed_on_fn_contains_while_loop_ptr = &fn->contains_while_loop;
-		parsed_on_fn_contains_integer_division_ptr = &fn->contains_integer_division;
+		parsed_on_fn_contains_i32_operation_ptr = &fn->contains_i32_operation;
 
 		fill_statements(fn->body_statements, fn->body_statement_count);
 	}
 }
 
 // Check that the global variable's assigned value doesn't contain a call nor identifier
-static void check_global_expr(struct expr *expr, char *global_name) {
+static void check_global_expr(struct expr *expr, char *name) {
 	switch (expr->type) {
 		case TRUE_EXPR:
 		case FALSE_EXPR:
@@ -4936,23 +4940,24 @@ static void check_global_expr(struct expr *expr, char *global_name) {
 		case ENTITY_EXPR:
 			grug_unreachable();
 		case IDENTIFIER_EXPR:
+			// See tests/ok/global_containing_null_id
 			if (!streq(expr->literal.string, "null_id")) {
-				grug_error("The global variable '%s' is using a global variable, which isn't allowed", global_name);
+				grug_error("The global variable '%s' isn't allowed to use global variables", name);
 			}
 			break;
 		case UNARY_EXPR:
-			check_global_expr(expr->unary.expr, global_name);
+			grug_assert(expr->unary.operator != NOT_TOKEN, "The global variable '%s' isn't allowed to use the 'not' operator", name);
+			check_global_expr(expr->unary.expr, name);
 			break;
 		case BINARY_EXPR:
 		case LOGICAL_EXPR:
-			check_global_expr(expr->binary.left_expr, global_name);
-			check_global_expr(expr->binary.right_expr, global_name);
+			grug_error("The global variable '%s' isn't allowed to use binary expressions", name);
 			break;
 		case CALL_EXPR:
-			grug_error("The global variable '%s' is calling a function, which isn't allowed", global_name);
+			grug_error("The global variable '%s' isn't allowed to call functions", name);
 			break;
 		case PARENTHESIZED_EXPR:
-			check_global_expr(expr->parenthesized, global_name);
+			grug_error("The global variable '%s' isn't allowed to use parentheses", name);
 			break;
 	}
 }
@@ -4985,21 +4990,22 @@ static void check_define_fn_field(struct expr *expr) {
 		case F32_EXPR:
 			break;
 		case IDENTIFIER_EXPR:
+			// Since mod_api.json disallows the type "id" in define fns, we don't handle it differently here
 			grug_error("The define function isn't allowed to use global variables");
 			break;
 		case UNARY_EXPR:
+			grug_assert(expr->unary.operator != NOT_TOKEN, "The define function isn't allowed to use the 'not' operator");
 			check_define_fn_field(expr->unary.expr);
 			break;
 		case BINARY_EXPR:
 		case LOGICAL_EXPR:
-			check_define_fn_field(expr->binary.left_expr);
-			check_define_fn_field(expr->binary.right_expr);
+			grug_error("The define function isn't allowed to use binary expressions");
 			break;
 		case CALL_EXPR:
-			grug_error("The define function isn't allowed to call a function");
+			grug_error("The define function isn't allowed to call functions");
 			break;
 		case PARENTHESIZED_EXPR:
-			check_define_fn_field(expr->parenthesized);
+			grug_error("The define function isn't allowed to use parentheses");
 			break;
 	}
 }
@@ -5139,7 +5145,11 @@ static void fill_result_types(void) {
 
 #define JMP_32_BIT_OFFSET 0xe9 // jmp $+n
 
+#define JS 0x78 // js $+n
+
 #define CALL_DEREF_RAX 0x10ff // call [rax]
+
+#define JNO 0x71 // jno $+n
 
 #define JMP_REL 0x25ff // Not quite jmp [$+n]
 #define PUSH_REL 0x35ff // Not quite push qword [$+n]
@@ -5267,7 +5277,7 @@ static void fill_result_types(void) {
 #define MOV_RAX_TO_RSI 0xc68948 // mov rsi, rax
 #define MOV_RAX_TO_RDI 0xc78948 // mov rdi, rax
 #define MOV_RDX_TO_RAX 0xd08948 // mov rax, rdx
-#define ADD_R11_TO_RAX 0xd8014c // add rax, r11
+#define ADD_R11D_TO_EAX 0xd80144 // add eax, r11d
 #define SUB_R11_FROM_RAX 0xd8294c // sub rax, r11
 #define CMP_RAX_WITH_R11 0xd8394c // cmp rax, r11
 #define NEGATE_RAX 0xd8f748 // neg rax
@@ -5788,13 +5798,7 @@ static void push_used_extern_global_variable(char *variable_name, size_t codes_o
 	};
 }
 
-static void compile_longjmp(enum grug_runtime_error_type type) {
-	// mov esi, 1 + type:
-	// The `1 +` here is necessary for the longjmp()
-	// After the setjmp() we get the true value by decrementing it by 1
-	compile_byte(MOV_TO_ESI);
-	compile_32(1 + type);
-
+static void compile_longjmp_to_error_handling(void) {
 	// mov rdi, [rel grug_runtime_error_jmp_buffer wrt ..got]:
 	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RDI);
 	push_used_extern_global_variable("grug_runtime_error_jmp_buffer", codes_size);
@@ -5804,6 +5808,45 @@ static void compile_longjmp(enum grug_runtime_error_type type) {
 	compile_byte(CALL);
 	push_system_fn_call("longjmp", codes_size);
 	compile_unpadded(PLACEHOLDER_32);
+}
+
+static void compile_mov_runtime_error_type(enum grug_runtime_error_type type) {
+	// mov esi, 1 + type:
+	// The `1 +` here is necessary for the longjmp()
+	// After the setjmp() we get the true value by decrementing it by 1
+	compile_byte(MOV_TO_ESI);
+	compile_32(1 + type);
+}
+
+static void compile_check_overflow_and_underflow(void) {
+	compile_byte(JNO);
+	size_t skip_offset = codes_size;
+	compile_byte(PLACEHOLDER_8);
+
+	compile_byte(JS);
+	size_t signed_offset = codes_size;
+	compile_byte(PLACEHOLDER_8);
+
+	compile_mov_runtime_error_type(GRUG_ON_FN_UNDERFLOW);
+
+	compile_byte(JMP_8_BIT_OFFSET);
+	size_t skip_signed_offset = codes_size;
+	compile_byte(PLACEHOLDER_8);
+
+	overwrite_jmp_address_8(signed_offset, codes_size);
+
+	compile_mov_runtime_error_type(GRUG_ON_FN_OVERFLOW);
+
+	overwrite_jmp_address_8(skip_signed_offset, codes_size);
+
+	compile_longjmp_to_error_handling();
+
+	overwrite_jmp_address_8(skip_offset, codes_size);
+}
+
+static void compile_longjmp_runtime_error_type(enum grug_runtime_error_type type) {
+	compile_mov_runtime_error_type(type);
+	compile_longjmp_to_error_handling();
 }
 
 static void compile_check_time_limit_exceeded(void) {
@@ -5881,7 +5924,7 @@ static void compile_check_time_limit_exceeded(void) {
 	overwrite_jmp_address_8(take_offset_1, codes_size);
 	overwrite_jmp_address_8(take_offset_2, codes_size);
 
-	compile_longjmp(GRUG_ON_FN_TIME_LIMIT_EXCEEDED);
+	compile_longjmp_runtime_error_type(GRUG_ON_FN_TIME_LIMIT_EXCEEDED);
 
 	overwrite_jmp_address_8(skip_offset_1, codes_size);
 	overwrite_jmp_address_8(skip_offset_2, codes_size);
@@ -6334,7 +6377,11 @@ static void compile_binary_expr(struct expr expr) {
 	switch (binary_expr.operator) {
 		case PLUS_TOKEN:
 			if (expr.result_type == type_i32) {
-				compile_unpadded(ADD_R11_TO_RAX);
+				compile_unpadded(ADD_R11D_TO_EAX);
+
+				if (!compiling_fast_mode) {
+					compile_check_overflow_and_underflow();
+				}
 			} else {
 				compile_unpadded(MOV_EAX_TO_XMM0);
 				compile_unpadded(MOV_R11D_TO_XMM1);
@@ -6371,7 +6418,7 @@ static void compile_binary_expr(struct expr expr) {
 					size_t skip_offset = codes_size;
 					compile_byte(PLACEHOLDER_8);
 
-					compile_longjmp(GRUG_ON_FN_DIVISION_BY_ZERO);
+					compile_longjmp_runtime_error_type(GRUG_ON_FN_DIVISION_BY_ZERO);
 
 					overwrite_jmp_address_8(skip_offset, codes_size);
 				}
@@ -6393,7 +6440,7 @@ static void compile_binary_expr(struct expr expr) {
 				size_t skip_offset = codes_size;
 				compile_byte(PLACEHOLDER_8);
 
-				compile_longjmp(GRUG_ON_FN_DIVISION_BY_ZERO);
+				compile_longjmp_runtime_error_type(GRUG_ON_FN_DIVISION_BY_ZERO);
 
 				overwrite_jmp_address_8(skip_offset, codes_size);
 			}
@@ -6514,7 +6561,7 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 			if (unary_expr.expr->result_type == type_i32) {
 				compile_unpadded(NEGATE_RAX);
 			} else {
-				compile_unpadded(XOR_EAX_BY_N);
+				compile_byte(XOR_EAX_BY_N);
 				compile_32(0x80000000);
 			}
 			break;
@@ -6923,7 +6970,7 @@ static size_t round_to_power_of_2(size_t n, size_t multiple) {
 	return (n + multiple - 1) & -multiple;
 }
 
-static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, bool is_on_fn, char *grug_path, bool on_fn_calls_helper_fn, bool on_fn_contains_while_loop, bool on_fn_contains_integer_division) {
+static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, bool is_on_fn, char *grug_path, bool on_fn_calls_helper_fn, bool on_fn_contains_while_loop, bool on_fn_contains_i32_operation) {
 	init_argument_variables(fn_arguments, argument_count);
 
 	add_variables_in_statements(body_statements, body_statement_count);
@@ -7025,7 +7072,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 			compile_set_time_limit();
 		}
 
-		if (on_fn_calls_helper_fn || on_fn_contains_while_loop || on_fn_contains_integer_division) {
+		if (on_fn_calls_helper_fn || on_fn_contains_while_loop || on_fn_contains_i32_operation) {
 			is_error_handler_used = true;
 
 			compile_error_handling(grug_path, fn_name);
@@ -7044,7 +7091,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		size_t skip_offset = codes_size;
 		compile_byte(PLACEHOLDER_8);
 
-		compile_longjmp(GRUG_ON_FN_STACK_OVERFLOW);
+		compile_longjmp_runtime_error_type(GRUG_ON_FN_STACK_OVERFLOW);
 
 		overwrite_jmp_address_8(skip_offset, codes_size);
 	}
@@ -7065,7 +7112,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 }
 
 static void compile_on_fn(struct on_fn fn, char *grug_path) {
-	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, true, grug_path, fn.calls_helper_fn, fn.contains_while_loop, fn.contains_integer_division);
+	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, true, grug_path, fn.calls_helper_fn, fn.contains_while_loop, fn.contains_i32_operation);
 }
 
 static void compile_helper_fn(struct helper_fn fn) {
