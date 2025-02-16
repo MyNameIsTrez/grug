@@ -245,8 +245,6 @@ char *grug_get_runtime_error_reason(enum grug_runtime_error_type type) {
 		}
 		case GRUG_ON_FN_OVERFLOW:
 			return "i32 overflow";
-		case GRUG_ON_FN_UNDERFLOW:
-			return "i32 underflow";
 	}
 	grug_unreachable();
 }
@@ -5299,7 +5297,7 @@ static void fill_result_types(void) {
 
 #define MOV_RSP_TO_RBP 0xe58948 // mov rbp, rsp
 
-#define MUL_RAX_BY_R11 0xebf749 // imul r11
+#define IMUL_EAX_BY_R11D 0xebf741 // imul r11d
 
 #define SUB_RSP_8_BITS 0xec8348 // sub rsp, n
 #define SUB_RSP_32_BITS 0xec8148 // sub rsp, n
@@ -5815,7 +5813,13 @@ static void push_used_extern_global_variable(char *variable_name, size_t codes_o
 	};
 }
 
-static void compile_longjmp_to_error_handling(void) {
+static void compile_longjmp_to_error_handling(enum grug_runtime_error_type type) {
+	// mov esi, 1 + type:
+	// The `1 +` here is necessary for the longjmp()
+	// After the setjmp() we get the true value by decrementing it by 1
+	compile_byte(MOV_TO_ESI);
+	compile_32(1 + type);
+
 	// mov rdi, [rel grug_runtime_error_jmp_buffer wrt ..got]:
 	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RDI);
 	push_used_extern_global_variable("grug_runtime_error_jmp_buffer", codes_size);
@@ -5827,43 +5831,14 @@ static void compile_longjmp_to_error_handling(void) {
 	compile_unpadded(PLACEHOLDER_32);
 }
 
-static void compile_mov_runtime_error_type(enum grug_runtime_error_type type) {
-	// mov esi, 1 + type:
-	// The `1 +` here is necessary for the longjmp()
-	// After the setjmp() we get the true value by decrementing it by 1
-	compile_byte(MOV_TO_ESI);
-	compile_32(1 + type);
-}
-
-static void compile_check_overflow_and_underflow(void) {
+static void compile_check_overflow(void) {
 	compile_byte(JNO);
 	size_t skip_offset = codes_size;
 	compile_byte(PLACEHOLDER_8);
 
-	compile_byte(JS);
-	size_t signed_offset = codes_size;
-	compile_byte(PLACEHOLDER_8);
-
-	compile_mov_runtime_error_type(GRUG_ON_FN_UNDERFLOW);
-
-	compile_byte(JMP_8_BIT_OFFSET);
-	size_t skip_signed_offset = codes_size;
-	compile_byte(PLACEHOLDER_8);
-
-	overwrite_jmp_address_8(signed_offset, codes_size);
-
-	compile_mov_runtime_error_type(GRUG_ON_FN_OVERFLOW);
-
-	overwrite_jmp_address_8(skip_signed_offset, codes_size);
-
-	compile_longjmp_to_error_handling();
+	compile_longjmp_to_error_handling(GRUG_ON_FN_OVERFLOW);
 
 	overwrite_jmp_address_8(skip_offset, codes_size);
-}
-
-static void compile_longjmp_runtime_error_type(enum grug_runtime_error_type type) {
-	compile_mov_runtime_error_type(type);
-	compile_longjmp_to_error_handling();
 }
 
 static void compile_check_division_overflow(void) {
@@ -5881,7 +5856,7 @@ static void compile_check_division_overflow(void) {
 	size_t skip_offset_2 = codes_size;
 	compile_byte(PLACEHOLDER_8);
 
-	compile_longjmp_runtime_error_type(GRUG_ON_FN_OVERFLOW);
+	compile_longjmp_to_error_handling(GRUG_ON_FN_OVERFLOW);
 
 	overwrite_jmp_address_8(skip_offset_1, codes_size);
 	overwrite_jmp_address_8(skip_offset_2, codes_size);
@@ -5894,7 +5869,7 @@ static void compile_check_division_by_0(void) {
 	size_t skip_offset = codes_size;
 	compile_byte(PLACEHOLDER_8);
 
-	compile_longjmp_runtime_error_type(GRUG_ON_FN_DIVISION_BY_ZERO);
+	compile_longjmp_to_error_handling(GRUG_ON_FN_DIVISION_BY_ZERO);
 
 	overwrite_jmp_address_8(skip_offset, codes_size);
 }
@@ -5974,7 +5949,7 @@ static void compile_check_time_limit_exceeded(void) {
 	overwrite_jmp_address_8(take_offset_1, codes_size);
 	overwrite_jmp_address_8(take_offset_2, codes_size);
 
-	compile_longjmp_runtime_error_type(GRUG_ON_FN_TIME_LIMIT_EXCEEDED);
+	compile_longjmp_to_error_handling(GRUG_ON_FN_TIME_LIMIT_EXCEEDED);
 
 	overwrite_jmp_address_8(skip_offset_1, codes_size);
 	overwrite_jmp_address_8(skip_offset_2, codes_size);
@@ -6430,7 +6405,7 @@ static void compile_binary_expr(struct expr expr) {
 				compile_unpadded(ADD_R11D_TO_EAX);
 
 				if (!compiling_fast_mode) {
-					compile_check_overflow_and_underflow();
+					compile_check_overflow();
 				}
 			} else {
 				compile_unpadded(MOV_EAX_TO_XMM0);
@@ -6444,7 +6419,7 @@ static void compile_binary_expr(struct expr expr) {
 				compile_unpadded(SUB_R11D_FROM_EAX);
 
 				if (!compiling_fast_mode) {
-					compile_check_overflow_and_underflow();
+					compile_check_overflow();
 				}
 			} else {
 				compile_unpadded(MOV_EAX_TO_XMM0);
@@ -6455,7 +6430,11 @@ static void compile_binary_expr(struct expr expr) {
 			break;
 		case MULTIPLICATION_TOKEN:
 			if (expr.result_type == type_i32) {
-				compile_unpadded(MUL_RAX_BY_R11);
+				compile_unpadded(IMUL_EAX_BY_R11D);
+
+				if (!compiling_fast_mode) {
+					compile_check_overflow();
+				}
 			} else {
 				compile_unpadded(MOV_EAX_TO_XMM0);
 				compile_unpadded(MOV_R11D_TO_XMM1);
@@ -6602,7 +6581,7 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 				compile_unpadded(NEGATE_EAX);
 
 				if (!compiling_fast_mode && !is_negation_overflow_possible) {
-					compile_check_overflow_and_underflow();
+					compile_check_overflow();
 				}
 			} else {
 				compile_byte(XOR_EAX_BY_N);
@@ -7135,7 +7114,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		size_t skip_offset = codes_size;
 		compile_byte(PLACEHOLDER_8);
 
-		compile_longjmp_runtime_error_type(GRUG_ON_FN_STACK_OVERFLOW);
+		compile_longjmp_to_error_handling(GRUG_ON_FN_STACK_OVERFLOW);
 
 		overwrite_jmp_address_8(skip_offset, codes_size);
 	}
