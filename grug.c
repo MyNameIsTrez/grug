@@ -5278,7 +5278,7 @@ static void fill_result_types(void) {
 #define MOV_RAX_TO_RDI 0xc78948 // mov rdi, rax
 #define MOV_RDX_TO_RAX 0xd08948 // mov rax, rdx
 #define ADD_R11D_TO_EAX 0xd80144 // add eax, r11d
-#define SUB_R11_FROM_RAX 0xd8294c // sub rax, r11
+#define SUB_R11D_FROM_EAX 0xd82944 // sub eax, r11d
 #define CMP_RAX_WITH_R11 0xd8394c // cmp rax, r11
 #define NEGATE_RAX 0xd8f748 // neg rax
 #define TEST_R11_IS_ZERO 0xdb854d // test r11, r11
@@ -6391,7 +6391,11 @@ static void compile_binary_expr(struct expr expr) {
 			break;
 		case MINUS_TOKEN:
 			if (expr.result_type == type_i32) {
-				compile_unpadded(SUB_R11_FROM_RAX);
+				compile_unpadded(SUB_R11D_FROM_EAX);
+
+				if (!compiling_fast_mode) {
+					compile_check_overflow_and_underflow();
+				}
 			} else {
 				compile_unpadded(MOV_EAX_TO_XMM0);
 				compile_unpadded(MOV_R11D_TO_XMM1);
