@@ -4313,6 +4313,7 @@ static void reset_filling(void) {
 	entity_types_size = 0;
 	data_strings_size = 0;
 	memset(buckets_data_strings, 0xff, sizeof(buckets_data_strings));
+	parsing_on_fn = false;
 }
 
 static void push_data_string(char *string) {
@@ -4696,6 +4697,10 @@ static void fill_expr(struct expr *expr) {
 			expr->result_type = type_f32;
 			break;
 		case UNARY_EXPR:
+			if (expr->unary.expr->type == UNARY_EXPR) {
+				grug_assert(expr->unary.operator != expr->unary.expr->unary.operator, "Found '%s' directly next to another '%s', which can be simplified by just removing both of them", get_token_type_str[expr->unary.operator], get_token_type_str[expr->unary.expr->unary.operator]);
+			}
+
 			fill_expr(expr->unary.expr);
 			expr->result_type = expr->unary.expr->result_type;
 
@@ -4703,6 +4708,10 @@ static void fill_expr(struct expr *expr) {
 				grug_assert(expr->result_type == type_bool, "Found 'not' before %s, but it can only be put before a bool", type_names[expr->result_type]);
 			} else if (expr->unary.operator == MINUS_TOKEN) {
 				grug_assert(expr->result_type == type_i32 || expr->result_type == type_f32, "Found '-' before %s, but it can only be put before an i32 or f32", type_names[expr->result_type]);
+
+				if (parsing_on_fn && expr->result_type == type_i32) {
+					*parsed_on_fn_contains_i32_operation_ptr = true;
+				}
 			} else {
 				grug_unreachable();
 			}
@@ -5134,6 +5143,8 @@ static void fill_result_types(void) {
 
 #define NOP_8_BITS 0x90 // nop
 
+#define CDQ_SIGN_EXTEND_EAX_BEFORE_DIVISION 0x99 // cdq
+
 #define MOV_TO_EAX 0xb8 // mov eax, n
 #define MOV_TO_ESI 0xbe // mov esi, n
 #define MOV_TO_EDI 0xbf // mov edi, n
@@ -5174,7 +5185,6 @@ static void fill_result_types(void) {
 #define MOV_EAX_TO_DEREF_RDI_32_BIT_OFFSET 0x8789 // mov rdi[n], eax
 #define MOV_ECX_TO_DEREF_RBP_32_BIT_OFFSET 0x8d89 // mov rbp[n], ecx
 #define MOV_EDX_TO_DEREF_RBP_32_BIT_OFFSET 0x9589 // mov rbp[n], edx
-#define CQO_CLEAR_BEFORE_DIVISION 0x9948 // cqo
 #define MOV_ESI_TO_DEREF_RBP_32_BIT_OFFSET 0xb589 // mov rbp[n], esi
 #define MOVABS_TO_RAX 0xb848 // mov rax, n
 #define XOR_CLEAR_EAX 0xc031 // xor eax, eax
@@ -5185,6 +5195,8 @@ static void fill_result_types(void) {
 #define MOV_EAX_TO_EDI 0xc789 // mov edi, eax
 
 #define DEC_EAX 0xc8ff // dec eax
+
+#define NEGATE_EAX 0xd8f7 // neg eax
 
 #define MOV_GLOBAL_VARIABLE_TO_RAX 0x58b48 // mov rax, [rel foo wrt ..got]
 
@@ -5280,7 +5292,6 @@ static void fill_result_types(void) {
 #define ADD_R11D_TO_EAX 0xd80144 // add eax, r11d
 #define SUB_R11D_FROM_EAX 0xd82944 // sub eax, r11d
 #define CMP_RAX_WITH_R11 0xd8394c // cmp rax, r11
-#define NEGATE_RAX 0xd8f748 // neg rax
 #define TEST_R11_IS_ZERO 0xdb854d // test r11, r11
 #define MOV_R11_TO_RSI 0xde894c // mov rsi, r11
 
@@ -5293,7 +5304,7 @@ static void fill_result_types(void) {
 
 #define MOV_RBP_TO_RSP 0xec8948 // mov rsp, rbp
 
-#define DIV_RAX_BY_R11 0xfbf749 // idiv r11
+#define DIV_RAX_BY_R11D 0xfbf741 // idiv r11d
 
 #define MOV_XMM0_TO_DEREF_RBP_8_BIT_OFFSET 0x45110ff3 // movss rbp[n], xmm0
 #define MOV_XMM1_TO_DEREF_RBP_8_BIT_OFFSET 0x4d110ff3 // movss rbp[n], xmm1
@@ -5405,6 +5416,8 @@ static bool is_max_time_used;
 
 static char helper_fn_mode_names[MAX_HELPER_FN_MODE_NAMES_CHARACTERS];
 static size_t helper_fn_mode_names_size;
+
+static bool is_negation_overflow_possible;
 
 static void reset_compiling(void) {
 	codes_size = 0;
@@ -6427,8 +6440,8 @@ static void compile_binary_expr(struct expr expr) {
 					overwrite_jmp_address_8(skip_offset, codes_size);
 				}
 
-				compile_unpadded(CQO_CLEAR_BEFORE_DIVISION);
-				compile_unpadded(DIV_RAX_BY_R11);
+				compile_byte(CDQ_SIGN_EXTEND_EAX_BEFORE_DIVISION);
+				compile_unpadded(DIV_RAX_BY_R11D);
 			} else {
 				compile_unpadded(MOV_EAX_TO_XMM0);
 				compile_unpadded(MOV_R11D_TO_XMM1);
@@ -6449,8 +6462,8 @@ static void compile_binary_expr(struct expr expr) {
 				overwrite_jmp_address_8(skip_offset, codes_size);
 			}
 
-			compile_unpadded(CQO_CLEAR_BEFORE_DIVISION);
-			compile_unpadded(DIV_RAX_BY_R11);
+			compile_byte(CDQ_SIGN_EXTEND_EAX_BEFORE_DIVISION);
+			compile_unpadded(DIV_RAX_BY_R11D);
 			compile_unpadded(MOV_RDX_TO_RAX);
 			break;
 		case EQUALS_TOKEN:
@@ -6563,7 +6576,11 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 		case MINUS_TOKEN:
 			compile_expr(*unary_expr.expr);
 			if (unary_expr.expr->result_type == type_i32) {
-				compile_unpadded(NEGATE_RAX);
+				compile_unpadded(NEGATE_EAX);
+
+				if (!compiling_fast_mode && !is_negation_overflow_possible) {
+					compile_check_overflow_and_underflow();
+				}
 			} else {
 				compile_byte(XOR_EAX_BY_N);
 				compile_32(0x80000000);
@@ -7293,6 +7310,8 @@ static void compile(char *grug_path) {
 	size_t text_offset_index = 0;
 	size_t text_offset = 0;
 
+	is_negation_overflow_possible = true;
+
 	compile_define_fn();
 	text_offsets[text_offset_index++] = text_offset;
 	text_offset = codes_size;
@@ -7301,6 +7320,8 @@ static void compile(char *grug_path) {
 	compile_init_globals_fn();
 	text_offsets[text_offset_index++] = text_offset;
 	text_offset += codes_size - start_codes_size;
+
+	is_negation_overflow_possible = false;
 
 	for (size_t on_fn_index = 0; on_fn_index < on_fns_size; on_fn_index++) {
 		start_codes_size = codes_size;
