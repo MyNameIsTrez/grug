@@ -5121,6 +5121,8 @@ static void fill_result_types(void) {
 
 #define XOR_EAX_BY_N 0x35 // xor eax, n
 
+#define CMP_EAX_WITH_N 0x3d // cmp eax, n
+
 #define PUSH_RAX 0x50 // push rax
 #define PUSH_RBP 0x55 // push rbp
 #define PUSH_RSI 0x56 // push rsi
@@ -5303,6 +5305,8 @@ static void fill_result_types(void) {
 #define SUB_RSP_32_BITS 0xec8148 // sub rsp, n
 
 #define MOV_RBP_TO_RSP 0xec8948 // mov rsp, rbp
+
+#define CMP_R11D_WITH_N 0xfb8141 // mov r11d, n
 
 #define DIV_RAX_BY_R11D 0xfbf741 // idiv r11d
 
@@ -5860,6 +5864,39 @@ static void compile_check_overflow_and_underflow(void) {
 static void compile_longjmp_runtime_error_type(enum grug_runtime_error_type type) {
 	compile_mov_runtime_error_type(type);
 	compile_longjmp_to_error_handling();
+}
+
+static void compile_check_division_overflow(void) {
+	compile_byte(CMP_EAX_WITH_N);
+	compile_32(INT32_MIN);
+
+	compile_byte(JNE_8_BIT_OFFSET);
+	size_t skip_offset_1 = codes_size;
+	compile_byte(PLACEHOLDER_8);
+
+	compile_unpadded(CMP_R11D_WITH_N);
+	compile_32(-1);
+
+	compile_byte(JNE_8_BIT_OFFSET);
+	size_t skip_offset_2 = codes_size;
+	compile_byte(PLACEHOLDER_8);
+
+	compile_longjmp_runtime_error_type(GRUG_ON_FN_OVERFLOW);
+
+	overwrite_jmp_address_8(skip_offset_1, codes_size);
+	overwrite_jmp_address_8(skip_offset_2, codes_size);
+}
+
+static void compile_check_division_by_0(void) {
+	compile_unpadded(TEST_R11_IS_ZERO);
+
+	compile_byte(JNE_8_BIT_OFFSET);
+	size_t skip_offset = codes_size;
+	compile_byte(PLACEHOLDER_8);
+
+	compile_longjmp_runtime_error_type(GRUG_ON_FN_DIVISION_BY_ZERO);
+
+	overwrite_jmp_address_8(skip_offset, codes_size);
 }
 
 static void compile_check_time_limit_exceeded(void) {
@@ -6429,15 +6466,8 @@ static void compile_binary_expr(struct expr expr) {
 		case DIVISION_TOKEN:
 			if (expr.result_type == type_i32) {
 				if (!compiling_fast_mode) {
-					compile_unpadded(TEST_R11_IS_ZERO);
-
-					compile_byte(JNE_8_BIT_OFFSET);
-					size_t skip_offset = codes_size;
-					compile_byte(PLACEHOLDER_8);
-
-					compile_longjmp_runtime_error_type(GRUG_ON_FN_DIVISION_BY_ZERO);
-
-					overwrite_jmp_address_8(skip_offset, codes_size);
+					compile_check_division_by_0();
+					compile_check_division_overflow();
 				}
 
 				compile_byte(CDQ_SIGN_EXTEND_EAX_BEFORE_DIVISION);
@@ -6451,15 +6481,8 @@ static void compile_binary_expr(struct expr expr) {
 			break;
 		case REMAINDER_TOKEN:
 			if (!compiling_fast_mode) {
-				compile_unpadded(TEST_R11_IS_ZERO);
-
-				compile_byte(JNE_8_BIT_OFFSET);
-				size_t skip_offset = codes_size;
-				compile_byte(PLACEHOLDER_8);
-
-				compile_longjmp_runtime_error_type(GRUG_ON_FN_DIVISION_BY_ZERO);
-
-				overwrite_jmp_address_8(skip_offset, codes_size);
+				compile_check_division_by_0();
+				compile_check_division_overflow();
 			}
 
 			compile_byte(CDQ_SIGN_EXTEND_EAX_BEFORE_DIVISION);
