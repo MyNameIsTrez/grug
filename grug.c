@@ -2766,6 +2766,7 @@ static void parse(void) {
 	reset_parsing();
 
 	bool seen_define_fn = false;
+	bool seen_on_fn = false;
 	bool seen_newline = false;
 
 	bool newline_allowed = false;
@@ -2797,7 +2798,8 @@ static void parse(void) {
 			push_global_statement(global);
 			consume_token_type(&i, NEWLINE_TOKEN);
 		} else if (type == WORD_TOKEN && i + 1 < tokens_size && peek_token(i + 1).type == COLON_TOKEN) {
-			grug_assert(seen_define_fn, "Move the global variable '%s' below the define function", token.str);
+			grug_assert(seen_define_fn, "Move the global variable '%s' so it is below the define function", token.str);
+			grug_assert(!seen_on_fn, "Move the global variable '%s' so it is above the on_ functions", token.str);
 
 			// Make having an empty line between globals optional
 			grug_assert(!newline_required || just_seen_global, "Expected an empty line, on line %zu", get_token_line_number(i));
@@ -2821,6 +2823,8 @@ static void parse(void) {
 			grug_assert(!newline_required, "Expected an empty line, on line %zu", get_token_line_number(i));
 
 			struct on_fn fn = parse_on_fn(&i);
+
+			seen_on_fn = true;
 
 			newline_allowed = true;
 			newline_required = true;
