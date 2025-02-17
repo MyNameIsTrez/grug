@@ -1911,6 +1911,8 @@ static void hash_helper_fns(void) {
 	for (size_t i = 0; i < helper_fns_size; i++) {
 		char *name = helper_fns[i].fn_name;
 
+		grug_assert(!get_helper_fn(name), "The function '%s' was defined several times in the same file", name);
+
 		u32 bucket_index = elf_hash(name) % helper_fns_size;
 
 		chains_helper_fns[i] = buckets_helper_fns[bucket_index];
