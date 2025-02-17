@@ -2620,6 +2620,17 @@ static struct argument *parse_arguments(size_t *i, size_t *argument_count) {
 	return first_argument;
 }
 
+static bool is_empty_function(struct statement *body_statements, size_t count) {
+	for (size_t i = 0; i < count; i++) {
+		struct statement statement = body_statements[i];
+
+		if (statement.type != EMPTY_LINE_STATEMENT && statement.type != COMMENT_STATEMENT) {
+			return false;
+		}
+	}
+	return true;
+}
+
 static struct helper_fn parse_helper_fn(size_t *i) {
 	struct helper_fn fn = {0};
 
@@ -2651,6 +2662,8 @@ static struct helper_fn parse_helper_fn(size_t *i) {
 	indentation = 0;
 	fn.body_statements = parse_statements(i, &fn.body_statement_count);
 
+	grug_assert(!is_empty_function(fn.body_statements, fn.body_statement_count), "%s() can't be empty", fn.fn_name);
+
 	return fn;
 }
 
@@ -2671,6 +2684,8 @@ static struct on_fn parse_on_fn(size_t *i) {
 
 	indentation = 0;
 	fn.body_statements = parse_statements(i, &fn.body_statement_count);
+
+	grug_assert(!is_empty_function(fn.body_statements, fn.body_statement_count), "%s() can't be empty", fn.fn_name);
 
 	return fn;
 }
