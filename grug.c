@@ -1640,6 +1640,10 @@ static void tokenize(void) {
 #define MAX_CALLED_HELPER_FN_NAMES 420420
 #define MAX_CALL_ARGUMENTS_PER_STACK_FRAME 69
 #define MAX_STATEMENTS_PER_SCOPE 1337
+#define MAX_PARSING_DEPTH 100
+
+#define INCREASE_PARSING_DEPTH() parsing_depth++; grug_assert(parsing_depth < MAX_PARSING_DEPTH, "There is a function that contains more than %d levels of nested expressions", MAX_PARSING_DEPTH)
+#define DECREASE_PARSING_DEPTH() assert(parsing_depth > 0); parsing_depth--
 
 struct literal_expr {
 	union {
@@ -1870,6 +1874,8 @@ static size_t called_helper_fn_names_size;
 static u32 buckets_called_helper_fn_names[MAX_CALLED_HELPER_FN_NAMES];
 static u32 chains_called_helper_fn_names[MAX_CALLED_HELPER_FN_NAMES];
 
+static size_t parsing_depth;
+
 static void reset_parsing(void) {
 	exprs_size = 0;
 	fields_size = 0;
@@ -1881,6 +1887,7 @@ static void reset_parsing(void) {
 	global_variable_statements_size = 0;
 	called_helper_fn_names_size = 0;
 	memset(buckets_called_helper_fn_names, 0xff, sizeof(buckets_called_helper_fn_names));
+	parsing_depth = 0;
 }
 
 static struct helper_fn *get_helper_fn(char *name) {
@@ -2060,6 +2067,7 @@ static i32 str_to_i32(char *str) {
 static struct expr parse_expression(size_t *i);
 
 static struct expr parse_primary(size_t *i) {
+	INCREASE_PARSING_DEPTH();
 	struct token token = peek_token(*i);
 
 	struct expr expr = {0};
@@ -2070,39 +2078,42 @@ static struct expr parse_primary(size_t *i) {
 			expr.type = PARENTHESIZED_EXPR;
 			expr.parenthesized = push_expr(parse_expression(i));
 			consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
-			return expr;
+			break;
 		case TRUE_TOKEN:
 			(*i)++;
 			expr.type = TRUE_EXPR;
-			return expr;
+			break;
 		case FALSE_TOKEN:
 			(*i)++;
 			expr.type = FALSE_EXPR;
-			return expr;
+			break;
 		case STRING_TOKEN:
 			(*i)++;
 			expr.type = STRING_EXPR;
 			expr.literal.string = token.str;
-			return expr;
+			break;
 		case WORD_TOKEN:
 			(*i)++;
 			expr.type = IDENTIFIER_EXPR;
 			expr.literal.string = token.str;
-			return expr;
+			break;
 		case I32_TOKEN:
 			(*i)++;
 			expr.type = I32_EXPR;
 			expr.literal.i32 = str_to_i32(token.str);
-			return expr;
+			break;
 		case F32_TOKEN:
 			(*i)++;
 			expr.type = F32_EXPR;
 			expr.literal.f32.value = str_to_f32(token.str);
 			expr.literal.f32.string = token.str;
-			return expr;
+			break;
 		default:
 			grug_error("Expected a primary expression token, but got token type %s on line %zu", get_token_type_str[token.type], get_token_line_number(*i));
 	}
+
+	DECREASE_PARSING_DEPTH();
+	return expr;
 }
 
 static void push_called_helper_fn_name(char *name) {
@@ -2146,10 +2157,12 @@ static void add_called_helper_fn_name(char *name) {
 }
 
 static struct expr parse_call(size_t *i) {
+	INCREASE_PARSING_DEPTH();
 	struct expr expr = parse_primary(i);
 
 	struct token token = peek_token(*i);
 	if (token.type != OPEN_PARENTHESIS_TOKEN) {
+		DECREASE_PARSING_DEPTH();
 		return expr;
 	}
 
@@ -2169,6 +2182,7 @@ static struct expr parse_call(size_t *i) {
 	token = peek_token(*i);
 	if (token.type == CLOSE_PARENTHESIS_TOKEN) {
 		(*i)++;
+		DECREASE_PARSING_DEPTH();
 		return expr;
 	}
 
@@ -2195,10 +2209,12 @@ static struct expr parse_call(size_t *i) {
 		(void)push_expr(local_call_arguments[argument_index]);
 	}
 
+	DECREASE_PARSING_DEPTH();
 	return expr;
 }
 
 static struct expr parse_unary(size_t *i) {
+	INCREASE_PARSING_DEPTH();
 	struct token token = peek_token(*i);
 	if (token.type == MINUS_TOKEN
 	 || token.type == NOT_TOKEN) {
@@ -2213,13 +2229,16 @@ static struct expr parse_unary(size_t *i) {
 		expr.unary.expr = push_expr(parse_unary(i));
 		expr.type = UNARY_EXPR;
 
+		DECREASE_PARSING_DEPTH();
 		return expr;
 	}
 
+	DECREASE_PARSING_DEPTH();
 	return parse_call(i);
 }
 
 static struct expr parse_factor(size_t *i) {
+	INCREASE_PARSING_DEPTH();
 	struct expr expr = parse_unary(i);
 
 	while (peek_token(*i).type == SPACE_TOKEN && (
@@ -2234,10 +2253,12 @@ static struct expr parse_factor(size_t *i) {
 		expr.type = BINARY_EXPR;
 	}
 
+	DECREASE_PARSING_DEPTH();
 	return expr;
 }
 
 static struct expr parse_term(size_t *i) {
+	INCREASE_PARSING_DEPTH();
 	struct expr expr = parse_factor(i);
 
 	while (peek_token(*i).type == SPACE_TOKEN && (
@@ -2251,10 +2272,12 @@ static struct expr parse_term(size_t *i) {
 		expr.type = BINARY_EXPR;
 	}
 
+	DECREASE_PARSING_DEPTH();
 	return expr;
 }
 
 static struct expr parse_comparison(size_t *i) {
+	INCREASE_PARSING_DEPTH();
 	struct expr expr = parse_term(i);
 
 	while (peek_token(*i).type == SPACE_TOKEN && (
@@ -2270,10 +2293,12 @@ static struct expr parse_comparison(size_t *i) {
 		expr.type = BINARY_EXPR;
 	}
 
+	DECREASE_PARSING_DEPTH();
 	return expr;
 }
 
 static struct expr parse_equality(size_t *i) {
+	INCREASE_PARSING_DEPTH();
 	struct expr expr = parse_comparison(i);
 
 	while (peek_token(*i).type == SPACE_TOKEN && (
@@ -2287,10 +2312,12 @@ static struct expr parse_equality(size_t *i) {
 		expr.type = BINARY_EXPR;
 	}
 
+	DECREASE_PARSING_DEPTH();
 	return expr;
 }
 
 static struct expr parse_and(size_t *i) {
+	INCREASE_PARSING_DEPTH();
 	struct expr expr = parse_equality(i);
 
 	while (peek_token(*i).type == SPACE_TOKEN && peek_token(*i + 1).type == AND_TOKEN) {
@@ -2302,10 +2329,12 @@ static struct expr parse_and(size_t *i) {
 		expr.type = LOGICAL_EXPR;
 	}
 
+	DECREASE_PARSING_DEPTH();
 	return expr;
 }
 
 static struct expr parse_or(size_t *i) {
+	INCREASE_PARSING_DEPTH();
 	struct expr expr = parse_and(i);
 
 	while (peek_token(*i).type == SPACE_TOKEN && peek_token(*i + 1).type == OR_TOKEN) {
@@ -2317,18 +2346,23 @@ static struct expr parse_or(size_t *i) {
 		expr.type = LOGICAL_EXPR;
 	}
 
+	DECREASE_PARSING_DEPTH();
 	return expr;
 }
 
 // Recursive descent parsing inspired by the book Crafting Interpreters:
 // https://craftinginterpreters.com/parsing-expressions.html#recursive-descent-parsing
 static struct expr parse_expression(size_t *i) {
-	return parse_or(i);
+	INCREASE_PARSING_DEPTH();
+	struct expr expr = parse_or(i);
+	DECREASE_PARSING_DEPTH();
+	return expr;
 }
 
 static struct statement *parse_statements(size_t *i, size_t *body_statement_count);
 
 static struct statement parse_while_statement(size_t *i) {
+	INCREASE_PARSING_DEPTH();
 	struct statement statement = {0};
 	statement.type = WHILE_STATEMENT;
 
@@ -2337,10 +2371,12 @@ static struct statement parse_while_statement(size_t *i) {
 
 	statement.while_statement.body_statements = parse_statements(i, &statement.while_statement.body_statement_count);
 
+	DECREASE_PARSING_DEPTH();
 	return statement;
 }
 
 static struct statement parse_if_statement(size_t *i) {
+	INCREASE_PARSING_DEPTH();
 	struct statement statement = {0};
 	statement.type = IF_STATEMENT;
 
@@ -2365,6 +2401,7 @@ static struct statement parse_if_statement(size_t *i) {
 		}
 	}
 
+	DECREASE_PARSING_DEPTH();
 	return statement;
 }
 
@@ -2440,6 +2477,7 @@ static struct global_variable_statement parse_global_variable(size_t *i) {
 }
 
 static struct statement parse_statement(size_t *i) {
+	INCREASE_PARSING_DEPTH();
 	struct token switch_token = peek_token(*i);
 
 	struct statement statement = {0};
@@ -2503,10 +2541,12 @@ static struct statement parse_statement(size_t *i) {
 			grug_error("Expected a statement token, but got token type %s on line %zu", get_token_type_str[switch_token.type], get_token_line_number(*i - 1));
 	}
 
+	DECREASE_PARSING_DEPTH();
 	return statement;
 }
 
 static struct statement *parse_statements(size_t *i, size_t *body_statement_count) {
+	INCREASE_PARSING_DEPTH();
 	consume_space(i);
 	consume_token_type(i, OPEN_BRACE_TOKEN);
 
@@ -2570,6 +2610,7 @@ static struct statement *parse_statements(size_t *i, size_t *body_statement_coun
 	}
 	consume_token_type(i, CLOSE_BRACE_TOKEN);
 
+	DECREASE_PARSING_DEPTH();
 	return first_statement;
 }
 
@@ -2909,6 +2950,8 @@ static void parse(void) {
 	grug_assert(!seen_newline || newline_allowed, "Unexpected empty line, on line %zu", get_token_line_number(newline_allowed ? i : i - 1));
 
 	grug_assert(seen_define_fn, "Every grug file requires exactly one define function");
+
+	assert(parsing_depth == 0);
 
 	hash_helper_fns();
 }
