@@ -3400,7 +3400,7 @@ static enum statement_type get_statement_type_from_str(char *str) {
 	} else if (streq(str, "COMMENT_STATEMENT")) {
 		return COMMENT_STATEMENT;
 	}
-	grug_error("get_statement_type_from_str() was passed the string \"%s\", which isn't a statement_type", str);
+	grug_unreachable();
 }
 
 static enum token_type get_unary_token_type_from_str(char *str) {
@@ -3409,7 +3409,7 @@ static enum token_type get_unary_token_type_from_str(char *str) {
 	} else if (streq(str, "NOT_TOKEN")) {
 		return NOT_TOKEN;
 	}
-	grug_error("get_unary_token_type_from_str() was passed the string \"%s\", which isn't a unary operator", str);
+	grug_unreachable();
 }
 
 static char *get_logical_operator_from_token(char *str) {
@@ -3418,7 +3418,7 @@ static char *get_logical_operator_from_token(char *str) {
 	} else if (streq(str, "OR_TOKEN")) {
 		return "or";
 	}
-	grug_error("get_logical_operator_from_token() was passed the string \"%s\", which isn't a logical operator", str);
+	grug_unreachable();
 }
 
 static char *get_binary_operator_from_token(char *str) {
@@ -3445,7 +3445,7 @@ static char *get_binary_operator_from_token(char *str) {
 	} else if (streq(str, "LESS_TOKEN")) {
 		return "<";
 	}
-	grug_error("get_binary_operator_from_token() was passed the string \"%s\", which isn't a binary operator", str);
+	grug_unreachable();
 }
 
 static enum expr_type get_expr_type_from_str(char *str) {
@@ -3455,10 +3455,6 @@ static enum expr_type get_expr_type_from_str(char *str) {
 		return FALSE_EXPR;
 	} else if (streq(str, "STRING_EXPR")) {
 		return STRING_EXPR;
-	} else if (streq(str, "RESOURCE_EXPR")) {
-		return RESOURCE_EXPR;
-	} else if (streq(str, "ENTITY_EXPR")) {
-		return ENTITY_EXPR;
 	} else if (streq(str, "IDENTIFIER_EXPR")) {
 		return IDENTIFIER_EXPR;
 	} else if (streq(str, "I32_EXPR")) {
@@ -3476,7 +3472,7 @@ static enum expr_type get_expr_type_from_str(char *str) {
 	} else if (streq(str, "PARENTHESIZED_EXPR")) {
 		return PARENTHESIZED_EXPR;
 	}
-	grug_error("get_expr_type_from_str() was passed the string \"%s\", which isn't an expr_type", str);
+	grug_unreachable();
 }
 
 static void apply_expr(struct json_node expr);
