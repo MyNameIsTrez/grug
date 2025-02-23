@@ -6898,12 +6898,7 @@ static void compile_expr(struct expr expr) {
 }
 
 static void compile_variable_statement(struct variable_statement variable_statement) {
-	if (variable_statement.assignment_expr->result_type == type_id && streq(variable_statement.assignment_expr->literal.string, "null_id")) {
-		compile_unpadded(MOVABS_TO_RAX);
-		compile_unpadded(NULL_ID);
-	} else {
-		compile_expr(*variable_statement.assignment_expr);
-	}
+	compile_expr(*variable_statement.assignment_expr);
 
 	struct variable *var = get_local_variable(variable_statement.name);
 	if (var) {
@@ -7211,12 +7206,7 @@ static void compile_init_globals_fn(void) {
 	for (size_t i = 0; i < global_variable_statements_size; i++) {
 		struct global_variable_statement global = global_variable_statements[i];
 
-		if (global.assignment_expr.result_type == type_id && streq(global.assignment_expr.literal.string, "null_id")) {
-			compile_unpadded(MOVABS_TO_RAX);
-			compile_unpadded(NULL_ID);
-		} else {
-			compile_expr(global.assignment_expr);
-		}
+		compile_expr(global.assignment_expr);
 
 		enum type result_type = global.assignment_expr.result_type;
 
