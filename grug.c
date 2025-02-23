@@ -3562,7 +3562,7 @@ static void apply_expr(struct json_node expr) {
 			} else if (operator == NOT_TOKEN) {
 				apply("not ");
 			} else {
-				grug_error("The \"operator\" of UNARY_EXPRs must be either \"MINUS_TOKEN\" or \"NOT_TOKEN\"");
+				grug_unreachable();
 			}
 
 			grug_assert(streq(expr.object.fields[2].key, "expr"), "input_json_path its UNARY_EXPRs are supposed to have \"expr\" as their third field");
