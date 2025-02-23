@@ -2529,15 +2529,13 @@ static struct statement parse_statement(size_t *i) {
 			(*i)++;
 			statement.type = CONTINUE_STATEMENT;
 			break;
-		case NEWLINE_TOKEN:
-			(*i)++;
-			statement.type = EMPTY_LINE_STATEMENT;
-			break;
 		case COMMENT_TOKEN:
 			(*i)++;
 			statement.type = COMMENT_STATEMENT;
 			statement.comment = switch_token.str;
 			break;
+		case NEWLINE_TOKEN:
+			grug_unreachable();
 		default:
 			grug_error("Expected a statement token, but got token type %s on line %zu", get_token_type_str[switch_token.type], get_token_line_number(*i - 1));
 	}
