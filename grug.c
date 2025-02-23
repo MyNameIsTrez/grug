@@ -2025,12 +2025,13 @@ static f32 str_to_f32(char *str) {
 
 	if (errno == ERANGE) {
 		if (f == HUGE_VALF) {
-			grug_error("The float '%s' is too big to fit in an f32", str);
-		} else if (f == 0) {
-			grug_error("The float '%s' is too small to fit in an f32", str);
+			grug_error("The f32 %s is too big", str);
 		}
-		// No need to check `f == -HUGE_VALF`, since the token can't ever start with a minus sign
-		grug_unreachable();
+
+		// The token can't ever start with a minus sign
+		assert(f != -HUGE_VALF);
+
+		grug_error("The f32 %s is too close to zero", str);
 	}
 
 	// An f32 token only gets created when it starts with a digit,
@@ -2050,7 +2051,7 @@ static i32 str_to_i32(char *str) {
 	errno = 0;
 	long n = strtol(str, &end, 10);
 
-	grug_assert(n <= INT32_MAX && !(errno == ERANGE && n == LONG_MAX), "The number %s is too big for an i32, which has a maximum value of %d", str, INT32_MAX);
+	grug_assert(n <= INT32_MAX && !(errno == ERANGE && n == LONG_MAX), "The i32 %s is too big, which has a maximum value of %d", str, INT32_MAX);
 
 	// This function can't ever return a negative number,
 	// since the minus symbol gets tokenized separately
