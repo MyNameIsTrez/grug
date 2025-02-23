@@ -6033,6 +6033,8 @@ static void compile_function_epilogue(void) {
 }
 
 static void compile_error_handling(char *grug_path, char *fn_name) {
+	is_error_handler_used = true;
+
 	// mov rdi, [rel grug_runtime_error_jmp_buffer wrt ..got]:
 	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RDI);
 	push_used_extern_global_variable("grug_runtime_error_jmp_buffer", codes_size);
@@ -6103,6 +6105,8 @@ static void compile_error_handling(char *grug_path, char *fn_name) {
 }
 
 static void compile_set_time_limit(void) {
+	is_max_time_used = true;
+
 	// mov rsi, [rel grug_max_time wrt ..got]:
 	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RSI);
 	push_used_extern_global_variable("grug_max_time", codes_size);
@@ -6148,6 +6152,36 @@ static void compile_set_time_limit(void) {
 	compile_byte(offsetof(struct timespec, tv_sec));
 
 	overwrite_jmp_address_8(skip_offset, codes_size);
+}
+
+static void compile_save_on_fn_name_and_path(char *grug_path, char *fn_name) {
+	// mov rax, [rel grug_on_fn_path wrt ..got]:
+	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
+	push_used_extern_global_variable("grug_on_fn_path", codes_size);
+	compile_32(PLACEHOLDER_32);
+
+	// lea r11, strings[rel n]:
+	add_data_string(grug_path);
+	compile_unpadded(LEA_STRINGS_TO_R11);
+	push_data_string_code(grug_path, codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+
+	// mov [rax], r11:
+	compile_unpadded(MOV_R11_TO_DEREF_RAX);
+
+	// mov rax, [rel grug_on_fn_name wrt ..got]:
+	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
+	push_used_extern_global_variable("grug_on_fn_name", codes_size);
+	compile_32(PLACEHOLDER_32);
+
+	// lea r11, strings[rel n]:
+	add_data_string(fn_name);
+	compile_unpadded(LEA_STRINGS_TO_R11);
+	push_data_string_code(fn_name, codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+
+	// mov [rax], r11:
+	compile_unpadded(MOV_R11_TO_DEREF_RAX);
 }
 
 static void compile_while_statement(struct while_statement while_statement) {
@@ -7101,33 +7135,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		skip_safe_code_offset = codes_size;
 		compile_unpadded(PLACEHOLDER_32);
 
-		// mov rax, [rel grug_on_fn_path wrt ..got]:
-		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
-		push_used_extern_global_variable("grug_on_fn_path", codes_size);
-		compile_32(PLACEHOLDER_32);
-
-		// lea r11, strings[rel n]:
-		add_data_string(grug_path);
-		compile_unpadded(LEA_STRINGS_TO_R11);
-		push_data_string_code(grug_path, codes_size);
-		compile_unpadded(PLACEHOLDER_32);
-
-		// mov [rax], r11:
-		compile_unpadded(MOV_R11_TO_DEREF_RAX);
-
-		// mov rax, [rel grug_on_fn_name wrt ..got]:
-		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
-		push_used_extern_global_variable("grug_on_fn_name", codes_size);
-		compile_32(PLACEHOLDER_32);
-
-		// lea r11, strings[rel n]:
-		add_data_string(fn_name);
-		compile_unpadded(LEA_STRINGS_TO_R11);
-		push_data_string_code(fn_name, codes_size);
-		compile_unpadded(PLACEHOLDER_32);
-
-		// mov [rax], r11:
-		compile_unpadded(MOV_R11_TO_DEREF_RAX);
+		compile_save_on_fn_name_and_path(grug_path, fn_name);
 
 		if (on_fn_calls_helper_fn) {
 			is_max_rsp_used = true;
@@ -7146,14 +7154,10 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 		}
 
 		if (on_fn_contains_while_loop) {
-			is_max_time_used = true;
-
 			compile_set_time_limit();
 		}
 
 		if (on_fn_calls_helper_fn || on_fn_contains_while_loop || on_fn_contains_i32_operation) {
-			is_error_handler_used = true;
-
 			compile_error_handling(grug_path, fn_name);
 		}
 	} else if (!compiling_fast_mode) {
