@@ -9327,7 +9327,6 @@ static void regenerate_dll(char *grug_path, char *dll_path) {
 
 	parse();
 	fill_result_types();
-	grug_log("\n# AST (throw this into a JSON formatter)\n");
 
 	compile(grug_path);
 
