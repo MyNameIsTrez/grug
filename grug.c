@@ -3871,12 +3871,12 @@ static void apply_statement(enum statement_type type, size_t field_count, struct
 		case CONTINUE_STATEMENT:
 			apply("continue\n");
 			break;
-		case EMPTY_LINE_STATEMENT:
-			break;
 		case COMMENT_STATEMENT:
 			apply_comment(statement, field_count);
 			break;
-	}
+		case EMPTY_LINE_STATEMENT:
+			grug_unreachable();
+		}
 }
 
 static void apply_statements(struct json_node node) {
