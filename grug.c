@@ -3043,7 +3043,7 @@ static void dump_expr(struct expr expr) {
 	}
 }
 
-static void dump_statements(struct statement *group_statements, size_t statement_count) {
+static void dump_statements(struct statement *body_statements, size_t statement_count) {
 	for (size_t i = 0; i < statement_count; i++) {
 		if (i > 0) {
 			dump(",");
@@ -3051,7 +3051,7 @@ static void dump_statements(struct statement *group_statements, size_t statement
 
 		dump("{");
 
-		struct statement statement = group_statements[i];
+		struct statement statement = body_statements[i];
 
 		dump("\"type\":\"%s\"", get_statement_type_str[statement.type]);
 
@@ -4533,7 +4533,7 @@ static void fill_call_expr(struct expr *expr) {
 		fill_expr(&call_expr.arguments[argument_index]);
 	}
 
-	char *name = expr->call.fn_name;
+	char *name = call_expr.fn_name;
 
 	if (starts_with(name, "helper_")) {
 		if (parsing_on_fn) {
@@ -4812,9 +4812,9 @@ static void add_local_variable(char *name, enum type type) {
 	buckets_variables[bucket_index] = variables_size++;
 }
 
-static void fill_statements(struct statement *group_statements, size_t statement_count) {
+static void fill_statements(struct statement *body_statements, size_t statement_count) {
 	for (size_t i = 0; i < statement_count; i++) {
-		struct statement statement = group_statements[i];
+		struct statement statement = body_statements[i];
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
@@ -5153,10 +5153,10 @@ static void fill_result_types(void) {
 #define MAX_HELPER_FN_OFFSETS 420420
 #define MAX_STACK_SIZE 420420
 #define MAX_RESOURCES 420420
+#define MAX_HELPER_FN_MODE_NAMES_CHARACTERS 420420
 #define MAX_DEFINE_FN_NAME_CHARACTERS 420
 #define MAX_LOOP_DEPTH 420
 #define MAX_BREAK_STATEMENTS_PER_LOOP 420
-#define MAX_HELPER_FN_MODE_NAMES_CHARACTERS 420
 
 #define NEXT_INSTRUCTION_OFFSET sizeof(u32)
 
@@ -6137,7 +6137,7 @@ static void compile_set_time_limit(void) {
 	compile_byte(offsetof(struct timespec, tv_nsec));
 	compile_32(NS_PER_SEC);
 
-	// jl $+0xd:
+	// jl $+0xn:
 	compile_byte(JL_8_BIT_OFFSET);
 	size_t skip_offset = codes_size;
 	compile_byte(PLACEHOLDER_8);
@@ -6252,9 +6252,27 @@ static size_t get_padding(void) {
 	return -stack_frame_bytes & 0xf;
 }
 
+static void compile_check_stack_overflow(void) {
+	// mov rax, [rel grug_max_rsp wrt ..got]:
+	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
+	push_used_extern_global_variable("grug_max_rsp", codes_size);
+	compile_32(PLACEHOLDER_32);
+
+	// cmp rsp, [rax]:
+	compile_unpadded(CMP_RSP_WITH_DEREF_RAX);
+
+	// jg $+0xn:
+	compile_byte(JG_8_BIT_OFFSET);
+	size_t skip_offset = codes_size;
+	compile_byte(PLACEHOLDER_8);
+
+	compile_longjmp_to_error_handling(GRUG_ON_FN_STACK_OVERFLOW);
+
+	overwrite_jmp_address_8(skip_offset, codes_size);
+}
+
 static void compile_call_expr(struct call_expr call_expr) {
 	char *fn_name = call_expr.fn_name;
-	struct grug_game_function *game_fn = get_grug_game_fn(fn_name);
 
 	bool gets_globals_ptr = false;
 	if (get_helper_fn(fn_name)) {
@@ -6409,6 +6427,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 
 	compile_byte(CALL);
 
+	struct grug_game_function *game_fn = get_grug_game_fn(fn_name);
 	bool returns_float = false;
 	if (game_fn) {
 		push_game_fn_call(fn_name, codes_size);
@@ -7005,9 +7024,9 @@ static void compile_variable_statement(struct variable_statement variable_statem
 	}
 }
 
-static void compile_statements(struct statement *group_statements, size_t statement_count) {
+static void compile_statements(struct statement *body_statements, size_t statement_count) {
 	for (size_t i = 0; i < statement_count; i++) {
-		struct statement statement = group_statements[i];
+		struct statement statement = body_statements[i];
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
@@ -7043,9 +7062,9 @@ static void compile_statements(struct statement *group_statements, size_t statem
 	}
 }
 
-static void add_variables_in_statements(struct statement *group_statements, size_t statement_count) {
+static void add_variables_in_statements(struct statement *body_statements, size_t statement_count) {
 	for (size_t i = 0; i < statement_count; i++) {
-		struct statement statement = group_statements[i];
+		struct statement statement = body_statements[i];
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
@@ -7153,7 +7172,7 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 			compile_32(GRUG_STACK_LIMIT);
 		}
 
-		if (on_fn_contains_while_loop) {
+		if (on_fn_calls_helper_fn || on_fn_contains_while_loop) {
 			compile_set_time_limit();
 		}
 
@@ -7161,22 +7180,8 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 			compile_error_handling(grug_path, fn_name);
 		}
 	} else if (!compiling_fast_mode) {
-		// mov rax, [rel grug_max_rsp wrt ..got]:
-		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
-		push_used_extern_global_variable("grug_max_rsp", codes_size);
-		compile_32(PLACEHOLDER_32);
-
-		// cmp rsp, [rax]:
-		compile_unpadded(CMP_RSP_WITH_DEREF_RAX);
-
-		// jg $+0x17:
-		compile_byte(JG_8_BIT_OFFSET);
-		size_t skip_offset = codes_size;
-		compile_byte(PLACEHOLDER_8);
-
-		compile_longjmp_to_error_handling(GRUG_ON_FN_STACK_OVERFLOW);
-
-		overwrite_jmp_address_8(skip_offset, codes_size);
+		compile_check_stack_overflow();
+		compile_check_time_limit_exceeded();
 	}
 
 	compile_statements(body_statements, body_statement_count);
