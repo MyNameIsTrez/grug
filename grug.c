@@ -8129,7 +8129,7 @@ static void push_shstrtab(void) {
 
 	data_shstrtab_offset = offset;
 	push_string_bytes(".data");
-	offset += sizeof(".data");
+	// offset += sizeof(".data");
 
 	shstrtab_size = bytes_size - shstrtab_offset;
 
@@ -8345,7 +8345,7 @@ static void push_got(void) {
 
 	if (is_error_handler_used) {
 		push_global_variable_offset("grug_runtime_error_handler", offset);
-		offset += sizeof(u64);
+		// offset += sizeof(u64);
 		push_zeros(sizeof(u64));
 	}
 
@@ -9246,6 +9246,11 @@ static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
 	void *dll = dlopen(dll_path, RTLD_NOW);
 	if (!dll) {
 		print_dlerror("dlopen");
+
+		// Needed for clang's --analyze, since it doesn't recognize
+		// that print_dlerror() its longjmp guarantees that `dll`
+		// will always be non-null when this if-statement has *not* been entered
+		return;
 	}
 
 	size_t *dll_resources_size_ptr = get_dll_symbol(dll, "resources_size");
