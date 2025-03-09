@@ -7493,8 +7493,12 @@ static void patch_program_headers(void) {
 	overwrite_64(plt_offset, 0x80); // offset
 	overwrite_64(plt_offset, 0x88); // virtual_address
 	overwrite_64(plt_offset, 0x90); // physical_address
-	overwrite_64(plt_size + text_size, 0x98); // file_size
-	overwrite_64(plt_size + text_size, 0xa0); // mem_size
+	size_t size = text_size;
+	if (has_got()) {
+		size += plt_size;
+	}
+	overwrite_64(size, 0x98); // file_size
+	overwrite_64(size, 0xa0); // mem_size
 
 	// .eh_frame segment
 	overwrite_64(eh_frame_offset, 0xb8); // offset
@@ -7505,9 +7509,9 @@ static void patch_program_headers(void) {
 	overwrite_64(dynamic_offset, 0xf0); // offset
 	overwrite_64(dynamic_offset, 0xf8); // virtual_address
 	overwrite_64(dynamic_offset, 0x100); // physical_address
-	size_t size = dynamic_size + got_plt_size + data_size;
+	size = dynamic_size + data_size;
 	if (has_got()) {
-		size += got_size;
+		size += got_size + got_plt_size;
 	}
 	overwrite_64(size, 0x108); // file_size
 	overwrite_64(size, 0x110); // mem_size
