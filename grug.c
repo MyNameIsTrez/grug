@@ -7363,6 +7363,10 @@ static void push_game_fn_offset(char *fn_name, size_t offset) {
 	};
 }
 
+static bool has_got(void) {
+	return on_fns_size > 0;
+}
+
 // Used for both .plt and .rela.plt
 static bool has_plt(void) {
 	return extern_fn_calls_size > 0;
@@ -7480,10 +7484,6 @@ static void patch_text(void) {
 	patch_global_variables();
 }
 
-static bool has_got(void) {
-	return on_fns_size > 0;
-}
-
 static void patch_program_headers(void) {
 	// .hash, .dynsym, .dynstr, .rela.dyn, .rela.plt segment
 	overwrite_64(segment_0_size, 0x60); // file_size
@@ -7526,10 +7526,11 @@ static void patch_program_headers(void) {
 	size_t segment_5_size = dynamic_size;
 	if (has_got()) {
 		segment_5_size += got_size;
-	}
+
 #ifndef OLD_LD
-	segment_5_size += GOT_PLT_INTRO_SIZE;
+		segment_5_size += GOT_PLT_INTRO_SIZE;
 #endif
+	}
 	overwrite_64(segment_5_size, 0x178); // file_size
 	overwrite_64(segment_5_size, 0x180); // mem_size
 }
@@ -7655,11 +7656,11 @@ static void push_shstrtab(void) {
 		got_shstrtab_offset = offset;
 		push_string_bytes(".got");
 		offset += sizeof(".got");
-	}
 
-	got_plt_shstrtab_offset = offset;
-	push_string_bytes(".got.plt");
-	offset += sizeof(".got.plt");
+		got_plt_shstrtab_offset = offset;
+		push_string_bytes(".got.plt");
+		offset += sizeof(".got.plt");
+	}
 
 	data_shstrtab_offset = offset;
 	push_string_bytes(".data");
@@ -7677,7 +7678,9 @@ static void push_strtab(void) {
 
 	push_byte(0);
 	push_string_bytes("_DYNAMIC");
-	push_string_bytes("_GLOBAL_OFFSET_TABLE_");
+	if (has_got()) {
+		push_string_bytes("_GLOBAL_OFFSET_TABLE_");
+	}
 
 	for (size_t i = 0; i < symbols_size; i++) {
 		push_string_bytes(shuffled_symbols[i]);
@@ -7734,10 +7737,12 @@ static void push_symtab(void) {
 	pushed_symbol_entries++;
 	name_offset += sizeof("_DYNAMIC");
 
-	// "_GLOBAL_OFFSET_TABLE_" entry
-	push_symbol_entry(name_offset, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT), shindex_got_plt, got_plt_offset);
-	pushed_symbol_entries++;
-	name_offset += sizeof("_GLOBAL_OFFSET_TABLE_");
+	if (has_got()) {
+		// "_GLOBAL_OFFSET_TABLE_" entry
+		push_symbol_entry(name_offset, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT), shindex_got_plt, got_plt_offset);
+		pushed_symbol_entries++;
+		name_offset += sizeof("_GLOBAL_OFFSET_TABLE_");
+	}
 
 	symtab_index_first_global = pushed_symbol_entries;
 
@@ -7927,9 +7932,13 @@ static void push_dynamic(void) {
 			dynamic_offset -= sizeof(u64); // grug_current_time
 		}
 	}
+
 #ifndef OLD_LD
-	dynamic_offset -= GOT_PLT_INTRO_SIZE;
+	if (has_got()) {
+		dynamic_offset -= GOT_PLT_INTRO_SIZE;
+	}
 #endif
+
 	push_zeros(dynamic_offset - bytes_size);
 
 	push_dynamic_entry(DT_HASH, hash_offset);
@@ -8112,8 +8121,6 @@ static void push_dynstr(void) {
 		push_string_bytes(symbol);
 		dynstr_size += strlen(symbol) + 1;
 	}
-
-	push_alignment(8);
 }
 
 static u32 get_nbucket(void) {
@@ -8238,10 +8245,10 @@ static void push_section_headers(void) {
 	if (has_got()) {
 		// .got: Global offset table section
 		push_section_header(got_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, got_offset, got_offset, got_size, SHN_UNDEF, 0, 8, 8);
-	}
 
-	// .got.plt: Global offset table procedure linkage table section
-	push_section_header(got_plt_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, got_plt_offset, got_plt_offset, got_plt_size, SHN_UNDEF, 0, 8, 8);
+		// .got.plt: Global offset table procedure linkage table section
+		push_section_header(got_plt_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, got_plt_offset, got_plt_offset, got_plt_size, SHN_UNDEF, 0, 8, 8);
+	}
 
 	// .data: Data section
 	push_section_header(data_shstrtab_offset, SHT_PROGBITS, SHF_WRITE | SHF_ALLOC, data_offset, data_offset, data_size, SHN_UNDEF, 0, 8, 0);
@@ -8402,12 +8409,12 @@ static void push_elf_header(void) {
 
 	// Number of section header entries
 	// 0x3c to 0x3e
-	push_byte(12 + has_got() + has_rela_dyn() + 2 * has_plt());
+	push_byte(11 + 2 * has_got() + has_rela_dyn() + 2 * has_plt());
 	push_byte(0);
 
 	// Index of entry with section names
 	// 0x3e to 0x40
-	push_byte(11 + has_got() + has_rela_dyn() + 2 * has_plt());
+	push_byte(10 + 2 * has_got() + has_rela_dyn() + 2 * has_plt());
 	push_byte(0);
 }
 
@@ -8423,6 +8430,10 @@ static void push_bytes(void) {
 	push_dynsym();
 
 	push_dynstr();
+
+	if (has_rela_dyn()) {
+		push_alignment(8);
+	}
 
 	rela_dyn_offset = bytes_size;
 	if (has_rela_dyn()) {
@@ -8452,9 +8463,8 @@ static void push_bytes(void) {
 
 	if (has_got()) {
 		push_got();
+		push_got_plt();
 	}
-
-	push_got_plt();
 
 	push_data();
 
@@ -8620,8 +8630,8 @@ static void init_section_header_indices(void) {
 	shindex_dynamic = shindex++;
 	if (has_got()) {
 		shindex_got = shindex++;
+		shindex_got_plt = shindex++;
 	}
-	shindex_got_plt = shindex++;
 	shindex_data = shindex++;
 	shindex_symtab = shindex++;
 	shindex_strtab = shindex++;
