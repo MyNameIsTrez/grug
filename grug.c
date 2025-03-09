@@ -7020,6 +7020,8 @@ static size_t bytes_size;
 
 static size_t symtab_index_first_global;
 
+static size_t pltgot_value_offset;
+
 static size_t text_size;
 static size_t data_size;
 static size_t hash_offset;
@@ -7361,8 +7363,19 @@ static void push_game_fn_offset(char *fn_name, size_t offset) {
 	};
 }
 
+// Used for both .plt and .rela.plt
+static bool has_plt(void) {
+	return extern_fn_calls_size > 0;
+}
+
+static bool has_rela_dyn(void) {
+	return on_fns_size > 0 || resources_size > 0 || entity_dependencies_size > 0;
+}
+
 static void patch_dynamic(void) {
-	overwrite_64(got_plt_offset, dynamic_offset + 0x58);
+	if (has_plt()) {
+		overwrite_64(got_plt_offset, pltgot_value_offset);
+	}
 }
 
 static size_t get_global_variable_offset(char *name) {
@@ -7521,10 +7534,6 @@ static void patch_program_headers(void) {
 	overwrite_64(segment_5_size, 0x180); // mem_size
 }
 
-static bool has_rela_dyn(void) {
-	return on_fns_size > 0 || resources_size > 0 || entity_dependencies_size > 0;
-}
-
 static void patch_bytes(void) {
 	// ELF section header table offset
 	overwrite_64(section_headers_offset, 0x28);
@@ -7535,8 +7544,10 @@ static void patch_bytes(void) {
 	if (has_rela_dyn()) {
 		patch_rela_dyn();
 	}
-	patch_rela_plt();
-	patch_plt();
+	if (has_plt()) {
+		patch_rela_plt();
+		patch_plt();
+	}
 	patch_text();
 	patch_dynamic();
 }
@@ -7619,12 +7630,14 @@ static void push_shstrtab(void) {
 		offset += sizeof(".rela.dyn");
 	}
 
-	rela_plt_shstrtab_offset = offset;
-	push_string_bytes(".rela.plt");
-	offset += sizeof(".rela") - 1;
+	if (has_plt()) {
+		rela_plt_shstrtab_offset = offset;
+		push_string_bytes(".rela.plt");
+		offset += sizeof(".rela") - 1;
 
-	plt_shstrtab_offset = offset;
-	offset += sizeof(".plt");
+		plt_shstrtab_offset = offset;
+		offset += sizeof(".plt");
+	}
 
 	text_shstrtab_offset = offset;
 	push_string_bytes(".text");
@@ -7881,7 +7894,14 @@ static void push_dynamic(void) {
 	grug_log_section(".dynamic");
 
 	size_t entry_size = 0x10;
-	dynamic_size = has_rela_dyn() ? 18 * entry_size : 15 * entry_size;
+	dynamic_size = 11 * entry_size;
+
+	if (has_plt()) {
+		dynamic_size += 4 * entry_size;
+	}
+	if (has_rela_dyn()) {
+		dynamic_size += 3 * entry_size;
+	}
 
 	size_t segment_2_to_3_offset = 0x1000;
 	dynamic_offset = bytes_size + segment_2_to_3_offset - dynamic_size;
@@ -7917,10 +7937,16 @@ static void push_dynamic(void) {
 	push_dynamic_entry(DT_SYMTAB, dynsym_offset);
 	push_dynamic_entry(DT_STRSZ, dynstr_size);
 	push_dynamic_entry(DT_SYMENT, SYMTAB_ENTRY_SIZE);
-	push_dynamic_entry(DT_PLTGOT, PLACEHOLDER_64);
-	push_dynamic_entry(DT_PLTRELSZ, PLT_ENTRY_SIZE * extern_fns_size);
-	push_dynamic_entry(DT_PLTREL, DT_RELA);
-	push_dynamic_entry(DT_JMPREL, rela_plt_offset);
+
+	if (has_plt()) {
+		push_64(DT_PLTGOT);
+		pltgot_value_offset = bytes_size;
+		push_64(PLACEHOLDER_64);
+
+		push_dynamic_entry(DT_PLTRELSZ, PLT_ENTRY_SIZE * extern_fns_size);
+		push_dynamic_entry(DT_PLTREL, DT_RELA);
+		push_dynamic_entry(DT_JMPREL, rela_plt_offset);
+	}
 
 	if (has_rela_dyn()) {
 		push_dynamic_entry(DT_RELA, rela_dyn_offset);
@@ -7964,9 +7990,6 @@ static void push_text(void) {
 
 static void push_plt(void) {
 	grug_log_section(".plt");
-
-	plt_offset = round_to_power_of_2(bytes_size, 0x1000);
-	push_zeros(plt_offset - bytes_size);
 
 	// See this for an explanation: https://stackoverflow.com/q/76987336/13279557
 	push_16(PUSH_REL);
@@ -8036,16 +8059,12 @@ static void push_rela_plt(void) {
 		push_rela(PLACEHOLDER_64, ELF64_R_INFO(dynsym_index, R_X86_64_JUMP_SLOT), 0);
 	}
 
-	segment_0_size = bytes_size;
-
 	rela_plt_size = bytes_size - rela_plt_offset;
 }
 
 // Source: https://stevens.netmeister.org/631/elf.html
 static void push_rela_dyn(void) {
 	grug_log_section(".rela.dyn");
-
-	rela_dyn_offset = bytes_size;
 
 	for (size_t i = 0; i < grug_entity->on_function_count; i++) {
 		struct on_fn *on_fn = get_on_fn(grug_entity->on_functions[i].name);
@@ -8199,11 +8218,13 @@ static void push_section_headers(void) {
 		push_section_header(rela_dyn_shstrtab_offset, SHT_RELA, SHF_ALLOC, rela_dyn_offset, rela_dyn_offset, rela_dyn_size, shindex_dynsym, 0, 8, 24);
 	}
 
-	// .rela.plt: Relative procedure (function) linkage table section
-	push_section_header(rela_plt_shstrtab_offset, SHT_RELA, SHF_ALLOC | SHF_INFO_LINK, rela_plt_offset, rela_plt_offset, rela_plt_size, shindex_dynsym, shindex_got_plt, 8, 24);
+	if (has_plt()) {
+		// .rela.plt: Relative procedure (function) linkage table section
+		push_section_header(rela_plt_shstrtab_offset, SHT_RELA, SHF_ALLOC | SHF_INFO_LINK, rela_plt_offset, rela_plt_offset, rela_plt_size, shindex_dynsym, shindex_got_plt, 8, 24);
 
-	// .plt: Procedure linkage table section
-	push_section_header(plt_shstrtab_offset, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, plt_offset, plt_offset, plt_size, SHN_UNDEF, 0, 16, 16);
+		// .plt: Procedure linkage table section
+		push_section_header(plt_shstrtab_offset, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, plt_offset, plt_offset, plt_size, SHN_UNDEF, 0, 16, 16);
+	}
 
 	// .text: Code section
 	push_section_header(text_shstrtab_offset, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, text_offset, text_offset, text_size, SHN_UNDEF, 0, 16, 0);
@@ -8381,12 +8402,12 @@ static void push_elf_header(void) {
 
 	// Number of section header entries
 	// 0x3c to 0x3e
-	push_byte(14 + has_got() + has_rela_dyn());
+	push_byte(12 + has_got() + has_rela_dyn() + 2 * has_plt());
 	push_byte(0);
 
 	// Index of entry with section names
 	// 0x3e to 0x40
-	push_byte(13 + has_got() + has_rela_dyn());
+	push_byte(11 + has_got() + has_rela_dyn() + 2 * has_plt());
 	push_byte(0);
 }
 
@@ -8403,13 +8424,24 @@ static void push_bytes(void) {
 
 	push_dynstr();
 
+	rela_dyn_offset = bytes_size;
 	if (has_rela_dyn()) {
 		push_rela_dyn();
 	}
 
-	push_rela_plt();
+	if (has_plt()) {
+		push_rela_plt();
+	}
 
-	push_plt();
+	segment_0_size = bytes_size;
+
+	size_t next_segment_offset = round_to_power_of_2(bytes_size, 0x1000);
+	push_zeros(next_segment_offset - bytes_size);
+
+	plt_offset = bytes_size;
+	if (has_plt()) {
+		push_plt();
+	}
 
 	push_text();
 
@@ -8579,8 +8611,10 @@ static void init_section_header_indices(void) {
 	if (has_rela_dyn()) {
 		shindex_rela_dyn = shindex++;
 	}
-	shindex_rela_plt = shindex++;
-	shindex_plt = shindex++;
+	if (has_plt()) {
+		shindex_rela_plt = shindex++;
+		shindex_plt = shindex++;
+	}
 	shindex_text = shindex++;
 	shindex_eh_frame = shindex++;
 	shindex_dynamic = shindex++;
