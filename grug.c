@@ -1838,7 +1838,7 @@ static void hash_helper_fns(void) {
 	for (size_t i = 0; i < helper_fns_size; i++) {
 		char *name = helper_fns[i].fn_name;
 
-		grug_assert(!get_helper_fn(name), "The helper function '%s' was defined several times in the same file", name);
+		grug_assert(!get_helper_fn(name), "The function '%s' was defined several times in the same file", name);
 
 		u32 bucket_index = elf_hash(name) % helper_fns_size;
 
@@ -2617,8 +2617,8 @@ static struct helper_fn parse_helper_fn(size_t *i) {
 	if (token.type == WORD_TOKEN) {
 		(*i) += 2;
 		fn.return_type = parse_type(token.str);
-		grug_assert(fn.return_type != type_resource, "The helper function '%s' can't have 'resource' as its return type", fn.fn_name);
-		grug_assert(fn.return_type != type_entity, "The helper function '%s' can't have 'entity' as its return type", fn.fn_name);
+		grug_assert(fn.return_type != type_resource, "The function '%s' can't have 'resource' as its return type", fn.fn_name);
+		grug_assert(fn.return_type != type_entity, "The function '%s' can't have 'entity' as its return type", fn.fn_name);
 	}
 
 	indentation = 0;
@@ -4683,7 +4683,7 @@ static void fill_on_fns(void) {
 
 		struct grug_on_function *entity_on_fn = get_entity_on_fn(on_fns[fn_index].fn_name);
 
-		grug_assert(entity_on_fn, "The on_ function '%s' was not was not declared by entity '%s' in mod_api.json", on_fns[fn_index].fn_name, file_entity_type);
+		grug_assert(entity_on_fn, "The function '%s' was not was not declared by entity '%s' in mod_api.json", on_fns[fn_index].fn_name, file_entity_type);
 
 		struct argument *args = fn->arguments;
 		size_t arg_count = fn->argument_count;
@@ -7144,7 +7144,7 @@ static void hash_on_fns(void) {
 	for (size_t i = 0; i < on_fns_size; i++) {
 		char *name = on_fns[i].fn_name;
 
-		grug_assert(!get_on_fn(name), "The on_ function '%s' was defined several times in the same file", name);
+		grug_assert(!get_on_fn(name), "The function '%s' was defined several times in the same file", name);
 
 		u32 bucket_index = elf_hash(name) % on_fns_size;
 
@@ -7752,7 +7752,7 @@ static void push_data(void) {
 		struct on_fn *on_fn = get_on_fn(grug_entity->on_functions[i].name);
 		if (on_fn) {
 			size_t on_fn_index = on_fn - on_fns;
-			grug_assert(previous_on_fn_index <= on_fn_index, "The function '%s' was in the wrong order, according to the entity '%s' in mod_api.json", on_fn->fn_name, grug_entity->name);
+			grug_assert(previous_on_fn_index <= on_fn_index, "The function '%s' needs to be moved before/after a different on_ function, according to the entity '%s' in mod_api.json", on_fn->fn_name, grug_entity->name);
 			previous_on_fn_index = on_fn_index;
 
 			size_t fns_before_on_fns = 1; // Just init_globals()
