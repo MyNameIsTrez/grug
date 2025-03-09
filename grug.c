@@ -138,7 +138,7 @@ bool grug_loading_error_in_grug_file;
 struct grug_error previous_grug_error;
 static jmp_buf error_jmp_buffer;
 
-static char global_mods_dir_path[STUPID_MAX_PATH];
+static char mods_root_dir_path[STUPID_MAX_PATH];
 
 static bool streq(char *a, char *b) {
 	return strcmp(a, b) == 0;
@@ -762,7 +762,9 @@ static void json(char *file_path, struct json_node *returned) {
 
 //// PARSING MOD API JSON
 
-#define MAX_GRUG_FUNCTIONS 420420
+#define MAX_GRUG_ENTITIES 420420
+#define MAX_GRUG_ON_FUNCTIONS 420420
+#define MAX_GRUG_GAME_FUNCTIONS 420420
 #define MAX_GRUG_ARGUMENTS 420420
 
 enum type {
@@ -802,8 +804,6 @@ struct grug_on_function {
 
 struct grug_entity {
 	char *name;
-	struct argument *fields;
-	size_t field_count;
 	struct grug_on_function *on_functions;
 	size_t on_function_count;
 };
@@ -824,16 +824,16 @@ struct argument {
 	};
 };
 
-static struct grug_on_function grug_on_functions[MAX_GRUG_FUNCTIONS];
+static struct grug_entity grug_entities[MAX_GRUG_ENTITIES];
+static size_t grug_entities_size;
+
+static struct grug_on_function grug_on_functions[MAX_GRUG_ON_FUNCTIONS];
 static size_t grug_on_functions_size;
 
-static struct grug_entity grug_define_functions[MAX_GRUG_FUNCTIONS];
-static size_t grug_define_functions_size;
-
-static struct grug_game_function grug_game_functions[MAX_GRUG_FUNCTIONS];
+static struct grug_game_function grug_game_functions[MAX_GRUG_GAME_FUNCTIONS];
 static size_t grug_game_functions_size;
-static u32 buckets_game_fns[MAX_GRUG_FUNCTIONS];
-static u32 chains_game_fns[MAX_GRUG_FUNCTIONS];
+static u32 buckets_game_fns[MAX_GRUG_GAME_FUNCTIONS];
+static u32 chains_game_fns[MAX_GRUG_GAME_FUNCTIONS];
 
 static struct argument grug_arguments[MAX_GRUG_ARGUMENTS];
 static size_t grug_arguments_size;
@@ -841,14 +841,14 @@ static size_t grug_arguments_size;
 static char mod_api_strings[JSON_MAX_STRINGS_CHARACTERS];
 static size_t mod_api_strings_size;
 
-static void push_grug_on_function(struct grug_on_function fn) {
-	grug_assert(grug_on_functions_size < MAX_GRUG_FUNCTIONS, "There are more than %d on_ functions in mod_api.json, exceeding MAX_GRUG_FUNCTIONS", MAX_GRUG_FUNCTIONS);
-	grug_on_functions[grug_on_functions_size++] = fn;
+static void push_grug_entity(struct grug_entity fn) {
+	grug_assert(grug_entities_size < MAX_GRUG_ENTITIES, "There are more than %d entities in mod_api.json, exceeding MAX_GRUG_ENTITIES", MAX_GRUG_ENTITIES);
+	grug_entities[grug_entities_size++] = fn;
 }
 
-static void push_grug_entity(struct grug_entity fn) {
-	grug_assert(grug_define_functions_size < MAX_GRUG_FUNCTIONS, "There are more than %d define functions in mod_api.json, exceeding MAX_GRUG_FUNCTIONS", MAX_GRUG_FUNCTIONS);
-	grug_define_functions[grug_define_functions_size++] = fn;
+static void push_grug_on_function(struct grug_on_function fn) {
+	grug_assert(grug_on_functions_size < MAX_GRUG_ON_FUNCTIONS, "There are more than %d on_ functions in mod_api.json, exceeding MAX_GRUG_ON_FUNCTIONS", MAX_GRUG_ON_FUNCTIONS);
+	grug_on_functions[grug_on_functions_size++] = fn;
 }
 
 static struct grug_game_function *get_grug_game_fn(char *name) {
@@ -888,7 +888,7 @@ static void hash_game_fns(void) {
 }
 
 static void push_grug_game_function(struct grug_game_function fn) {
-	grug_assert(grug_game_functions_size < MAX_GRUG_FUNCTIONS, "There are more than %d game functions in mod_api.json, exceeding MAX_GRUG_FUNCTIONS", MAX_GRUG_FUNCTIONS);
+	grug_assert(grug_game_functions_size < MAX_GRUG_GAME_FUNCTIONS, "There are more than %d game functions in mod_api.json, exceeding MAX_GRUG_GAME_FUNCTIONS", MAX_GRUG_GAME_FUNCTIONS);
 	grug_game_functions[grug_game_functions_size++] = fn;
 }
 
@@ -1095,7 +1095,7 @@ static void init_entities(struct json_object entities) {
 		grug_assert(entities.fields[entity_field_index].value->type == JSON_NODE_OBJECT, "\"entities\" must only contain object values");
 		struct json_object fn = entities.fields[entity_field_index].value->object;
 		grug_assert(fn.field_count >= 1, "\"entities\" its objects must have at least a \"description\" field");
-		grug_assert(fn.field_count <= 3, "\"entities\" its objects must not have more than 3 fields");
+		grug_assert(fn.field_count <= 2, "\"entities\" its objects must not have more than 2 fields");
 
 		struct json_field *field = fn.fields;
 
@@ -1104,62 +1104,9 @@ static void init_entities(struct json_object entities) {
 		char *description = push_mod_api_string(field->value->string);
 		grug_assert(!streq(description, ""), "\"entities\" its descriptions must not be an empty string");
 
-		bool seen_fields = false;
-
 		if (fn.field_count > 1) {
 			field++;
-
-			if (streq(field->key, "fields")) {
-				grug_assert(field->value->type == JSON_NODE_ARRAY, "\"entities\" its \"fields\" must be arrays");
-				struct json_node *value = field->value->array.values;
-				entity.fields = grug_arguments + grug_arguments_size;
-				entity.field_count = field->value->array.value_count;
-
-				for (size_t field_index = 0; field_index < entity.field_count; field_index++) {
-					struct argument grug_field = {0};
-
-					grug_assert(value->type == JSON_NODE_OBJECT, "\"entities\" its fields must only contain objects");
-					grug_assert(value->object.field_count >= 2, "\"entities\" must have the fields \"name\" and \"type\"");
-					grug_assert(value->object.field_count <= 3, "\"entities\" can't have more than 3 fields");
-					struct json_field *json_field = value->object.fields;
-
-					grug_assert(streq(json_field->key, "name"), "\"entities\" its fields must always have \"name\" as their first field");
-					grug_assert(json_field->value->type == JSON_NODE_STRING, "\"entities\" its fields must always have string values");
-					grug_field.name = push_mod_api_string(json_field->value->string);
-					json_field++;
-
-					grug_assert(streq(json_field->key, "type"), "\"entities\" its fields must always have \"type\" as their second field");
-					grug_assert(json_field->value->type == JSON_NODE_STRING, "\"entities\" its fields must always have string values");
-					grug_field.type = parse_type(json_field->value->string);
-					json_field++;
-
-					grug_assert(grug_field.type != type_id, "\"entities\" has a \"type\" field with the value \"id\", which isn't allowed");
-
-					if (grug_field.type == type_resource) {
-						grug_assert(value->object.field_count == 3 && streq(json_field->key, "resource_extension"), "\"entities\" has a \"type\" field with the value \"resource\", which means a \"resource_extension\" field is required");
-						grug_assert(json_field->value->type == JSON_NODE_STRING, "\"entities\" its fields must always have string values");
-						grug_field.resource_extension = push_mod_api_string(json_field->value->string);
-					} else if (grug_field.type == type_entity) {
-						grug_assert(value->object.field_count == 3 && streq(json_field->key, "entity_type"), "\"entities\" has a \"type\" field with the value \"entity\", which means an \"entity_type\" field is required");
-						grug_assert(json_field->value->type == JSON_NODE_STRING, "\"entities\" its fields must always have string values");
-						grug_field.entity_type = push_mod_api_string(json_field->value->string);
-					} else {
-						grug_assert(value->object.field_count == 2, "\"entities\" had an unexpected 3rd \"%s\" field", json_field->key);
-					}
-
-					push_grug_argument(grug_field);
-					value++;
-				}
-
-				seen_fields = true;
-				field++;
-			} else {
-				grug_assert(streq(field->key, "on_functions"), "\"entities\" its second field was something other than \"fields\" and \"on_functions\"");
-			}
-		}
-
-		if ((!seen_fields && fn.field_count > 1) || fn.field_count > 2) {
-			grug_assert(streq(field->key, "on_functions"), "\"entities\" its second or third field was something other than \"on_functions\"");
+			grug_assert(streq(field->key, "on_functions"), "\"entities\" its second field was something other than \"on_functions\"");
 			grug_assert(field->value->type == JSON_NODE_OBJECT, "\"entities\" its \"on_functions\" field must have an object as its value");
 			entity.on_functions = grug_on_functions + grug_on_functions_size;
 			entity.on_function_count = field->value->object.field_count;
@@ -1235,7 +1182,6 @@ enum token_type {
 	REMAINDER_TOKEN,
 	COMMA_TOKEN,
 	COLON_TOKEN,
-	PERIOD_TOKEN,
 	NEWLINE_TOKEN,
 	EQUALS_TOKEN,
 	NOT_EQUALS_TOKEN,
@@ -1280,7 +1226,6 @@ static char *get_token_type_str[] = {
 	[REMAINDER_TOKEN] = "REMAINDER_TOKEN",
 	[COMMA_TOKEN] = "COMMA_TOKEN",
 	[COLON_TOKEN] = "COLON_TOKEN",
-	[PERIOD_TOKEN] = "PERIOD_TOKEN",
 	[NEWLINE_TOKEN] = "NEWLINE_TOKEN",
 	[EQUALS_TOKEN] = "EQUALS_TOKEN",
 	[NOT_EQUALS_TOKEN] = "NOT_EQUALS_TOKEN",
@@ -1472,9 +1417,6 @@ static void tokenize(void) {
 		} else if (grug_text[i] == ':') {
 			push_token(COLON_TOKEN, grug_text+i, 1);
 			i += 1;
-		} else if (grug_text[i] == '.') {
-			push_token(PERIOD_TOKEN, grug_text+i, 1);
-			i += 1;
 		} else if (grug_text[i] == '\n') {
 			push_token(NEWLINE_TOKEN, grug_text+i, 1);
 			i += 1;
@@ -1630,7 +1572,6 @@ static void tokenize(void) {
 //// PARSING
 
 #define MAX_EXPRS 420420
-#define MAX_FIELDS 420420
 #define MAX_STATEMENTS 420420
 #define MAX_GLOBAL_STATEMENTS 420420
 #define MAX_ARGUMENTS 420420
@@ -1717,18 +1658,6 @@ static char *get_expr_type_str[] = {
 static struct expr exprs[MAX_EXPRS];
 static size_t exprs_size;
 
-struct field {
-	char *key;
-	struct expr expr_value;
-};
-static struct field fields[MAX_FIELDS];
-static size_t fields_size;
-
-struct compound_literal {
-	struct field *fields;
-	size_t field_count;
-};
-
 struct variable_statement {
 	char *name;
 	enum type type;
@@ -1796,7 +1725,6 @@ static struct statement statements[MAX_STATEMENTS];
 static size_t statements_size;
 
 enum global_statement_type {
-	GLOBAL_DEFINE_FN,
 	GLOBAL_VARIABLE,
 	GLOBAL_ON_FN,
 	GLOBAL_HELPER_FN,
@@ -1813,7 +1741,6 @@ struct global_statement {
 	};
 };
 static char *get_global_statement_type_str[] = {
-	[GLOBAL_DEFINE_FN] = "GLOBAL_DEFINE_FN",
 	[GLOBAL_VARIABLE] = "GLOBAL_VARIABLE",
 	[GLOBAL_ON_FN] = "GLOBAL_ON_FN",
 	[GLOBAL_HELPER_FN] = "GLOBAL_HELPER_FN",
@@ -1825,12 +1752,6 @@ static size_t global_statements_size;
 
 static struct argument arguments[MAX_ARGUMENTS];
 static size_t arguments_size;
-
-struct parsed_define_fn {
-	char *return_type;
-	struct compound_literal returned_compound_literal;
-};
-static struct parsed_define_fn define_fn;
 
 struct on_fn {
 	char *fn_name;
@@ -1878,7 +1799,6 @@ static size_t parsing_depth;
 
 static void reset_parsing(void) {
 	exprs_size = 0;
-	fields_size = 0;
 	statements_size = 0;
 	global_statements_size = 0;
 	arguments_size = 0;
@@ -1918,7 +1838,7 @@ static void hash_helper_fns(void) {
 	for (size_t i = 0; i < helper_fns_size; i++) {
 		char *name = helper_fns[i].fn_name;
 
-		grug_assert(!get_helper_fn(name), "The function '%s' was defined several times in the same file", name);
+		grug_assert(!get_helper_fn(name), "The helper function '%s' was defined several times in the same file", name);
 
 		u32 bucket_index = elf_hash(name) % helper_fns_size;
 
@@ -2732,88 +2652,6 @@ static struct on_fn parse_on_fn(size_t *i) {
 	return fn;
 }
 
-static void push_field(struct field field) {
-	grug_assert(fields_size < MAX_FIELDS, "There are more than %d fields in the grug file, exceeding MAX_FIELDS", MAX_FIELDS);
-	fields[fields_size++] = field;
-}
-
-static struct compound_literal parse_compound_literal(size_t *i) {
-	(*i)++;
-
-	struct compound_literal compound_literal = {.fields = fields + fields_size};
-
-	consume_newline(i);
-
-	indentation++;
-
-	while (true) {
-		if (is_end_of_block(i)) {
-			break;
-		}
-
-		consume_indentation(i);
-
-		consume_token_type(i, PERIOD_TOKEN);
-
-		assert_token_type(*i, WORD_TOKEN);
-		struct field field = {.key = peek_token(*i).str};
-		(*i)++;
-
-		consume_space(i);
-		consume_token_type(i, ASSIGNMENT_TOKEN);
-
-		consume_space(i);
-		field.expr_value = parse_expression(i);
-		push_field(field);
-		compound_literal.field_count++;
-
-		consume_token_type(i, COMMA_TOKEN);
-
-		consume_newline(i);
-	}
-
-	assert(indentation > 0);
-	indentation--;
-
-	consume_indentation(i);
-	consume_token_type(i, CLOSE_BRACE_TOKEN);
-
-	consume_newline(i);
-
-	return compound_literal;
-}
-
-static void parse_define_fn(size_t *i) {
-	// Parse the function's signature
-	consume_token(i); // The function name is always "define"
-
-	consume_token_type(i, OPEN_PARENTHESIS_TOKEN);
-	consume_token_type(i, CLOSE_PARENTHESIS_TOKEN);
-
-	consume_space(i);
-	assert_token_type(*i, WORD_TOKEN);
-	struct token token = consume_token(i);
-	define_fn.return_type = token.str;
-
-	consume_space(i);
-	consume_token_type(i, OPEN_BRACE_TOKEN);
-
-	consume_newline(i);
-
-	indentation = 1;
-
-	// Parse the body of the function
-	consume_indentation(i);
-	consume_token_type(i, RETURN_TOKEN);
-
-	consume_space(i);
-	assert_token_type(*i, OPEN_BRACE_TOKEN);
-
-	define_fn.returned_compound_literal = parse_compound_literal(i);
-
-	consume_token_type(i, CLOSE_BRACE_TOKEN);
-}
-
 static void push_global_statement(struct global_statement global) {
 	grug_assert(global_statements_size < MAX_GLOBAL_STATEMENTS, "There are more than %d global statements in the grug file, exceeding MAX_GLOBAL_STATEMENTS", MAX_GLOBAL_STATEMENTS);
 	global_statements[global_statements_size++] = global;
@@ -2822,7 +2660,6 @@ static void push_global_statement(struct global_statement global) {
 static void parse(void) {
 	reset_parsing();
 
-	bool seen_define_fn = false;
 	bool seen_on_fn = false;
 	bool seen_newline = false;
 
@@ -2836,26 +2673,7 @@ static void parse(void) {
 		struct token token = peek_token(i);
 		int type = token.type;
 
-		if (type == WORD_TOKEN && streq(token.str, "define") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
-			grug_assert(!seen_define_fn, "There can't be more than one define function in a grug file");
-			grug_assert(!newline_required, "Expected an empty line, on line %zu", get_token_line_number(i));
-
-			parse_define_fn(&i);
-
-			seen_define_fn = true;
-
-			newline_allowed = true;
-			newline_required = true;
-
-			just_seen_global = false;
-
-			struct global_statement global = {
-				.type = GLOBAL_DEFINE_FN,
-			};
-			push_global_statement(global);
-			consume_token_type(&i, NEWLINE_TOKEN);
-		} else if (type == WORD_TOKEN && i + 1 < tokens_size && peek_token(i + 1).type == COLON_TOKEN) {
-			grug_assert(seen_define_fn, "Move the global variable '%s' so it is below the define function", token.str);
+		if (type == WORD_TOKEN && i + 1 < tokens_size && peek_token(i + 1).type == COLON_TOKEN) {
 			grug_assert(!seen_on_fn, "Move the global variable '%s' so it is above the on_ functions", token.str);
 
 			// Make having an empty line between globals optional
@@ -2875,7 +2693,6 @@ static void parse(void) {
 			push_global_statement(global);
 			consume_token_type(&i, NEWLINE_TOKEN);
 		} else if (type == WORD_TOKEN && starts_with(token.str, "on_") && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
-			grug_assert(seen_define_fn, "Move the on_ function '%s' below the define function", token.str);
 			grug_assert(helper_fns_size == 0, "%s() must be defined before all helper_ functions", token.str);
 			grug_assert(!newline_required, "Expected an empty line, on line %zu", get_token_line_number(i));
 
@@ -2949,8 +2766,6 @@ static void parse(void) {
 	}
 
 	grug_assert(!seen_newline || newline_allowed, "Unexpected empty line, on line %zu", get_token_line_number(newline_allowed ? i : i - 1));
-
-	grug_assert(seen_define_fn, "Every grug file requires exactly one define function");
 
 	assert(parsing_depth == 0);
 
@@ -3145,44 +2960,12 @@ static void dump_arguments(struct argument *arguments_offset, size_t argument_co
 	dump("]");
 }
 
-static void dump_fields(struct compound_literal compound_literal) {
-	if (compound_literal.field_count == 0) {
-		return;
-	}
-
-	dump(",\"fields\":[");
-
-	for (size_t i = 0; i < compound_literal.field_count; i++) {
-		if (i > 0) {
-			dump(",");
-		}
-
-		dump("{");
-
-		struct field field = compound_literal.fields[i];
-
-		dump("\"name\":\"%s\",", field.key);
-
-		dump("\"value\":{");
-		dump_expr(field.expr_value);
-		dump("}");
-
-		dump("}");
-	}
-
-	dump("]");
-}
-
 static void dump_global_statement(struct global_statement global) {
 	dump("{");
 
 	dump("\"type\":\"%s\"", get_global_statement_type_str[global.type]);
 
 	switch (global.type) {
-		case GLOBAL_DEFINE_FN:
-			dump(",\"name\":\"%s\"", define_fn.return_type);
-			dump_fields(define_fn.returned_compound_literal);
-			break;
 		case GLOBAL_VARIABLE: {
 			struct global_variable_statement global_variable = *global.global_variable;
 
@@ -4099,68 +3882,8 @@ static void apply_global_variable(struct json_field *statement, size_t field_cou
 	apply("\n");
 }
 
-static void apply_compound_literal(struct json_node *entity_fields_array) {
-	grug_assert(entity_fields_array->type == JSON_NODE_ARRAY, "input_json_path its root.entity.fields must be an array")
-
-	indentation++;
-
-	for (size_t i = 0; i < entity_fields_array->array.value_count; i++) {
-		struct json_node value = entity_fields_array->array.values[i];
-
-		grug_assert(value.type == JSON_NODE_OBJECT, "input_json_path its root.entity.fields[%zu] must be an object", i);
-		grug_assert(value.object.field_count == 2, "input_json_path its root.entity.fields[%zu] is supposed to have exactly 2 fields", i);
-
-		grug_assert(streq(value.object.fields[0].key, "name"), "input_json_path its root.entity.fields[%zu] its first field must be \"name\", but got \"%s\"", i, value.object.fields[0].key);
-
-		struct json_node *field_name = value.object.fields[0].value;
-		grug_assert(field_name->type == JSON_NODE_STRING, "input_json_path its root.entity.fields[%zu].name must be a string", i);
-		grug_assert(strlen(field_name->string) > 0, "input_json_path its root.entity.fields[%zu].name is not supposed to be an empty string", i);
-
-		grug_assert(streq(value.object.fields[1].key, "value"), "input_json_path its root.entity.fields[%zu] its second field must be \"value\", but got \"%s\"", i, value.object.fields[1].key);
-
-		apply_indentation();
-		apply(".%s = ", field_name->string);
-
-		apply_expr(*value.object.fields[1].value);
-
-		apply(",\n");
-	}
-
-	assert(indentation > 0);
-	indentation--;
-}
-
-static void apply_define_fn(struct json_field *statement, size_t field_count) {
-	grug_assert(field_count >= 2 && field_count <= 3, "input_json_path its GLOBAL_DEFINE_FN is supposed to have between 2 and 3 (inclusive) fields");
-
-	grug_assert(streq(statement[1].key, "name"), "input_json_path its GLOBAL_DEFINE_FN its second field must be \"name\", but got \"%s\"", statement[1].key)
-
-	grug_assert(statement[1].value->type == JSON_NODE_STRING, "input_json_path its GLOBAL_DEFINE_FN \"name\" must be a string");
-
-	char *name = statement[1].value->string;
-	grug_assert(strlen(name) > 0, "input_json_path its GLOBAL_DEFINE_FN \"name\" is not supposed to be an empty string");
-	apply("define() %s {\n", name);
-
-	indentation++;
-	apply_indentation();
-	apply("return {\n");
-
-	if (field_count == 3) {
-		grug_assert(streq(statement[2].key, "fields"), "input_json_path its GLOBAL_DEFINE_FN its third (optional) field must be \"fields\", but got \"%s\"", statement[2].key);
-		apply_compound_literal(statement[2].value);
-	}
-
-	apply_indentation();
-	apply("}\n");
-	indentation--;
-
-	apply("}\n");
-}
-
 static enum global_statement_type get_global_statement_type_from_str(char *str) {
-	if (streq(str, "GLOBAL_DEFINE_FN")) {
-		return GLOBAL_DEFINE_FN;
-	} else if (streq(str, "GLOBAL_VARIABLE")) {
+	if (streq(str, "GLOBAL_VARIABLE")) {
 		return GLOBAL_VARIABLE;
 	} else if (streq(str, "GLOBAL_ON_FN")) {
 		return GLOBAL_ON_FN;
@@ -4195,9 +3918,6 @@ static void apply_root(struct json_node node) {
 		grug_assert(statement[0].value->type == JSON_NODE_STRING, "input_json_path its array value its \"type\" field must be a string");
 
 		switch (get_global_statement_type_from_str(statement[0].value->string)) {
-			case GLOBAL_DEFINE_FN:
-				apply_define_fn(statement, field_count);
-				break;
 			case GLOBAL_VARIABLE:
 				apply_global_variable(statement, field_count);
 				break;
@@ -4319,6 +4039,7 @@ bool grug_generate_mods_from_json(char *input_json_path, char *output_mods_path)
 #define MAX_ENTITY_DEPENDENCY_NAME_LENGTH 420
 #define MAX_ENTITY_DEPENDENCIES 420420
 #define MAX_DATA_STRINGS 420420
+#define MAX_FILE_ENTITY_TYPE_LENGTH 420
 
 #define GLOBAL_VARIABLES_POINTER_SIZE sizeof(void *)
 
@@ -4343,12 +4064,13 @@ static size_t stack_frame_bytes;
 static enum type fn_return_type;
 static char *filled_fn_name;
 
-static struct grug_entity *grug_define_entity;
+static struct grug_entity *grug_entity;
 
-static u32 buckets_define_on_fns[MAX_ON_FNS];
-static u32 chains_define_on_fns[MAX_ON_FNS];
+static u32 buckets_entity_on_fns[MAX_ON_FNS];
+static u32 chains_entity_on_fns[MAX_ON_FNS];
 
 static char *mod;
+static char file_entity_type[MAX_FILE_ENTITY_TYPE_LENGTH];
 
 static u32 entity_types[MAX_ENTITY_DEPENDENCIES];
 static size_t entity_types_size;
@@ -4559,9 +4281,7 @@ static void fill_call_expr(struct expr *expr) {
 		return;
 	}
 
-	if (streq(name, "define")) {
-		grug_error("Mods aren't allowed to call their own define function");
-	} else if (starts_with(name, "on_")) {
+	if (starts_with(name, "on_")) {
 		grug_error("Mods aren't allowed to call their own on_ functions, but '%s' was called", name);
 	} else {
 		grug_error("The function '%s' does not exist", name);
@@ -4631,7 +4351,6 @@ static void fill_binary_expr(struct expr *expr) {
 		case CLOSE_BRACE_TOKEN:
 		case COMMA_TOKEN:
 		case COLON_TOKEN:
-		case PERIOD_TOKEN:
 		case NEWLINE_TOKEN:
 		case ASSIGNMENT_TOKEN:
 		case NOT_TOKEN:
@@ -4917,39 +4636,39 @@ static void fill_helper_fns(void) {
 	}
 }
 
-static struct grug_on_function *get_define_on_fn(char *name) {
-	if (grug_define_entity->on_function_count == 0) {
+static struct grug_on_function *get_entity_on_fn(char *name) {
+	if (grug_entity->on_function_count == 0) {
 		return NULL;
 	}
 
-	u32 i = buckets_define_on_fns[elf_hash(name) % grug_define_entity->on_function_count];
+	u32 i = buckets_entity_on_fns[elf_hash(name) % grug_entity->on_function_count];
 
 	while (true) {
 		if (i == UINT32_MAX) {
 			return NULL;
 		}
 
-		if (streq(name, grug_define_entity->on_functions[i].name)) {
+		if (streq(name, grug_entity->on_functions[i].name)) {
 			break;
 		}
 
-		i = chains_define_on_fns[i];
+		i = chains_entity_on_fns[i];
 	}
 
-	return grug_define_entity->on_functions + i;
+	return grug_entity->on_functions + i;
 }
 
-static void hash_define_on_fns(void) {
-	memset(buckets_define_on_fns, 0xff, grug_define_entity->on_function_count * sizeof(u32));
+static void hash_entity_on_fns(void) {
+	memset(buckets_entity_on_fns, 0xff, grug_entity->on_function_count * sizeof(u32));
 
-	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
-		char *name = grug_define_entity->on_functions[i].name;
+	for (size_t i = 0; i < grug_entity->on_function_count; i++) {
+		char *name = grug_entity->on_functions[i].name;
 
-		u32 bucket_index = elf_hash(name) % grug_define_entity->on_function_count;
+		u32 bucket_index = elf_hash(name) % grug_entity->on_function_count;
 
-		chains_define_on_fns[i] = buckets_define_on_fns[bucket_index];
+		chains_entity_on_fns[i] = buckets_entity_on_fns[bucket_index];
 
-		buckets_define_on_fns[bucket_index] = i;
+		buckets_entity_on_fns[bucket_index] = i;
 	}
 }
 
@@ -4962,15 +4681,15 @@ static void fill_on_fns(void) {
 		char *name = fn->fn_name;
 		filled_fn_name = name;
 
-		struct grug_on_function *define_on_fn = get_define_on_fn(on_fns[fn_index].fn_name);
+		struct grug_on_function *entity_on_fn = get_entity_on_fn(on_fns[fn_index].fn_name);
 
-		grug_assert(define_on_fn, "The function '%s' was not was not declared by entity '%s' in mod_api.json", on_fns[fn_index].fn_name, define_fn.return_type);
+		grug_assert(entity_on_fn, "The on_ function '%s' was not was not declared by entity '%s' in mod_api.json", on_fns[fn_index].fn_name, file_entity_type);
 
 		struct argument *args = fn->arguments;
 		size_t arg_count = fn->argument_count;
 
-		struct argument *params = define_on_fn->arguments;
-		size_t param_count = define_on_fn->argument_count;
+		struct argument *params = entity_on_fn->arguments;
+		size_t param_count = entity_on_fn->argument_count;
 
 		grug_assert(arg_count >= param_count, "Function '%s' expected the parameter '%s' with type %s", name, params[arg_count].name, type_names[params[arg_count].type]);
 
@@ -5046,76 +4765,11 @@ static void fill_global_variables(void) {
 	}
 }
 
-// Check that the define fn field's assigned value doesn't contain a call nor identifier
-static void check_define_fn_field(struct expr *expr) {
-	switch (expr->type) {
-		case TRUE_EXPR:
-		case FALSE_EXPR:
-		case STRING_EXPR:
-		case RESOURCE_EXPR:
-		case ENTITY_EXPR:
-		case I32_EXPR:
-		case F32_EXPR:
-			break;
-		case IDENTIFIER_EXPR:
-			// Since mod_api.json disallows the type "id" in define fns, we don't handle it differently here
-			grug_error("The define function isn't allowed to use global variables");
-			break;
-		case UNARY_EXPR:
-			grug_assert(expr->unary.operator != NOT_TOKEN, "The define function isn't allowed to use the 'not' operator");
-			check_define_fn_field(expr->unary.expr);
-			break;
-		case BINARY_EXPR:
-		case LOGICAL_EXPR:
-			grug_error("The define function isn't allowed to use binary expressions");
-			break;
-		case CALL_EXPR:
-			grug_error("The define function isn't allowed to call functions");
-			break;
-		case PARENTHESIZED_EXPR:
-			grug_error("The define function isn't allowed to use parentheses");
-			break;
-	}
-}
-
-static void fill_define_fn(void) {
-	size_t field_count = define_fn.returned_compound_literal.field_count;
-
-	grug_assert(grug_define_entity->field_count == define_fn.returned_compound_literal.field_count, "The entity '%s' expects %zu fields, but got %zu", grug_define_entity->name, grug_define_entity->field_count, define_fn.returned_compound_literal.field_count);
-
-	for (size_t i = 0; i < field_count; i++) {
-		struct field *field = &define_fn.returned_compound_literal.fields[i];
-
-		grug_assert(streq(field->key, grug_define_entity->fields[i].name), "Field %zu named '%s' that you're returning from your define function must be renamed to '%s', according to the entity '%s' in mod_api.json", i + 1, field->key, grug_define_entity->fields[i].name, grug_define_entity->name);
-
-		struct expr *field_expr = &field->expr_value;
-
-		check_define_fn_field(field_expr);
-
-		fill_expr(field_expr);
-
-		struct argument json_field = grug_define_entity->fields[i];
-
-		if (field_expr->type == STRING_EXPR && json_field.type == type_resource) {
-			field_expr->result_type = type_resource;
-			field_expr->type = RESOURCE_EXPR;
-			validate_resource_string(field_expr->literal.string, json_field.resource_extension);
-		} else if (field_expr->type == STRING_EXPR && json_field.type == type_entity) {
-			field_expr->result_type = type_entity;
-			field_expr->type = ENTITY_EXPR;
-			validate_entity_string(field_expr->literal.string);
-			push_entity_type(json_field.entity_type);
-		}
-
-		grug_assert(field_expr->result_type == json_field.type, "The define function its '%s' parameter was supposed to have the type %s, but got %s", json_field.name, type_names[json_field.type], type_names[field_expr->result_type]);
-	}
-}
-
 // TODO: This could be turned O(1) with a hash map
-static struct grug_entity *get_grug_define_entity(char *return_type) {
-	for (size_t i = 0; i < grug_define_functions_size; i++) {
-		if (streq(return_type, grug_define_functions[i].name)) {
-			return grug_define_functions + i;
+static struct grug_entity *get_grug_entity(char *entity_type) {
+	for (size_t i = 0; i < grug_entities_size; i++) {
+		if (streq(entity_type, grug_entities[i].name)) {
+			return grug_entities + i;
 		}
 	}
 	return NULL;
@@ -5124,13 +4778,12 @@ static struct grug_entity *get_grug_define_entity(char *return_type) {
 static void fill_result_types(void) {
 	reset_filling();
 
-	grug_define_entity = get_grug_define_entity(define_fn.return_type);
+	grug_entity = get_grug_entity(file_entity_type);
 
-	grug_assert(grug_define_entity, "The entity '%s' was not declared by mod_api.json", define_fn.return_type);
+	grug_assert(grug_entity, "The entity '%s' was not declared by mod_api.json", file_entity_type);
 
-	hash_define_on_fns();
+	hash_entity_on_fns();
 
-	fill_define_fn();
 	fill_global_variables();
 	fill_on_fns();
 	fill_helper_fns();
@@ -5154,7 +4807,6 @@ static void fill_result_types(void) {
 #define MAX_STACK_SIZE 420420
 #define MAX_RESOURCES 420420
 #define MAX_HELPER_FN_MODE_NAMES_CHARACTERS 420420
-#define MAX_DEFINE_FN_NAME_CHARACTERS 420
 #define MAX_LOOP_DEPTH 420
 #define MAX_BREAK_STATEMENTS_PER_LOOP 420
 
@@ -6753,7 +6405,7 @@ static char *push_entity_dependency_string(char *string) {
 
 static char *push_resource_string(char *string) {
 	static char resource[STUPID_MAX_PATH];
-	grug_assert(snprintf(resource, sizeof(resource), "%s/%s/%s", global_mods_dir_path, mod, string) >= 0, "Filling the variable 'resource' failed");
+	grug_assert(snprintf(resource, sizeof(resource), "%s/%s/%s", mods_root_dir_path, mod, string) >= 0, "Filling the variable 'resource' failed");
 
 	size_t length = strlen(resource);
 
@@ -6821,7 +6473,7 @@ static void compile_expr(struct expr expr) {
 			if (!compiling_fast_mode) {
 				add_data_string(string);
 
-				// We can't do the same thing as with RESOURCE_EXPR,
+				// We can't do the same thing we do with RESOURCE_EXPR,
 				// where we only call `push_entity_dependency()` when `!had_string`,
 				// because the same entity dependency strings
 				// can have with different "entity_type" values in mod_api.json
@@ -7247,125 +6899,6 @@ static void compile_init_globals_fn(void) {
 	compile_byte(RET);
 }
 
-static char *get_define_fn_name(void) {
-	char *name = grug_define_entity->name;
-
-	static char define_fn_name[MAX_DEFINE_FN_NAME_CHARACTERS];
-	size_t define_fn_name_size = 0;
-
-	grug_assert(sizeof("define_") - 1 + strlen(name) < MAX_DEFINE_FN_NAME_CHARACTERS, "There are more than %d characters in the define_fn_name array, exceeding MAX_DEFINE_FN_NAME_CHARACTERS", MAX_DEFINE_FN_NAME_CHARACTERS);
-
-	memcpy(define_fn_name, "define_", sizeof("define_") - 1);
-	define_fn_name_size += sizeof("define_") - 1;
-
-	size_t name_length = strlen(name);
-
-	for (size_t i = 0; i < name_length; i++) {
-		define_fn_name[define_fn_name_size++] = name[i];
-	}
-	define_fn_name[define_fn_name_size++] = '\0';
-
-	return define_fn_name;
-}
-
-static void compile_define_fn(void) {
-	size_t field_count = define_fn.returned_compound_literal.field_count;
-
-	// `integer` here refers to the classification type:
-	// "integer types and pointers which use the general purpose registers"
-	// See https://stackoverflow.com/a/57861992/13279557
-	size_t integer_field_count = 0;
-
-	size_t float_field_count = 0;
-
-	for (size_t i = 0; i < field_count; i++) {
-		struct expr field = define_fn.returned_compound_literal.fields[i].expr_value;
-
-		if (field.result_type == type_f32) {
-			float_field_count++;
-		} else {
-			integer_field_count++;
-		}
-	}
-
-	size_t pushes = 0;
-	if (float_field_count > 8) {
-		pushes += float_field_count - 8;
-	}
-	if (integer_field_count > 6) {
-		pushes += integer_field_count - 6;
-	}
-
-	bool subbing = pushes % 2 == 0;
-	if (subbing) {
-		compile_unpadded(SUB_RSP_8_BITS);
-		compile_byte(sizeof(u64));
-	}
-
-	for (size_t i = field_count; i > 0;) {
-		struct expr field = define_fn.returned_compound_literal.fields[--i].expr_value;
-
-		compile_expr(field);
-
-		if (field.result_type == type_f32) {
-			if (float_field_count <= 8) {
-				static u32 movs[] = {
-					MOV_EAX_TO_XMM0,
-					MOV_EAX_TO_XMM1,
-					MOV_EAX_TO_XMM2,
-					MOV_EAX_TO_XMM3,
-					MOV_EAX_TO_XMM4,
-					MOV_EAX_TO_XMM5,
-					MOV_EAX_TO_XMM6,
-					MOV_EAX_TO_XMM7,
-				};
-
-				compile_unpadded(movs[--float_field_count]);
-			} else {
-				compile_unpadded(PUSH_RAX);
-				float_field_count--;
-			}
-		} else {
-			if (integer_field_count <= 6) {
-				static u32 movs[] = {
-					MOV_RAX_TO_RDI,
-					MOV_RAX_TO_RSI,
-					MOV_RAX_TO_RDX,
-					MOV_RAX_TO_RCX,
-					MOV_RAX_TO_R8,
-					MOV_RAX_TO_R9,
-				};
-
-				compile_unpadded(movs[--integer_field_count]);
-			} else {
-				compile_unpadded(PUSH_RAX);
-				integer_field_count--;
-			}
-		}
-	}
-
-	compile_byte(CALL);
-	push_game_fn_call(get_define_fn_name(), codes_size);
-	compile_unpadded(PLACEHOLDER_32);
-
-	size_t offset = pushes * sizeof(u64);
-	if (subbing) {
-		offset += sizeof(u64);
-	}
-
-	if (offset < 0x80) {
-		compile_unpadded(ADD_RSP_8_BITS);
-		compile_byte(offset);
-	} else {
-		// Reached by tests/ok/spill_args_to_define_fn_32_bit_add
-
-		compile_unpadded(ADD_RSP_32_BITS);
-		compile_32(offset);
-	}
-
-	compile_byte(RET);
-}
-
 static void compile(char *grug_path) {
 	reset_compiling();
 
@@ -7374,43 +6907,32 @@ static void compile(char *grug_path) {
 
 	is_negation_overflow_possible = true;
 
-	compile_define_fn();
-	text_offsets[text_offset_index++] = text_offset;
-	text_offset = codes_size;
-
-	size_t start_codes_size = codes_size;
 	compile_init_globals_fn();
 	text_offsets[text_offset_index++] = text_offset;
-	text_offset += codes_size - start_codes_size;
+	text_offset = codes_size;
 
 	is_negation_overflow_possible = false;
 
 	for (size_t on_fn_index = 0; on_fn_index < on_fns_size; on_fn_index++) {
-		start_codes_size = codes_size;
-
 		struct on_fn fn = on_fns[on_fn_index];
 
 		compile_on_fn(fn, grug_path);
 
 		text_offsets[text_offset_index++] = text_offset;
-		text_offset += codes_size - start_codes_size;
+		text_offset = codes_size;
 	}
 
 	for (size_t helper_fn_index = 0; helper_fn_index < helper_fns_size; helper_fn_index++) {
 		struct helper_fn fn = helper_fns[helper_fn_index];
-
-		start_codes_size = codes_size;
 
 		push_helper_fn_offset(get_safe_helper_fn_name(fn.fn_name), codes_size);
 
 		compile_helper_fn(fn);
 
 		text_offsets[text_offset_index++] = text_offset;
-		text_offset += codes_size - start_codes_size;
+		text_offset = codes_size;
 
 		// The same, but for fast mode:
-
-		start_codes_size = codes_size;
 
 		push_helper_fn_offset(get_fast_helper_fn_name(fn.fn_name), codes_size);
 
@@ -7419,7 +6941,7 @@ static void compile(char *grug_path) {
 		compiling_fast_mode = false;
 
 		text_offsets[text_offset_index++] = text_offset;
-		text_offset += codes_size - start_codes_size;
+		text_offset = codes_size;
 	}
 
 	hash_used_extern_fns();
@@ -7622,7 +7144,7 @@ static void hash_on_fns(void) {
 	for (size_t i = 0; i < on_fns_size; i++) {
 		char *name = on_fns[i].fn_name;
 
-		grug_assert(!get_on_fn(name), "The function '%s' was defined several times in the same file", name);
+		grug_assert(!get_on_fn(name), "The on_ function '%s' was defined several times in the same file", name);
 
 		u32 bucket_index = elf_hash(name) % on_fns_size;
 
@@ -7688,9 +7210,8 @@ static void patch_rela_plt(void) {
 }
 
 static void patch_rela_dyn(void) {
-	size_t return_type_data_size = strlen(define_fn.return_type) + 1;
 	size_t globals_size_data_size = sizeof(u64);
-	size_t on_fn_data_offset = return_type_data_size + globals_size_data_size;
+	size_t on_fn_data_offset = globals_size_data_size;
 
 	size_t excess = on_fn_data_offset % sizeof(u64); // Alignment
 	if (excess > 0) {
@@ -7698,15 +7219,15 @@ static void patch_rela_dyn(void) {
 	}
 
 	size_t bytes_offset = rela_dyn_offset;
-	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
-		struct on_fn *on_fn = get_on_fn(grug_define_entity->on_functions[i].name);
+	for (size_t i = 0; i < grug_entity->on_function_count; i++) {
+		struct on_fn *on_fn = get_on_fn(grug_entity->on_functions[i].name);
 		if (on_fn) {
 			size_t on_fn_index = on_fn - on_fns;
 
 			overwrite_64(got_plt_offset + got_plt_size + on_fn_data_offset, bytes_offset);
 			bytes_offset += 2 * sizeof(u64);
 
-			size_t fns_before_on_fns = 2; // define() and init_globals()
+			size_t fns_before_on_fns = 1; // Just init_globals()
 			overwrite_64(text_offset + text_offsets[on_fn_index + fns_before_on_fns], bytes_offset);
 			bytes_offset += sizeof(u64);
 		}
@@ -8222,23 +7743,19 @@ static void push_data(void) {
 
 	data_offset = bytes_size;
 
-	// "define_type" symbol
-	push_string_bytes(define_fn.return_type);
-
 	// "globals_size" symbol
-	push_nasm_alignment(8);
 	push_64(globals_bytes);
 
 	// "on_fns" function addresses
 	size_t previous_on_fn_index = 0;
-	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
-		struct on_fn *on_fn = get_on_fn(grug_define_entity->on_functions[i].name);
+	for (size_t i = 0; i < grug_entity->on_function_count; i++) {
+		struct on_fn *on_fn = get_on_fn(grug_entity->on_functions[i].name);
 		if (on_fn) {
 			size_t on_fn_index = on_fn - on_fns;
-			grug_assert(previous_on_fn_index <= on_fn_index, "The function '%s' was in the wrong order, according to the entity '%s' in mod_api.json", on_fn->fn_name, grug_define_entity->name);
+			grug_assert(previous_on_fn_index <= on_fn_index, "The function '%s' was in the wrong order, according to the entity '%s' in mod_api.json", on_fn->fn_name, grug_entity->name);
 			previous_on_fn_index = on_fn_index;
 
-			size_t fns_before_on_fns = 2; // define() and init_globals()
+			size_t fns_before_on_fns = 1; // Just init_globals()
 			push_64(text_offset + text_offsets[on_fn_index + fns_before_on_fns]);
 		} else {
 			push_64(0x0);
@@ -8530,8 +8047,8 @@ static void push_rela_dyn(void) {
 
 	rela_dyn_offset = bytes_size;
 
-	for (size_t i = 0; i < grug_define_entity->on_function_count; i++) {
-		struct on_fn *on_fn = get_on_fn(grug_define_entity->on_functions[i].name);
+	for (size_t i = 0; i < grug_entity->on_function_count; i++) {
+		struct on_fn *on_fn = get_on_fn(grug_entity->on_functions[i].name);
 		if (on_fn) {
 			push_rela(PLACEHOLDER_64, ELF64_R_INFO(0, R_X86_64_RELATIVE), PLACEHOLDER_64);
 		}
@@ -8922,22 +8439,14 @@ static void init_data_offsets(void) {
 	size_t i = 0;
 	size_t offset = 0;
 
-	// "define_type" symbol
-	data_offsets[i++] = offset;
-	offset += strlen(define_fn.return_type) + 1;
-
 	// "globals_size" symbol
-	size_t excess = offset % sizeof(u64); // Alignment
-	if (excess > 0) {
-		offset += sizeof(u64) - excess;
-	}
 	data_offsets[i++] = offset;
 	offset += sizeof(u64);
 
 	// "on_fns" function address symbols
-	if (grug_define_entity->on_function_count > 0) {
+	if (grug_entity->on_function_count > 0) {
 		data_offsets[i++] = offset;
-		for (size_t on_fn_index = 0; on_fn_index < grug_define_entity->on_function_count; on_fn_index++) {
+		for (size_t on_fn_index = 0; on_fn_index < grug_entity->on_function_count; on_fn_index++) {
 			offset += sizeof(size_t);
 		}
 	}
@@ -8950,7 +8459,7 @@ static void init_data_offsets(void) {
 	}
 
 	// "resources_size" symbol
-	excess = offset % sizeof(u64); // Alignment
+	size_t excess = offset % sizeof(u64); // Alignment
 	if (excess > 0) {
 		offset += sizeof(u64) - excess;
 	}
@@ -9092,13 +8601,10 @@ static void generate_shared_object(char *dll_path) {
 
 	init_section_header_indices();
 
-	push_symbol("define_type");
-	data_symbols_size++;
-
 	push_symbol("globals_size");
 	data_symbols_size++;
 
-	if (grug_define_entity->on_function_count > 0) {
+	if (grug_entity->on_function_count > 0) {
 		push_symbol("on_fns");
 		data_symbols_size++;
 	}
@@ -9168,7 +8674,6 @@ static void generate_shared_object(char *dll_path) {
 		push_symbol(used_extern_fns[i]);
 	}
 
-	push_symbol("define");
 	push_symbol("init_globals");
 
 	on_fns_symbol_offset = symbols_size;
@@ -9292,7 +8797,7 @@ static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
 
 			struct grug_modified_resource modified = {0};
 
-			assert(strlen(resource) + 1 <= sizeof(modified.path));
+			grug_assert(strlen(resource) + 1 <= sizeof(modified.path), "The resource '%s' exceeds the maximum path length of %zu", resource, sizeof(modified.path));
 			memcpy(modified.path, resource, strlen(resource) + 1);
 
 			if (grug_resource_reloads_size >= MAX_RESOURCE_RELOADS) {
@@ -9348,6 +8853,31 @@ static void reset_previous_grug_error(void) {
 	previous_grug_error.grug_c_line_number = 0;
 }
 
+static void set_file_entity_type(char *grug_path) {
+	char *dash = strchr(grug_path, '-');
+
+	grug_assert(dash && dash[1] != '\0', "'%s' is missing an entity type in its name; use a dash to specify it, like 'ak47-gun.grug'", grug_path);
+
+	char *period = strchr(grug_path, '.');
+	grug_assert(period, "'%s' is missing a period in its name", grug_path);
+
+	// "foo-.grug" has an entity_type_len of 0
+	size_t entity_type_len = period - dash - 1;
+	grug_assert(entity_type_len > 0, "'%s' is missing an entity type in its name; use a dash to specify it, like 'ak47-gun.grug'", grug_path);
+
+	grug_assert(entity_type_len < MAX_FILE_ENTITY_TYPE_LENGTH, "There are more than %d characters in the entity type '%s', exceeding MAX_FILE_ENTITY_TYPE_LENGTH", MAX_FILE_ENTITY_TYPE_LENGTH, dash + 1);
+	memcpy(file_entity_type, dash + 1, entity_type_len);
+	file_entity_type[entity_type_len] = '\0';
+}
+
+static void set_grug_error_path(char *grug_path) {
+	// Since grug_error.path is the maximum path length of operating systems,
+	// it shouldn't be possible for grug_path to exceed it
+	assert(strlen(grug_path) + 1 <= sizeof(grug_error.path));
+
+	memcpy(grug_error.path, grug_path, strlen(grug_path) + 1);
+}
+
 // This function just exists for the grug-tests repository
 // It returns whether an error occurred
 bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name) {
@@ -9361,8 +8891,9 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name) {
 
 	grug_loading_error_in_grug_file = false;
 
-	assert(strlen(grug_path) + 1 <= sizeof(grug_error.path));
-	memcpy(grug_error.path, grug_path, strlen(grug_path) + 1);
+	set_grug_error_path(grug_path);
+
+	set_file_entity_type(grug_path);
 
 	regenerate_dll(grug_path, dll_path);
 
@@ -9392,6 +8923,7 @@ static void try_create_parent_dirs(char *file_path) {
 static void free_file(struct grug_file file) {
 	free(file.name);
 	free(file.entity);
+	free(file.entity_type);
 
 	if (file.dll && dlclose(file.dll)) {
 		print_dlerror("dlclose");
@@ -9471,7 +9003,7 @@ static void check_that_every_entity_exists(struct grug_mod_dir dir) {
 
 				struct grug_file other_file = entity_files[entity_index];
 
-				grug_assert(*json_entity_type == '\0' || streq(other_file.define_type, json_entity_type), "The entity '%s' has the type '%s', whereas the expected type from mod_api.json is '%s'", entity, other_file.define_type, json_entity_type);
+				grug_assert(*json_entity_type == '\0' || streq(other_file.entity_type, json_entity_type), "The entity '%s' has the type '%s', whereas the expected type from mod_api.json is '%s'", entity, other_file.entity_type, json_entity_type);
 			}
 		}
 	}
@@ -9486,23 +9018,24 @@ static void push_reload(struct grug_modified modified) {
 	grug_reloads[grug_reloads_size++] = modified;
 }
 
-// Returns `mod + ':' + grug_filename - ".grug"`
+// Returns `mod + ':' + grug_filename - "-<entity type>.grug"`
 static char *form_entity(char *grug_filename) {
-	static char grug_basename[MAX_ENTITY_NAME_LENGTH];
+	static char entity_name[MAX_ENTITY_NAME_LENGTH];
 
-	char *period = strrchr(grug_filename, '.');
-	if (period == NULL) {
+	char *dash = strrchr(grug_filename, '-');
+	if (dash == NULL) {
+		// The function set_file_entity_type() already checked for a missing dash
 		grug_unreachable();
 	}
 
-	size_t basename_length = period - grug_filename;
+	size_t entity_name_length = dash - grug_filename;
 
-	grug_assert(basename_length < MAX_ENTITY_NAME_LENGTH, "There are more than %d characters in the grug filename '%s', exceeding MAX_ENTITY_NAME_LENGTH", MAX_ENTITY_NAME_LENGTH, grug_filename);
-	memcpy(grug_basename, grug_filename, basename_length);
-	grug_basename[basename_length] = '\0';
+	grug_assert(entity_name_length < MAX_ENTITY_NAME_LENGTH, "There are more than %d entity name characters in the grug filename '%s', exceeding MAX_ENTITY_NAME_LENGTH", MAX_ENTITY_NAME_LENGTH, grug_filename);
+	memcpy(entity_name, grug_filename, entity_name_length);
+	entity_name[entity_name_length] = '\0';
 
 	static char entity[MAX_ENTITY_NAME_LENGTH];
-	grug_assert(snprintf(entity, sizeof(entity), "%s:%s", mod, grug_basename) >= 0, "Filling the variable 'entity' failed");
+	grug_assert(snprintf(entity, sizeof(entity), "%s:%s", mod, entity_name) >= 0, "Filling the variable 'entity' failed");
 
 	size_t entity_length = strlen(entity);
 
@@ -9586,14 +9119,15 @@ static bool seen_entry(char *name, char **seen_names, size_t seen_names_size) {
 	return false;
 }
 
-static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char entry_path[STUPID_MAX_PATH], bool needs_regeneration, char dll_path[STUPID_MAX_PATH], char *grug_filename, struct grug_mod_dir *dir) {
+static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *grug_path, bool needs_regeneration, char *dll_path, char *grug_filename, struct grug_mod_dir *dir) {
 	struct grug_modified modified = {0};
 
-	assert(strlen(entry_path) + 1 <= sizeof(grug_error.path));
-	memcpy(grug_error.path, entry_path, strlen(entry_path) + 1);
+	set_grug_error_path(grug_path);
+
+	set_file_entity_type(grug_path);
 
 	if (needs_regeneration) {
-		regenerate_dll(entry_path, dll_path);
+		regenerate_dll(grug_path, dll_path);
 	}
 
 	if (file && file->dll) {
@@ -9620,12 +9154,6 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char en
 		print_dlerror("dlopen");
 	}
 
-	#pragma GCC diagnostic push
-	#pragma GCC diagnostic ignored "-Wpedantic"
-	new_file.define_fn = get_dll_symbol(new_file.dll, "define");
-	#pragma GCC diagnostic pop
-	grug_assert(new_file.define_fn, "Retrieving the define() function with get_dll_symbol() failed for %s", dll_path);
-
 	size_t *globals_size_ptr = get_dll_symbol(new_file.dll, "globals_size");
 	grug_assert(globals_size_ptr, "Retrieving the globals_size variable with get_dll_symbol() failed for %s", dll_path);
 	new_file.globals_size = *globals_size_ptr;
@@ -9635,9 +9163,6 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char en
 	new_file.init_globals_fn = get_dll_symbol(new_file.dll, "init_globals");
 	#pragma GCC diagnostic pop
 	grug_assert(new_file.init_globals_fn, "Retrieving the init_globals() function with get_dll_symbol() failed for %s", dll_path);
-
-	new_file.define_type = get_dll_symbol(new_file.dll, "define_type");
-	grug_assert(new_file.define_type, "Retrieving the define_type string with get_dll_symbol() failed for %s", dll_path);
 
 	// on_fns is optional, so don't check for NULL
 	// Note that if an entity in mod_api.json specifies that it has on_fns that the modder can use,
@@ -9649,10 +9174,9 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char en
 
 	if (file) {
 		file->dll = new_file.dll;
-		file->define_fn = new_file.define_fn;
+		file->entity_type = new_file.entity_type;
 		file->globals_size = new_file.globals_size;
 		file->init_globals_fn = new_file.init_globals_fn;
-		file->define_type = new_file.define_type;
 		file->on_fns = new_file.on_fns;
 
 		if (dll_resources_size > 0) {
@@ -9670,6 +9194,9 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char en
 
 		new_file.entity = strdup(form_entity(grug_filename));
 		grug_assert(new_file.entity, "strdup: %s", strerror(errno));
+
+		new_file.entity_type = strdup(file_entity_type);
+		grug_assert(new_file.entity_type, "strdup: %s", strerror(errno));
 
 		// We check dll_resources_size > 0, since whether malloc(0) returns NULL is implementation defined
 		// See https://stackoverflow.com/a/1073175/13279557
@@ -9695,8 +9222,11 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char en
 
 	// Let the game developer know that a grug file was recompiled
 	if (needs_regeneration) {
-		assert(strlen(entry_path) + 1 <= sizeof(modified.path));
-		memcpy(modified.path, entry_path, strlen(entry_path) + 1);
+		// Since modified.path is the maximum path length of operating systems,
+		// it shouldn't be possible for grug_path to exceed it
+		assert(strlen(grug_path) + 1 <= sizeof(modified.path));
+
+		memcpy(modified.path, grug_path, strlen(grug_path) + 1);
 
 		modified.file = *file;
 		push_reload(modified);
@@ -9705,17 +9235,19 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char en
 	return file;
 }
 
-static void reload_grug_file(char *dll_entry_path, i64 entry_mtime, char *grug_filename, struct grug_mod_dir *dir, char entry_path[STUPID_MAX_PATH]) {
+static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *grug_filename, struct grug_mod_dir *dir, char *grug_path) {
 	// Fill dll_path
 	char dll_path[STUPID_MAX_PATH];
 	grug_assert(strlen(dll_entry_path) + 1 <= STUPID_MAX_PATH, "There are more than %d characters in the dll_entry_path '%s', exceeding STUPID_MAX_PATH", STUPID_MAX_PATH, dll_entry_path);
 	memcpy(dll_path, dll_entry_path, strlen(dll_entry_path) + 1);
 
-	char *ext = get_file_extension(dll_path);
-	assert(ext[0] == '.');
+	char *extension = get_file_extension(dll_path);
+	// The code that called this reload_grug_file() function has already checked
+	// that the file ends with ".grug", so '.' will always be found here
+	assert(extension[0] == '.');
 
 	// We know that there's enough space, since ".so" is shorter than ".grug"
-	memcpy(ext + 1, "so", sizeof("so"));
+	memcpy(extension + 1, "so", sizeof("so"));
 
 	struct stat dll_stat;
 	bool dll_exists = stat(dll_path, &dll_stat) == 0;
@@ -9731,12 +9263,12 @@ static void reload_grug_file(char *dll_entry_path, i64 entry_mtime, char *grug_f
 	}
 
 	// If the dll doesn't exist or is outdated
-	bool needs_regeneration = !dll_exists || entry_mtime > dll_stat.st_mtime;
+	bool needs_regeneration = !dll_exists || grug_file_mtime > dll_stat.st_mtime;
 
 	struct grug_file *file = get_file(dir, grug_filename);
 
 	if (needs_regeneration || !file) {
-		file = regenerate_dll_and_file(file, entry_path, needs_regeneration, dll_path, grug_filename, dir);
+		file = regenerate_dll_and_file(file, grug_path, needs_regeneration, dll_path, grug_filename, dir);
 	}
 
 	// Needed for grug_get_entitity_file() and check_that_every_entity_exists()
@@ -9880,8 +9412,8 @@ static void validate_about_file(char *about_json_path) {
 static void reload_modified_mods(void) {
 	struct grug_mod_dir *dir = &grug_mods;
 
-	DIR *dirp = opendir(global_mods_dir_path);
-	grug_assert(dirp, "opendir(\"%s\"): %s", global_mods_dir_path, strerror(errno));
+	DIR *dirp = opendir(mods_root_dir_path);
+	grug_assert(dirp, "opendir(\"%s\"): %s", mods_root_dir_path, strerror(errno));
 
 	errno = 0;
 	struct dirent *dp;
@@ -9891,7 +9423,7 @@ static void reload_modified_mods(void) {
 		}
 
 		char entry_path[STUPID_MAX_PATH];
-		grug_assert(snprintf(entry_path, sizeof(entry_path), "%s/%s", global_mods_dir_path, dp->d_name) >= 0, "Filling the variable 'entry_path' failed");
+		grug_assert(snprintf(entry_path, sizeof(entry_path), "%s/%s", mods_root_dir_path, dp->d_name) >= 0, "Filling the variable 'entry_path' failed");
 
 		grug_assert(is_lowercase(dp->d_name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", dp->d_name, entry_path);
 
@@ -9951,7 +9483,7 @@ bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, ch
 
 	parse_mod_api_json(mod_api_json_path);
 
-	memcpy(global_mods_dir_path, mods_dir_path, strlen(mods_dir_path) + 1);
+	memcpy(mods_root_dir_path, mods_dir_path, strlen(mods_dir_path) + 1);
 
 	is_grug_initialized = true;
 
@@ -9970,7 +9502,7 @@ bool grug_regenerate_modified_mods(void) {
 	grug_loading_error_in_grug_file = false;
 
 	if (!grug_mods.name) {
-		grug_mods.name = strdup(get_basename(global_mods_dir_path));
+		grug_mods.name = strdup(get_basename(mods_root_dir_path));
 		grug_assert(grug_mods.name, "strdup: %s", strerror(errno));
 	}
 

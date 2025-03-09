@@ -21,7 +21,6 @@ enum grug_runtime_error_type {
 
 typedef void (*grug_runtime_error_handler_t)(char *reason, enum grug_runtime_error_type type, char *on_fn_name, char *on_fn_path);
 
-typedef void (*grug_define_fn_t)(void);
 typedef void (*grug_init_globals_fn_t)(void *globals, uint64_t id);
 
 //// Functions
@@ -70,11 +69,10 @@ void grug_toggle_on_fns_mode(void);
 struct grug_file {
 	char *name;
 	char *entity;
+	char *entity_type;
 	void *dll;
-	grug_define_fn_t define_fn;
 	size_t globals_size;
 	grug_init_globals_fn_t init_globals_fn;
-	char *define_type;
 	void *on_fns;
 	int64_t *resource_mtimes;
 };
