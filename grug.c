@@ -1124,7 +1124,7 @@ static void parse_mod_api_json(char *mod_api_json_path) {
 	grug_assert(node.type == JSON_NODE_OBJECT, "mod_api.json its root must be an object");
 	struct json_object root_object = node.object;
 
-	grug_assert(root_object.field_count == 2, "mod_api.json must have these 2 fields, in this order: \"entities\", \"game_functions\"");
+	grug_assert(root_object.field_count == 2, "mod_api.json must only have these 2 fields, in this order: \"entities\", \"game_functions\"");
 
 	struct json_field *field = root_object.fields;
 

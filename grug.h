@@ -25,10 +25,11 @@ typedef void (*grug_init_globals_fn_t)(void *globals, uint64_t id);
 
 //// Functions
 
-bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, char *mods_dir_path);
+// Returns whether an error occurred
+bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, char *mods_dir_path) __attribute__((warn_unused_result));
 
 // Returns whether an error occurred
-bool grug_regenerate_modified_mods(void);
+bool grug_regenerate_modified_mods(void) __attribute__((warn_unused_result));
 
 // Do NOT store the returned pointer, as it has a chance to dangle
 // after the next grug_regenerate_modified_mods() call!
@@ -46,10 +47,10 @@ void grug_free_mods(void);
 // but an external tool has the advantage that it isn't tied to the game's release cycle
 //
 // Returns whether an error occurred
-bool grug_dump_file_to_json(char *input_grug_path, char *output_json_path);
-bool grug_dump_mods_to_json(char *input_mods_path, char *output_json_path);
-bool grug_generate_file_from_json(char *input_json_path, char *output_grug_path);
-bool grug_generate_mods_from_json(char *input_json_path, char *output_mods_path);
+bool grug_dump_file_to_json(char *input_grug_path, char *output_json_path) __attribute__((warn_unused_result));
+bool grug_dump_mods_to_json(char *input_mods_path, char *output_json_path) __attribute__((warn_unused_result));
+bool grug_generate_file_from_json(char *input_json_path, char *output_grug_path) __attribute__((warn_unused_result));
+bool grug_generate_mods_from_json(char *input_json_path, char *output_mods_path) __attribute__((warn_unused_result));
 
 // Safe mode is the default
 // Safe mode is significantly slower than fast mode, but guarantees the program can't crash
