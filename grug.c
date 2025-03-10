@@ -7494,7 +7494,7 @@ static void patch_program_headers(void) {
 	overwrite_64(plt_offset, 0x88); // virtual_address
 	overwrite_64(plt_offset, 0x90); // physical_address
 	size_t size = text_size;
-	if (has_got()) {
+	if (has_plt()) {
 		size += plt_size;
 	}
 	overwrite_64(size, 0x98); // file_size
