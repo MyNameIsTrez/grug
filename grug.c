@@ -8906,14 +8906,14 @@ static void set_file_entity_type(char *grug_path) {
 
 	grug_assert(dash && dash[1] != '\0', "'%s' is missing an entity type in its name; use a dash to specify it, like 'ak47-gun.grug'", grug_path);
 
-	char *period = strchr(grug_path, '.');
+	char *period = strchr(dash + 1, '.');
 	grug_assert(period, "'%s' is missing a period in its name", grug_path);
 
 	// "foo-.grug" has an entity_type_len of 0
 	size_t entity_type_len = period - dash - 1;
 	grug_assert(entity_type_len > 0, "'%s' is missing an entity type in its name; use a dash to specify it, like 'ak47-gun.grug'", grug_path);
 
-	grug_assert(entity_type_len < MAX_FILE_ENTITY_TYPE_LENGTH, "There are more than %d characters in the entity type '%s', exceeding MAX_FILE_ENTITY_TYPE_LENGTH", MAX_FILE_ENTITY_TYPE_LENGTH, dash + 1);
+	grug_assert(entity_type_len < MAX_FILE_ENTITY_TYPE_LENGTH, "There are more than %d characters in the entity type of '%s', exceeding MAX_FILE_ENTITY_TYPE_LENGTH", MAX_FILE_ENTITY_TYPE_LENGTH, grug_path);
 	memcpy(file_entity_type, dash + 1, entity_type_len);
 	file_entity_type[entity_type_len] = '\0';
 }
