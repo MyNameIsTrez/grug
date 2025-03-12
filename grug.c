@@ -8901,19 +8901,19 @@ static void reset_previous_grug_error(void) {
 	previous_grug_error.grug_c_line_number = 0;
 }
 
-static void set_file_entity_type(char *grug_path) {
-	char *dash = strchr(grug_path, '-');
+static void set_file_entity_type(char *grug_filename) {
+	char *dash = strchr(grug_filename, '-');
 
-	grug_assert(dash && dash[1] != '\0', "'%s' is missing an entity type in its name; use a dash to specify it, like 'ak47-gun.grug'", grug_path);
+	grug_assert(dash && dash[1] != '\0', "'%s' is missing an entity type in its name; use a dash to specify it, like 'ak47-gun.grug'", grug_filename);
 
 	char *period = strchr(dash + 1, '.');
-	grug_assert(period, "'%s' is missing a period in its name", grug_path);
+	grug_assert(period, "'%s' is missing a period in its filename", grug_filename);
 
 	// "foo-.grug" has an entity_type_len of 0
 	size_t entity_type_len = period - dash - 1;
-	grug_assert(entity_type_len > 0, "'%s' is missing an entity type in its name; use a dash to specify it, like 'ak47-gun.grug'", grug_path);
+	grug_assert(entity_type_len > 0, "'%s' is missing an entity type in its name; use a dash to specify it, like 'ak47-gun.grug'", grug_filename);
 
-	grug_assert(entity_type_len < MAX_FILE_ENTITY_TYPE_LENGTH, "There are more than %d characters in the entity type of '%s', exceeding MAX_FILE_ENTITY_TYPE_LENGTH", MAX_FILE_ENTITY_TYPE_LENGTH, grug_path);
+	grug_assert(entity_type_len < MAX_FILE_ENTITY_TYPE_LENGTH, "There are more than %d characters in the entity type of '%s', exceeding MAX_FILE_ENTITY_TYPE_LENGTH", MAX_FILE_ENTITY_TYPE_LENGTH, grug_filename);
 	memcpy(file_entity_type, dash + 1, entity_type_len);
 	file_entity_type[entity_type_len] = '\0';
 }
@@ -8941,7 +8941,9 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name) {
 
 	set_grug_error_path(grug_path);
 
-	set_file_entity_type(grug_path);
+	char *grug_filename = strrchr(grug_path, '/');
+	grug_assert(grug_filename, "The grug file path '%s' does not contain a '/' character", grug_path);
+	set_file_entity_type(grug_filename + 1);
 
 	regenerate_dll(grug_path, dll_path);
 
@@ -9172,7 +9174,7 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *g
 
 	set_grug_error_path(grug_path);
 
-	set_file_entity_type(grug_path);
+	set_file_entity_type(grug_filename);
 
 	if (needs_regeneration) {
 		regenerate_dll(grug_path, dll_path);
