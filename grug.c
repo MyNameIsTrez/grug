@@ -9224,7 +9224,6 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *g
 
 	if (file) {
 		file->dll = new_file.dll;
-		file->entity_type = new_file.entity_type;
 		file->globals_size = new_file.globals_size;
 		file->init_globals_fn = new_file.init_globals_fn;
 		file->on_fns = new_file.on_fns;
