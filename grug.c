@@ -1490,7 +1490,7 @@ static void tokenize(void) {
 
 			size_t spaces = i - old_i;
 
-			grug_assert(spaces % SPACES_PER_INDENT == 0, "Encountered %zu spaces, while indentation expects multiples of %d spaces, on line %zu of the grug text file", spaces, SPACES_PER_INDENT, get_character_line_number(i));
+			grug_assert(spaces % SPACES_PER_INDENT == 0, "Encountered %zu spaces, while indentation expects multiples of %d spaces, on line %zu", spaces, SPACES_PER_INDENT, get_character_line_number(i));
 
 			push_token(INDENTATION_TOKEN, str, spaces);
 		} else if (grug_text[i] == '\"') {
@@ -1501,7 +1501,7 @@ static void tokenize(void) {
 
 			do {
 				i++;
-				grug_assert(grug_text[i] != '\0', "Unclosed \" on line %zu of the grug text file", get_character_line_number(open_double_quote_index + 1));
+				grug_assert(grug_text[i] != '\0', "Unclosed \" on line %zu", get_character_line_number(open_double_quote_index + 1));
 			} while (grug_text[i] != '\"');
 			i++;
 
@@ -1524,7 +1524,7 @@ static void tokenize(void) {
 			i++;
 			while (isdigit(grug_text[i]) || grug_text[i] == '.') {
 				if (grug_text[i] == '.') {
-					grug_assert(!seen_period, "Encountered two '.' periods in a number on line %zu of the grug text file", get_character_line_number(i));
+					grug_assert(!seen_period, "Encountered two '.' periods in a number on line %zu", get_character_line_number(i));
 					seen_period = true;
 				}
 				i++;
@@ -1539,7 +1539,7 @@ static void tokenize(void) {
 		} else if (grug_text[i] == '#') {
 			i++;
 
-			grug_assert(grug_text[i] == ' ', "Expected a single space after the '#' on line %zu of the grug text file", get_character_line_number(i));
+			grug_assert(grug_text[i] == ' ', "Expected a single space after the '#' on line %zu", get_character_line_number(i));
 			i++;
 
 			char *str = grug_text+i;
@@ -1551,20 +1551,20 @@ static void tokenize(void) {
 						break;
 					}
 
-					grug_error("Unexpected unprintable character '%.*s' on line %zu of the grug text file", is_escaped_char(grug_text[i]) ? 2 : 1, get_escaped_char(&grug_text[i]), get_character_line_number(i + 1));
+					grug_error("Unexpected unprintable character '%.*s' on line %zu", is_escaped_char(grug_text[i]) ? 2 : 1, get_escaped_char(&grug_text[i]), get_character_line_number(i + 1));
 				}
 				i++;
 			}
 
 			size_t len = i - old_i;
 
-			grug_assert(len > 0, "Expected the comment to contain some text, on line %zu of the grug text file", get_character_line_number(i));
+			grug_assert(len > 0, "Expected the comment to contain some text on line %zu", get_character_line_number(i));
 
-			grug_assert(!isspace(grug_text[i - 1]), "A comment has trailing whitespace on line %zu of the grug text file", get_character_line_number(i));
+			grug_assert(!isspace(grug_text[i - 1]), "A comment has trailing whitespace on line %zu", get_character_line_number(i));
 
 			push_token(COMMENT_TOKEN, str, len);
 		} else {
-			grug_error("Unrecognized character '%.*s' on line %zu of the grug text file", is_escaped_char(grug_text[i]) ? 2 : 1, get_escaped_char(&grug_text[i]), get_character_line_number(i + 1));
+			grug_error("Unrecognized character '%.*s' on line %zu", is_escaped_char(grug_text[i]) ? 2 : 1, get_escaped_char(&grug_text[i]), get_character_line_number(i + 1));
 		}
 	}
 }
