@@ -5133,8 +5133,6 @@ static bool is_max_time_used;
 static char helper_fn_mode_names[MAX_HELPER_FN_MODE_NAMES_CHARACTERS];
 static size_t helper_fn_mode_names_size;
 
-static bool is_negation_overflow_possible;
-
 static void reset_compiling(void) {
 	codes_size = 0;
 	resource_strings_size = 0;
@@ -6347,7 +6345,7 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 			if (unary_expr.expr->result_type == type_i32) {
 				compile_unpadded(NEGATE_EAX);
 
-				if (!compiling_fast_mode && !is_negation_overflow_possible) {
+				if (!compiling_fast_mode) {
 					compile_check_overflow();
 				}
 			} else {
@@ -6605,6 +6603,42 @@ static void compile_expr(struct expr expr) {
 	}
 }
 
+static void compile_global_variable_statement(char *name) {
+	compile_unpadded(MOV_DEREF_RBP_TO_R11);
+	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
+
+	struct variable *var = get_global_variable(name);
+	switch (var->type) {
+		case type_void:
+		case type_resource:
+		case type_entity:
+			grug_unreachable();
+		case type_bool:
+		case type_i32:
+		case type_f32:
+			if (var->offset < 0x80) {
+				compile_unpadded(MOV_EAX_TO_DEREF_R11_8_BIT_OFFSET);
+			} else {
+				compile_unpadded(MOV_EAX_TO_DEREF_R11_32_BIT_OFFSET);
+			}
+			break;
+		case type_string:
+		case type_id:
+			if (var->offset < 0x80) {
+				compile_unpadded(MOV_RAX_TO_DEREF_R11_8_BIT_OFFSET);
+			} else {
+				compile_unpadded(MOV_RAX_TO_DEREF_R11_32_BIT_OFFSET);
+			}
+			break;
+	}
+
+	if (var->offset < 0x80) {
+		compile_byte(var->offset);
+	} else {
+		compile_32(var->offset);
+	}
+}
+
 static void compile_variable_statement(struct variable_statement variable_statement) {
 	compile_expr(*variable_statement.assignment_expr);
 
@@ -6642,39 +6676,7 @@ static void compile_variable_statement(struct variable_statement variable_statem
 		return;
 	}
 
-	compile_unpadded(MOV_DEREF_RBP_TO_R11);
-	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
-
-	var = get_global_variable(variable_statement.name);
-	switch (var->type) {
-		case type_void:
-		case type_resource:
-		case type_entity:
-			grug_unreachable();
-		case type_bool:
-		case type_i32:
-		case type_f32:
-			if (var->offset < 0x80) {
-				compile_unpadded(MOV_EAX_TO_DEREF_R11_8_BIT_OFFSET);
-			} else {
-				compile_unpadded(MOV_EAX_TO_DEREF_R11_32_BIT_OFFSET);
-			}
-			break;
-		case type_string:
-		case type_id:
-			if (var->offset < 0x80) {
-				compile_unpadded(MOV_RAX_TO_DEREF_R11_8_BIT_OFFSET);
-			} else {
-				compile_unpadded(MOV_RAX_TO_DEREF_R11_32_BIT_OFFSET);
-			}
-			break;
-	}
-
-	if (var->offset < 0x80) {
-		compile_byte(var->offset);
-	} else {
-		compile_32(var->offset);
-	}
+	compile_global_variable_statement(variable_statement.name);
 }
 
 static void compile_statements(struct statement *body_statements, size_t statement_count) {
@@ -6897,40 +6899,15 @@ static void compile_helper_fn(struct helper_fn fn) {
 }
 
 static void compile_init_globals_fn(void) {
-	size_t ptr_offset = 0;
-
 	// The entity ID passed in the rsi register is always the first global
 	compile_unpadded(MOV_RSI_TO_DEREF_RDI);
-	ptr_offset += sizeof(u64);
 
 	for (size_t i = 0; i < global_variable_statements_size; i++) {
 		struct global_variable_statement global = global_variable_statements[i];
 
 		compile_expr(global.assignment_expr);
 
-		enum type result_type = global.assignment_expr.result_type;
-
-		if (ptr_offset < 0x80) { // an i8 with the value 0x80 is negative in two's complement
-			if (result_type == type_string || result_type == type_id) {
-				compile_unpadded(MOV_RAX_TO_DEREF_RDI_8_BIT_OFFSET);
-			} else {
-				compile_unpadded(MOV_EAX_TO_DEREF_RDI_8_BIT_OFFSET);
-			}
-			compile_byte(ptr_offset);
-		} else {
-			if (result_type == type_string || result_type == type_id) {
-				compile_unpadded(MOV_RAX_TO_DEREF_RDI_32_BIT_OFFSET);
-			} else {
-				compile_unpadded(MOV_EAX_TO_DEREF_RDI_32_BIT_OFFSET);
-			}
-			compile_32(ptr_offset);
-		}
-
-		if (global.type == type_string || global.type == type_id) {
-			ptr_offset += sizeof(u64);
-		} else {
-			ptr_offset += sizeof(u32);
-		}
+		compile_global_variable_statement(global.name);
 	}
 
 	compile_byte(RET);
@@ -6942,13 +6919,9 @@ static void compile(char *grug_path) {
 	size_t text_offset_index = 0;
 	size_t text_offset = 0;
 
-	is_negation_overflow_possible = true;
-
 	compile_init_globals_fn();
 	text_offsets[text_offset_index++] = text_offset;
 	text_offset = codes_size;
-
-	is_negation_overflow_possible = false;
 
 	for (size_t on_fn_index = 0; on_fn_index < on_fns_size; on_fn_index++) {
 		struct on_fn fn = on_fns[on_fn_index];
