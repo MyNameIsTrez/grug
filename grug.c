@@ -4741,7 +4741,8 @@ static void check_global_expr(struct expr *expr, char *name) {
 			grug_error("The global variable '%s' isn't allowed to use binary expressions", name);
 			break;
 		case CALL_EXPR:
-			grug_error("The global variable '%s' isn't allowed to call functions", name);
+			// See tests/err/global_cant_call_helper_fn and tests/ok/global_id
+			grug_assert(!starts_with(name, "helper_"), "The global variable '%s' isn't allowed to call helper functions", name);
 			break;
 		case PARENTHESIZED_EXPR:
 			grug_error("The global variable '%s' isn't allowed to use parentheses", name);
@@ -5807,9 +5808,9 @@ static void compile_set_time_limit(void) {
 }
 
 static void compile_save_on_fn_name_and_path(char *grug_path, char *fn_name) {
-	// mov rax, [rel grug_on_fn_path wrt ..got]:
+	// mov rax, [rel grug_fn_path wrt ..got]:
 	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
-	push_used_extern_global_variable("grug_on_fn_path", codes_size);
+	push_used_extern_global_variable("grug_fn_path", codes_size);
 	compile_32(PLACEHOLDER_32);
 
 	// lea r11, strings[rel n]:
@@ -5821,9 +5822,9 @@ static void compile_save_on_fn_name_and_path(char *grug_path, char *fn_name) {
 	// mov [rax], r11:
 	compile_unpadded(MOV_R11_TO_DEREF_RAX);
 
-	// mov rax, [rel grug_on_fn_name wrt ..got]:
+	// mov rax, [rel grug_fn_name wrt ..got]:
 	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
-	push_used_extern_global_variable("grug_on_fn_name", codes_size);
+	push_used_extern_global_variable("grug_fn_name", codes_size);
 	compile_32(PLACEHOLDER_32);
 
 	// lea r11, strings[rel n]:
@@ -7856,7 +7857,7 @@ static void push_got(void) {
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
 
-	push_global_variable_offset("grug_on_fn_path", offset);
+	push_global_variable_offset("grug_fn_name", offset);
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
 
@@ -7866,7 +7867,7 @@ static void push_got(void) {
 		push_zeros(sizeof(u64));
 	}
 
-	push_global_variable_offset("grug_on_fn_name", offset);
+	push_global_variable_offset("grug_fn_path", offset);
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
 
@@ -7926,11 +7927,11 @@ static void push_dynamic(void) {
 		if (is_max_time_used) {
 			dynamic_offset -= sizeof(u64); // grug_max_time
 		}
-		dynamic_offset -= sizeof(u64); // grug_on_fn_name
+		dynamic_offset -= sizeof(u64); // grug_fn_path
 		if (is_error_handler_used) {
 			dynamic_offset -= sizeof(u64); // grug_runtime_error_jmp_buffer
 		}
-		dynamic_offset -= sizeof(u64); // grug_on_fn_path
+		dynamic_offset -= sizeof(u64); // grug_fn_name
 		dynamic_offset -= sizeof(u64); // grug_on_fns_in_safe_mode
 		if (is_max_time_used) {
 			dynamic_offset -= sizeof(u64); // grug_current_time
@@ -8697,7 +8698,7 @@ static void generate_shared_object(char *dll_path) {
 			extern_data_symbols_size++;
 		}
 
-		push_symbol("grug_on_fn_name");
+		push_symbol("grug_fn_path");
 		extern_data_symbols_size++;
 
 		if (is_error_handler_used) {
@@ -8705,7 +8706,7 @@ static void generate_shared_object(char *dll_path) {
 			extern_data_symbols_size++;
 		}
 
-		push_symbol("grug_on_fn_path");
+		push_symbol("grug_fn_name");
 		extern_data_symbols_size++;
 
 		push_symbol("grug_on_fns_in_safe_mode");
@@ -8777,8 +8778,8 @@ static size_t entities_size;
 USED_BY_PROGRAMS struct grug_modified_resource grug_resource_reloads[MAX_RESOURCE_RELOADS];
 USED_BY_PROGRAMS size_t grug_resource_reloads_size;
 
-USED_BY_MODS char *grug_on_fn_name;
-USED_BY_MODS char *grug_on_fn_path;
+USED_BY_MODS char *grug_fn_name;
+USED_BY_MODS char *grug_fn_path;
 
 static bool is_grug_initialized = false;
 
@@ -8791,8 +8792,8 @@ static void reset_regenerate_modified_mods(void) {
 	memset(buckets_entities, 0xff, sizeof(buckets_entities));
 	entities_size = 0;
 	grug_resource_reloads_size = 0;
-	grug_on_fn_name = "OPTIMIZED OUT FUNCTION NAME";
-	grug_on_fn_path = "OPTIMIZED OUT FUNCTION PATH";
+	grug_fn_name = "OPTIMIZED OUT FUNCTION NAME";
+	grug_fn_path = "OPTIMIZED OUT FUNCTION PATH";
 }
 
 static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {

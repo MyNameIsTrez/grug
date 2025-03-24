@@ -121,5 +121,5 @@ extern struct grug_error grug_error;
 extern bool grug_loading_error_in_grug_file;
 
 // These help game functions print helpful errors
-extern char *grug_on_fn_name;
-extern char *grug_on_fn_path;
+extern char *grug_fn_name;
+extern char *grug_fn_path;
