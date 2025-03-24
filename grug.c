@@ -4741,8 +4741,8 @@ static void check_global_expr(struct expr *expr, char *name) {
 			grug_error("The global variable '%s' isn't allowed to use binary expressions", name);
 			break;
 		case CALL_EXPR:
-			// See tests/err/global_cant_call_helper_fn and tests/ok/global_id
-			grug_assert(!starts_with(name, "helper_"), "The global variable '%s' isn't allowed to call helper functions", name);
+			// See tests/err/global_cant_call_helper_fn, tests/err/global_cant_call_on_fn, and tests/ok/global_id
+			grug_assert(!starts_with(expr->call.fn_name, "helper_"), "The global variable '%s' isn't allowed to call helper functions", name);
 			break;
 		case PARENTHESIZED_EXPR:
 			grug_error("The global variable '%s' isn't allowed to use parentheses", name);
