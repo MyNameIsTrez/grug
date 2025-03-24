@@ -6755,7 +6755,7 @@ static size_t round_to_power_of_2(size_t n, size_t multiple) {
 	return (n + multiple - 1) & -multiple;
 }
 
-static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, bool is_on_fn, char *grug_path, bool on_fn_calls_helper_fn, bool on_fn_contains_while_loop, bool on_fn_contains_i32_operation) {
+static void compile_on_fn_impl(char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, char *grug_path, bool on_fn_calls_helper_fn, bool on_fn_contains_while_loop, bool on_fn_contains_i32_operation) {
 	init_argument_variables(fn_arguments, argument_count);
 
 	add_variables_in_statements(body_statements, body_statement_count);
@@ -6790,74 +6790,110 @@ static void compile_on_or_helper_fn(char *fn_name, struct argument *fn_arguments
 
 	size_t skip_safe_code_offset;
 
-	if (is_on_fn) {
-		// mov rax, [rel grug_on_fns_in_safe_mode wrt ..got]:
+	// mov rax, [rel grug_on_fns_in_safe_mode wrt ..got]:
+	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
+	push_used_extern_global_variable("grug_on_fns_in_safe_mode", codes_size);
+	compile_32(PLACEHOLDER_32);
+
+	// mov al, [rax]:
+	compile_padded(MOV_DEREF_RAX_TO_AL, 2);
+
+	// test al, al:
+	compile_unpadded(TEST_AL_IS_ZERO);
+
+	// je strict $+0xn:
+	compile_unpadded(JE_32_BIT_OFFSET);
+	skip_safe_code_offset = codes_size;
+	compile_unpadded(PLACEHOLDER_32);
+
+	compile_save_on_fn_name_and_path(grug_path, fn_name);
+
+	if (on_fn_calls_helper_fn) {
+		is_max_rsp_used = true;
+
+		// mov rax, [rel grug_max_rsp wrt ..got]:
 		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
-		push_used_extern_global_variable("grug_on_fns_in_safe_mode", codes_size);
+		push_used_extern_global_variable("grug_max_rsp", codes_size);
 		compile_32(PLACEHOLDER_32);
 
-		// mov al, [rax]:
-		compile_padded(MOV_DEREF_RAX_TO_AL, 2);
+		// mov [rax], rsp:
+		compile_unpadded(MOV_RSP_TO_DEREF_RAX);
 
-		// test al, al:
-		compile_unpadded(TEST_AL_IS_ZERO);
+		// sub qword [rax], GRUG_STACK_LIMIT:
+		compile_unpadded(SUB_DEREF_RAX_32_BITS);
+		compile_32(GRUG_STACK_LIMIT);
+	}
 
-		// je strict $+0xn:
-		compile_unpadded(JE_32_BIT_OFFSET);
-		skip_safe_code_offset = codes_size;
-		compile_unpadded(PLACEHOLDER_32);
+	if (on_fn_calls_helper_fn || on_fn_contains_while_loop) {
+		compile_set_time_limit();
+	}
 
-		compile_save_on_fn_name_and_path(grug_path, fn_name);
+	if (on_fn_calls_helper_fn || on_fn_contains_while_loop || on_fn_contains_i32_operation) {
+		compile_error_handling(grug_path, fn_name);
+	}
 
-		if (on_fn_calls_helper_fn) {
-			is_max_rsp_used = true;
+	compile_statements(body_statements, body_statement_count);
 
-			// mov rax, [rel grug_max_rsp wrt ..got]:
-			compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
-			push_used_extern_global_variable("grug_max_rsp", codes_size);
-			compile_32(PLACEHOLDER_32);
+	compile_function_epilogue();
 
-			// mov [rax], rsp:
-			compile_unpadded(MOV_RSP_TO_DEREF_RAX);
+	overwrite_jmp_address_32(skip_safe_code_offset, codes_size);
 
-			// sub qword [rax], GRUG_STACK_LIMIT:
-			compile_unpadded(SUB_DEREF_RAX_32_BITS);
-			compile_32(GRUG_STACK_LIMIT);
-		}
+	compiling_fast_mode = true;
+	compile_statements(body_statements, body_statement_count);
+	compiling_fast_mode = false;
 
-		if (on_fn_calls_helper_fn || on_fn_contains_while_loop) {
-			compile_set_time_limit();
-		}
+	compile_function_epilogue();
+}
 
-		if (on_fn_calls_helper_fn || on_fn_contains_while_loop || on_fn_contains_i32_operation) {
-			compile_error_handling(grug_path, fn_name);
-		}
-	} else if (!compiling_fast_mode) {
+static void compile_on_fn(struct on_fn fn, char *grug_path) {
+	compile_on_fn_impl(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, grug_path, fn.calls_helper_fn, fn.contains_while_loop, fn.contains_i32_operation);
+}
+
+static void compile_helper_fn_impl(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
+	init_argument_variables(fn_arguments, argument_count);
+
+	add_variables_in_statements(body_statements, body_statement_count);
+
+	// Function prologue
+	compile_byte(PUSH_RBP);
+
+	// Deliberately leaving this out, so we don't have to worry about adding 8
+	// after turning stack_frame_bytes into a multiple of 16
+	// stack_frame_bytes += sizeof(u64);
+
+	compile_unpadded(MOV_RSP_TO_RBP);
+
+	// Make space in the stack for the arguments and variables
+	// The System V ABI requires 16-byte stack alignment: https://stackoverflow.com/q/49391001/13279557
+	stack_frame_bytes = round_to_power_of_2(stack_frame_bytes, 0x10);
+	if (stack_frame_bytes < 0x80) {
+		compile_unpadded(SUB_RSP_8_BITS);
+		compile_byte(stack_frame_bytes);
+	} else {
+		compile_unpadded(SUB_RSP_32_BITS);
+		compile_32(stack_frame_bytes);
+	}
+
+	// We need to move the secret global variables pointer to this function's stack frame,
+	// because the RDI register will get clobbered when this function calls another function:
+	// https://stackoverflow.com/a/55387707/13279557
+	compile_unpadded(MOV_RDI_TO_DEREF_RBP);
+	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
+
+	move_arguments(fn_arguments, argument_count);
+
+	if (!compiling_fast_mode) {
 		compile_check_stack_overflow();
 		compile_check_time_limit_exceeded();
 	}
 
 	compile_statements(body_statements, body_statement_count);
 
-	if (is_on_fn) {
-		compile_function_epilogue();
-
-		overwrite_jmp_address_32(skip_safe_code_offset, codes_size);
-
-		compiling_fast_mode = true;
-		compile_statements(body_statements, body_statement_count);
-		compiling_fast_mode = false;
-	}
-
 	compile_function_epilogue();
 }
 
-static void compile_on_fn(struct on_fn fn, char *grug_path) {
-	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, true, grug_path, fn.calls_helper_fn, fn.contains_while_loop, fn.contains_i32_operation);
-}
-
 static void compile_helper_fn(struct helper_fn fn) {
-	compile_on_or_helper_fn(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, false, NULL, false, false, false);
+	compile_helper_fn_impl(fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count);
 }
 
 static void compile_init_globals_fn(void) {
