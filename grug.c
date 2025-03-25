@@ -4870,8 +4870,6 @@ static void fill_result_types(void) {
 
 #define JMP_32_BIT_OFFSET 0xe9 // jmp $+n
 
-#define JS 0x78 // js $+n
-
 #define CALL_DEREF_RAX 0x10ff // call [rax]
 
 #define JNO 0x71 // jno $+n
@@ -4884,7 +4882,6 @@ static void fill_result_types(void) {
 #define MOV_DEREF_RBP_TO_EAX_32_BIT_OFFSET 0x858b // mov eax, rbp[n]
 
 #define MOV_EAX_TO_DEREF_RBP_8_BIT_OFFSET 0x4589 // mov rbp[n], eax
-#define MOV_EAX_TO_DEREF_RDI_8_BIT_OFFSET 0x4789 // mov rdi[n], eax
 #define MOV_ECX_TO_DEREF_RBP_8_BIT_OFFSET 0x4d89 // mov rbp[n], ecx
 #define MOV_EDX_TO_DEREF_RBP_8_BIT_OFFSET 0x5589 // mov rbp[n], edx
 
@@ -4896,7 +4893,6 @@ static void fill_result_types(void) {
 #define MOV_DEREF_RAX_TO_EAX_32_BIT_OFFSET 0x808b // mov eax, rax[n]
 #define JE_32_BIT_OFFSET 0x840f // je strict $+n
 #define MOV_EAX_TO_DEREF_RBP_32_BIT_OFFSET 0x8589 // mov rbp[n], eax
-#define MOV_EAX_TO_DEREF_RDI_32_BIT_OFFSET 0x8789 // mov rdi[n], eax
 #define MOV_ECX_TO_DEREF_RBP_32_BIT_OFFSET 0x8d89 // mov rbp[n], ecx
 #define MOV_EDX_TO_DEREF_RBP_32_BIT_OFFSET 0x9589 // mov rbp[n], edx
 #define MOV_ESI_TO_DEREF_RBP_32_BIT_OFFSET 0xb589 // mov rbp[n], esi
@@ -4948,7 +4944,6 @@ static void fill_result_types(void) {
 
 #define MOV_DEREF_RBP_TO_RAX_8_BIT_OFFSET 0x458b48 // mov rax, rbp[n]
 
-#define MOV_RAX_TO_DEREF_RDI_8_BIT_OFFSET 0x478948 // mov rdi[n], rax
 #define MOV_R9D_TO_DEREF_RBP_8_BIT_OFFSET 0x4d8944 // mov rbp[n], r9d
 #define MOV_RCX_TO_DEREF_RBP_8_BIT_OFFSET 0x4d8948 // mov rbp[n], rcx
 #define MOV_R9_TO_DEREF_RBP_8_BIT_OFFSET 0x4d894c // mov rbp[n], r9
@@ -4971,14 +4966,11 @@ static void fill_result_types(void) {
 #define MOV_RAX_TO_DEREF_RBP_32_BIT_OFFSET 0x858948 // mov rbp[n], rax
 #define MOV_R8_TO_DEREF_RBP_32_BIT_OFFSET 0x85894c // mov rbp[n], r8
 #define MOV_DEREF_RBP_TO_RAX_32_BIT_OFFSET 0x858b48 // mov rax, rbp[n]
-#define MOV_RAX_TO_DEREF_RDI_32_BIT_OFFSET 0x878948 // mov rdi[n], rax
 #define MOV_R9D_TO_DEREF_RBP_32_BIT_OFFSET 0x8d8944 // mov rbp[n], r9d
 #define MOV_RCX_TO_DEREF_RBP_32_BIT_OFFSET 0x8d8948 // mov rbp[n], rcx
 #define MOV_R9_TO_DEREF_RBP_32_BIT_OFFSET 0x8d894c // mov rbp[n], r9
 #define MOV_RDX_TO_DEREF_RBP_32_BIT_OFFSET 0x958948 // mov rbp[n], rdx
 #define MOV_RSI_TO_DEREF_RBP_32_BIT_OFFSET 0xb58948 // mov rbp[n], rsi
-
-#define MOV_RAX_TO_R8 0xc08949 // mov r8, rax
 
 #define SETB_AL 0xc0920f // setb al (set if below)
 #define SETAE_AL 0xc0930f // setae al (set if above or equal)
@@ -4995,12 +4987,8 @@ static void fill_result_types(void) {
 // https://stackoverflow.com/a/8627368/13279557
 #define ORDERED_CMP_XMM0_WITH_XMM1 0xc12f0f // comiss xmm0, xmm1
 
-#define MOV_RAX_TO_RCX 0xc18948 // mov rcx, rax
-#define MOV_RAX_TO_R9 0xc18949 // mov r9, rax
-#define MOV_RAX_TO_RDX 0xc28948 // mov rdx, rax
 #define ADD_RSP_32_BITS 0xc48148 // add rsp, n
 #define ADD_RSP_8_BITS 0xc48348 // add rsp, n
-#define MOV_RAX_TO_RSI 0xc68948 // mov rsi, rax
 #define MOV_RAX_TO_RDI 0xc78948 // mov rdi, rax
 #define MOV_RDX_TO_RAX 0xd08948 // mov rax, rdx
 #define ADD_R11D_TO_EAX 0xd80144 // add eax, r11d
