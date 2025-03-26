@@ -4085,7 +4085,8 @@ static bool parsing_on_fn;
 
 static bool *parsed_on_fn_calls_helper_fn_ptr;
 static bool *parsed_on_fn_contains_while_loop_ptr;
-static bool *parsed_on_fn_contains_i32_operation_ptr;
+static bool *parsed_fn_contains_i32_operation_ptr;
+static bool init_globals_fn_contains_i32_operation;
 
 static void reset_filling(void) {
 	global_variables_size = 0;
@@ -4330,7 +4331,7 @@ static void fill_binary_expr(struct expr *expr) {
 			expr->result_type = binary_expr.left_expr->result_type;
 
 			if (parsing_on_fn && expr->result_type == type_i32) {
-				*parsed_on_fn_contains_i32_operation_ptr = true;
+				*parsed_fn_contains_i32_operation_ptr = true;
 			}
 
 			break;
@@ -4340,7 +4341,7 @@ static void fill_binary_expr(struct expr *expr) {
 			expr->result_type = type_i32;
 
 			if (parsing_on_fn && expr->result_type == type_i32) {
-				*parsed_on_fn_contains_i32_operation_ptr = true;
+				*parsed_fn_contains_i32_operation_ptr = true;
 			}
 
 			break;
@@ -4488,7 +4489,7 @@ static void fill_expr(struct expr *expr) {
 				grug_assert(expr->result_type == type_i32 || expr->result_type == type_f32, "Found '-' before %s, but it can only be put before an i32 or f32", type_names[expr->result_type]);
 
 				if (parsing_on_fn && expr->result_type == type_i32) {
-					*parsed_on_fn_contains_i32_operation_ptr = true;
+					*parsed_fn_contains_i32_operation_ptr = true;
 				}
 			} else {
 				grug_unreachable();
@@ -4708,7 +4709,7 @@ static void fill_on_fns(void) {
 
 		parsed_on_fn_calls_helper_fn_ptr = &fn->calls_helper_fn;
 		parsed_on_fn_contains_while_loop_ptr = &fn->contains_while_loop;
-		parsed_on_fn_contains_i32_operation_ptr = &fn->contains_i32_operation;
+		parsed_fn_contains_i32_operation_ptr = &fn->contains_i32_operation;
 
 		fill_statements(fn->body_statements, fn->body_statement_count);
 	}
@@ -4758,6 +4759,8 @@ static void fill_global_variables(void) {
 
 		check_global_expr(&global->assignment_expr, global->name);
 
+		init_globals_fn_contains_i32_operation = false;
+		parsed_fn_contains_i32_operation_ptr = &init_globals_fn_contains_i32_operation;
 		fill_expr(&global->assignment_expr);
 
 		grug_assert(global->type == global->assignment_expr.result_type, "Can't assign %s to '%s', which has type %s", type_names[global->assignment_expr.result_type], global->name, type_names[global->type]);
@@ -5793,7 +5796,7 @@ static void compile_set_time_limit(void) {
 	overwrite_jmp_address_8(skip_offset, codes_size);
 }
 
-static void compile_save_on_fn_name_and_path(char *grug_path, char *fn_name) {
+static void compile_save_fn_name_and_path(char *grug_path, char *fn_name) {
 	// mov rax, [rel grug_fn_path wrt ..got]:
 	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
 	push_used_extern_global_variable("grug_fn_path", codes_size);
@@ -6737,6 +6740,34 @@ static void add_variables_in_statements(struct statement *body_statements, size_
 	}
 }
 
+static size_t compile_safe_je(void) {
+	// mov rax, [rel grug_on_fns_in_safe_mode wrt ..got]:
+	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
+	push_used_extern_global_variable("grug_on_fns_in_safe_mode", codes_size);
+	compile_32(PLACEHOLDER_32);
+
+	// mov al, [rax]:
+	compile_padded(MOV_DEREF_RAX_TO_AL, 2);
+
+	// test al, al:
+	compile_unpadded(TEST_AL_IS_ZERO);
+
+	// je strict $+0xn:
+	compile_unpadded(JE_32_BIT_OFFSET);
+	size_t skip_safe_code_offset = codes_size;
+	compile_unpadded(PLACEHOLDER_32);
+
+	return skip_safe_code_offset;
+}
+
+static void compile_move_globals_ptr(void) {
+	// We need to move the secret global variables pointer to this function's stack frame,
+	// because the RDI register will get clobbered when this function calls another function:
+	// https://stackoverflow.com/a/55387707/13279557
+	compile_unpadded(MOV_RDI_TO_DEREF_RBP);
+	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
+}
+
 // From https://stackoverflow.com/a/9194117/13279557
 static size_t round_to_power_of_2(size_t n, size_t multiple) {
 	// Assert that `multiple` is a power of 2
@@ -6745,11 +6776,7 @@ static size_t round_to_power_of_2(size_t n, size_t multiple) {
 	return (n + multiple - 1) & -multiple;
 }
 
-static void compile_on_fn_impl(char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, char *grug_path, bool on_fn_calls_helper_fn, bool on_fn_contains_while_loop, bool on_fn_contains_i32_operation) {
-	init_argument_variables(fn_arguments, argument_count);
-
-	add_variables_in_statements(body_statements, body_statement_count);
-
+static void compile_function_prologue(void) {
 	// Function prologue
 	compile_byte(PUSH_RBP);
 
@@ -6769,34 +6796,22 @@ static void compile_on_fn_impl(char *fn_name, struct argument *fn_arguments, siz
 		compile_unpadded(SUB_RSP_32_BITS);
 		compile_32(stack_frame_bytes);
 	}
+}
 
-	// We need to move the secret global variables pointer to this function's stack frame,
-	// because the RDI register will get clobbered when this function calls another function:
-	// https://stackoverflow.com/a/55387707/13279557
-	compile_unpadded(MOV_RDI_TO_DEREF_RBP);
-	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
+static void compile_on_fn_impl(char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, char *grug_path, bool on_fn_calls_helper_fn, bool on_fn_contains_while_loop, bool on_fn_contains_i32_operation) {
+	init_argument_variables(fn_arguments, argument_count);
+
+	add_variables_in_statements(body_statements, body_statement_count);
+
+	compile_function_prologue();
+
+	compile_move_globals_ptr();
 
 	move_arguments(fn_arguments, argument_count);
 
-	size_t skip_safe_code_offset;
+	size_t skip_safe_code_offset = compile_safe_je();
 
-	// mov rax, [rel grug_on_fns_in_safe_mode wrt ..got]:
-	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
-	push_used_extern_global_variable("grug_on_fns_in_safe_mode", codes_size);
-	compile_32(PLACEHOLDER_32);
-
-	// mov al, [rax]:
-	compile_padded(MOV_DEREF_RAX_TO_AL, 2);
-
-	// test al, al:
-	compile_unpadded(TEST_AL_IS_ZERO);
-
-	// je strict $+0xn:
-	compile_unpadded(JE_32_BIT_OFFSET);
-	skip_safe_code_offset = codes_size;
-	compile_unpadded(PLACEHOLDER_32);
-
-	compile_save_on_fn_name_and_path(grug_path, fn_name);
+	compile_save_fn_name_and_path(grug_path, fn_name);
 
 	if (on_fn_calls_helper_fn) {
 		is_max_rsp_used = true;
@@ -6844,31 +6859,9 @@ static void compile_helper_fn_impl(struct argument *fn_arguments, size_t argumen
 
 	add_variables_in_statements(body_statements, body_statement_count);
 
-	// Function prologue
-	compile_byte(PUSH_RBP);
+	compile_function_prologue();
 
-	// Deliberately leaving this out, so we don't have to worry about adding 8
-	// after turning stack_frame_bytes into a multiple of 16
-	// stack_frame_bytes += sizeof(u64);
-
-	compile_unpadded(MOV_RSP_TO_RBP);
-
-	// Make space in the stack for the arguments and variables
-	// The System V ABI requires 16-byte stack alignment: https://stackoverflow.com/q/49391001/13279557
-	stack_frame_bytes = round_to_power_of_2(stack_frame_bytes, 0x10);
-	if (stack_frame_bytes < 0x80) {
-		compile_unpadded(SUB_RSP_8_BITS);
-		compile_byte(stack_frame_bytes);
-	} else {
-		compile_unpadded(SUB_RSP_32_BITS);
-		compile_32(stack_frame_bytes);
-	}
-
-	// We need to move the secret global variables pointer to this function's stack frame,
-	// because the RDI register will get clobbered when this function calls another function:
-	// https://stackoverflow.com/a/55387707/13279557
-	compile_unpadded(MOV_RDI_TO_DEREF_RBP);
-	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
+	compile_move_globals_ptr();
 
 	move_arguments(fn_arguments, argument_count);
 
@@ -6886,9 +6879,24 @@ static void compile_helper_fn(struct helper_fn fn) {
 	compile_helper_fn_impl(fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count);
 }
 
-static void compile_init_globals_fn(void) {
+static void compile_init_globals_fn(char *grug_path) {
+	stack_frame_bytes = GLOBAL_VARIABLES_POINTER_SIZE;
+
+	compile_function_prologue();
+
+	compile_move_globals_ptr();
+
 	// The entity ID passed in the rsi register is always the first global
 	compile_unpadded(MOV_RSI_TO_DEREF_RDI);
+
+	size_t skip_safe_code_offset = compile_safe_je();
+
+	compile_save_fn_name_and_path(grug_path, "init_globals");
+
+	if (init_globals_fn_contains_i32_operation) {
+		assert(false); // TODO: wip_tests/err_runtime/global_runtime_error_division_by_0 should hit this!
+		compile_error_handling(grug_path, "init_globals");
+	}
 
 	for (size_t i = 0; i < global_variable_statements_size; i++) {
 		struct global_variable_statement global = global_variable_statements[i];
@@ -6898,7 +6906,21 @@ static void compile_init_globals_fn(void) {
 		compile_global_variable_statement(global.name);
 	}
 
-	compile_byte(RET);
+	compile_function_epilogue();
+
+	overwrite_jmp_address_32(skip_safe_code_offset, codes_size);
+
+	compiling_fast_mode = true;
+	for (size_t i = 0; i < global_variable_statements_size; i++) {
+		struct global_variable_statement global = global_variable_statements[i];
+
+		compile_expr(global.assignment_expr);
+
+		compile_global_variable_statement(global.name);
+	}
+	compiling_fast_mode = false;
+
+	compile_function_epilogue();
 }
 
 static void compile(char *grug_path) {
@@ -6907,7 +6929,7 @@ static void compile(char *grug_path) {
 	size_t text_offset_index = 0;
 	size_t text_offset = 0;
 
-	compile_init_globals_fn();
+	compile_init_globals_fn(grug_path);
 	text_offsets[text_offset_index++] = text_offset;
 	text_offset = codes_size;
 
@@ -7362,7 +7384,7 @@ static void push_game_fn_offset(char *fn_name, size_t offset) {
 }
 
 static bool has_got(void) {
-	return on_fns_size > 0;
+	return global_variables_size > 0 || on_fns_size > 0;
 }
 
 // Used for both .plt and .rela.plt
@@ -7371,7 +7393,7 @@ static bool has_plt(void) {
 }
 
 static bool has_rela_dyn(void) {
-	return on_fns_size > 0 || resources_size > 0 || entity_dependencies_size > 0;
+	return global_variables_size > 0 || on_fns_size > 0 || resources_size > 0 || entity_dependencies_size > 0;
 }
 
 static void patch_dynamic(void) {
@@ -7963,7 +7985,12 @@ static void push_dynamic(void) {
 		push_dynamic_entry(DT_RELA, rela_dyn_offset);
 		push_dynamic_entry(DT_RELASZ, (on_fns_size + extern_data_symbols_size + resources_size + 2 * entity_dependencies_size) * RELA_ENTRY_SIZE);
 		push_dynamic_entry(DT_RELAENT, RELA_ENTRY_SIZE);
-		push_dynamic_entry(DT_RELACOUNT, on_fns_size + resources_size + 2 * entity_dependencies_size);
+
+		size_t rela_count = on_fns_size + resources_size + 2 * entity_dependencies_size;
+		// tests/ok/global_id reaches this with rela_count == 0
+		if (rela_count > 0) {
+			push_dynamic_entry(DT_RELACOUNT, rela_count);
+		}
 	}
 
 	// "Marks the end of the _DYNAMIC array."
@@ -8679,7 +8706,7 @@ static void generate_shared_object(char *dll_path) {
 	}
 
 	first_extern_data_symbol_index = data_symbols_size;
-	if (on_fns_size > 0) {
+	if (has_got()) {
 		if (is_error_handler_used) {
 			push_symbol("grug_runtime_error_handler");
 			extern_data_symbols_size++;
