@@ -6880,6 +6880,16 @@ static void compile_helper_fn(struct helper_fn fn) {
 }
 
 static void compile_init_globals_fn(char *grug_path) {
+	// The "me" global variable is always present
+	// If there are no other global variables, take a shortcut
+	if (global_variables_size == 1) {
+		// The entity ID passed in the rsi register is always the first global
+		compile_unpadded(MOV_RSI_TO_DEREF_RDI);
+
+		compile_byte(RET);
+		return;
+	}
+
 	stack_frame_bytes = GLOBAL_VARIABLES_POINTER_SIZE;
 
 	compile_function_prologue();
@@ -7384,7 +7394,7 @@ static void push_game_fn_offset(char *fn_name, size_t offset) {
 }
 
 static bool has_got(void) {
-	return global_variables_size > 0 || on_fns_size > 0;
+	return global_variables_size > 1 || on_fns_size > 0;
 }
 
 // Used for both .plt and .rela.plt
@@ -7393,7 +7403,7 @@ static bool has_plt(void) {
 }
 
 static bool has_rela_dyn(void) {
-	return global_variables_size > 0 || on_fns_size > 0 || resources_size > 0 || entity_dependencies_size > 0;
+	return global_variables_size > 1 || on_fns_size > 0 || resources_size > 0 || entity_dependencies_size > 0;
 }
 
 static void patch_dynamic(void) {
