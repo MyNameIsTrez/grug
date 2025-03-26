@@ -4081,10 +4081,8 @@ static size_t data_strings_size;
 static u32 buckets_data_strings[MAX_DATA_STRINGS];
 static u32 chains_data_strings[MAX_DATA_STRINGS];
 
-static bool parsing_on_fn;
-
-static bool *parsed_on_fn_calls_helper_fn_ptr;
-static bool *parsed_on_fn_contains_while_loop_ptr;
+static bool *parsed_fn_calls_helper_fn_ptr;
+static bool *parsed_fn_contains_while_loop_ptr;
 static bool *parsed_fn_contains_i32_operation_ptr;
 static bool init_globals_fn_contains_i32_operation;
 
@@ -4095,7 +4093,6 @@ static void reset_filling(void) {
 	entity_types_size = 0;
 	data_strings_size = 0;
 	memset(buckets_data_strings, 0xff, sizeof(buckets_data_strings));
-	parsing_on_fn = false;
 }
 
 static void push_data_string(char *string) {
@@ -4259,9 +4256,7 @@ static void fill_call_expr(struct expr *expr) {
 	char *name = call_expr.fn_name;
 
 	if (starts_with(name, "helper_")) {
-		if (parsing_on_fn) {
-			*parsed_on_fn_calls_helper_fn_ptr = true;
-		}
+		*parsed_fn_calls_helper_fn_ptr = true;
 	}
 
 	struct helper_fn *helper_fn = get_helper_fn(name);
@@ -4330,7 +4325,7 @@ static void fill_binary_expr(struct expr *expr) {
 			grug_assert(binary_expr.left_expr->result_type == type_i32 || binary_expr.left_expr->result_type == type_f32, "'%s' operator expects i32 or f32", get_token_type_str[binary_expr.operator]);
 			expr->result_type = binary_expr.left_expr->result_type;
 
-			if (parsing_on_fn && expr->result_type == type_i32) {
+			if (expr->result_type == type_i32) {
 				*parsed_fn_contains_i32_operation_ptr = true;
 			}
 
@@ -4340,7 +4335,7 @@ static void fill_binary_expr(struct expr *expr) {
 			grug_assert(binary_expr.left_expr->result_type == type_i32, "'%%' operator expects i32");
 			expr->result_type = type_i32;
 
-			if (parsing_on_fn && expr->result_type == type_i32) {
+			if (expr->result_type == type_i32) {
 				*parsed_fn_contains_i32_operation_ptr = true;
 			}
 
@@ -4488,7 +4483,7 @@ static void fill_expr(struct expr *expr) {
 			} else if (expr->unary.operator == MINUS_TOKEN) {
 				grug_assert(expr->result_type == type_i32 || expr->result_type == type_f32, "Found '-' before %s, but it can only be put before an i32 or f32", type_names[expr->result_type]);
 
-				if (parsing_on_fn && expr->result_type == type_i32) {
+				if (expr->result_type == type_i32) {
 					*parsed_fn_contains_i32_operation_ptr = true;
 				}
 			} else {
@@ -4585,9 +4580,7 @@ static void fill_statements(struct statement *body_statements, size_t statement_
 
 				fill_statements(statement.while_statement.body_statements, statement.while_statement.body_statement_count);
 
-				if (parsing_on_fn) {
-					*parsed_on_fn_contains_while_loop_ptr = true;
-				}
+				*parsed_fn_contains_while_loop_ptr = true;
 
 				break;
 			case BREAK_STATEMENT:
@@ -4620,8 +4613,6 @@ static void fill_helper_fns(void) {
 		filled_fn_name = fn.fn_name;
 
 		init_argument_variables(fn.arguments, fn.argument_count);
-
-		parsing_on_fn = false;
 
 		fill_statements(fn.body_statements, fn.body_statement_count);
 
@@ -4705,10 +4696,8 @@ static void fill_on_fns(void) {
 
 		init_argument_variables(args, arg_count);
 
-		parsing_on_fn = true;
-
-		parsed_on_fn_calls_helper_fn_ptr = &fn->calls_helper_fn;
-		parsed_on_fn_contains_while_loop_ptr = &fn->contains_while_loop;
+		parsed_fn_calls_helper_fn_ptr = &fn->calls_helper_fn;
+		parsed_fn_contains_while_loop_ptr = &fn->contains_while_loop;
 		parsed_fn_contains_i32_operation_ptr = &fn->contains_i32_operation;
 
 		fill_statements(fn->body_statements, fn->body_statement_count);
@@ -6904,7 +6893,7 @@ static void compile_init_globals_fn(char *grug_path) {
 	compile_save_fn_name_and_path(grug_path, "init_globals");
 
 	if (init_globals_fn_contains_i32_operation) {
-		assert(false); // TODO: wip_tests/err_runtime/global_runtime_error_division_by_0 should hit this!
+		// Reached by tests/ok/global_containing_negation
 		compile_error_handling(grug_path, "init_globals");
 	}
 
