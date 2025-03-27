@@ -4754,6 +4754,15 @@ static void fill_global_variables(void) {
 
 		grug_assert(global->type == global->assignment_expr.result_type, "Can't assign %s to '%s', which has type %s", type_names[global->assignment_expr.result_type], global->name, type_names[global->type]);
 
+		// This won't be entered by a global `foo: id = get_opponent()`
+		if (global->assignment_expr.type == type_id) {
+			// See tests/err/global_cant_be_me
+			grug_assert(!streq(global->assignment_expr.literal.string, "me"), "Global variables can't be assigned 'me'");
+
+			// See tests/err/global_cant_be_null_id
+			grug_assert(!streq(global->assignment_expr.literal.string, "null_id"), "Global variables can't be assigned null_id");
+		}
+
 		add_global_variable(global->name, global->type);
 	}
 }
@@ -6472,14 +6481,6 @@ static void compile_expr(struct expr expr) {
 			break;
 		}
 		case IDENTIFIER_EXPR: {
-			if (!compiled_init_globals_fn) {
-				// See tests/err/global_cant_be_me
-				grug_assert(!streq(expr.literal.string, "me"), "Global variables can't be assigned 'me'");
-
-				// See tests/err/global_cant_be_null_id
-				grug_assert(!streq(expr.literal.string, "null_id"), "Global variables can't be assigned null_id");
-			}
-
 			if (streq(expr.literal.string, "null_id")) {
 				compile_unpadded(MOVABS_TO_RAX);
 				compile_unpadded(NULL_ID);
