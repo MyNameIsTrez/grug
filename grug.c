@@ -5106,6 +5106,8 @@ static size_t entity_dependencies_size;
 
 static bool compiling_fast_mode;
 
+static bool compiled_init_globals_fn;
+
 static bool is_error_handler_used;
 static bool is_max_rsp_used;
 static bool is_max_time_used;
@@ -5129,6 +5131,7 @@ static void reset_compiling(void) {
 	resources_size = 0;
 	entity_dependencies_size = 0;
 	compiling_fast_mode = false;
+	compiled_init_globals_fn = false;
 	is_error_handler_used = false;
 	is_max_rsp_used = false;
 	is_max_time_used = false;
@@ -6469,6 +6472,14 @@ static void compile_expr(struct expr expr) {
 			break;
 		}
 		case IDENTIFIER_EXPR: {
+			if (!compiled_init_globals_fn) {
+				// See tests/err/global_cant_be_me
+				grug_assert(!streq(expr.literal.string, "me"), "Global variables can't be assigned 'me'");
+
+				// See tests/err/global_cant_be_null_id
+				grug_assert(!streq(expr.literal.string, "null_id"), "Global variables can't be assigned null_id");
+			}
+
 			if (streq(expr.literal.string, "null_id")) {
 				compile_unpadded(MOVABS_TO_RAX);
 				compile_unpadded(NULL_ID);
@@ -6602,8 +6613,10 @@ static void compile_global_variable_statement(char *name) {
 				compile_unpadded(MOV_EAX_TO_DEREF_R11_32_BIT_OFFSET);
 			}
 			break;
-		case type_string:
 		case type_id:
+			// See tests/err/global_id_cant_be_reassigned
+			grug_assert(!compiled_init_globals_fn, "Global id variables can't be reassigned");
+		case type_string:
 			if (var->offset < 0x80) {
 				compile_unpadded(MOV_RAX_TO_DEREF_R11_8_BIT_OFFSET);
 			} else {
@@ -6876,6 +6889,7 @@ static void compile_init_globals_fn(char *grug_path) {
 		compile_unpadded(MOV_RSI_TO_DEREF_RDI);
 
 		compile_byte(RET);
+		compiled_init_globals_fn = true;
 		return;
 	}
 
@@ -6920,6 +6934,8 @@ static void compile_init_globals_fn(char *grug_path) {
 	compiling_fast_mode = false;
 
 	compile_function_epilogue();
+
+	compiled_init_globals_fn = true;
 }
 
 static void compile(char *grug_path) {
