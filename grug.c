@@ -4718,24 +4718,24 @@ static void check_global_expr(struct expr *expr, char *name) {
 			grug_unreachable();
 		case IDENTIFIER_EXPR:
 			// See tests/ok/global_containing_null_id
-			if (!streq(expr->literal.string, "null_id")) {
-				grug_error("The global variable '%s' isn't allowed to use global variables", name);
-			}
 			break;
 		case UNARY_EXPR:
-			grug_assert(expr->unary.operator != NOT_TOKEN, "The global variable '%s' isn't allowed to use the 'not' operator", name);
 			check_global_expr(expr->unary.expr, name);
 			break;
 		case BINARY_EXPR:
 		case LOGICAL_EXPR:
-			grug_error("The global variable '%s' isn't allowed to use binary expressions", name);
+			check_global_expr(expr->binary.left_expr, name);
+			check_global_expr(expr->binary.right_expr, name);
 			break;
 		case CALL_EXPR:
 			// See tests/err/global_cant_call_helper_fn, tests/err/global_cant_call_on_fn, and tests/ok/global_id
 			grug_assert(!starts_with(expr->call.fn_name, "helper_"), "The global variable '%s' isn't allowed to call helper functions", name);
+			for (size_t i = 0; i < expr->call.argument_count; i++) {
+				check_global_expr(&expr->call.arguments[i], name);
+			}
 			break;
 		case PARENTHESIZED_EXPR:
-			grug_error("The global variable '%s' isn't allowed to use parentheses", name);
+			check_global_expr(expr->parenthesized, name);
 			break;
 	}
 }
