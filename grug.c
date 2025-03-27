@@ -6616,6 +6616,7 @@ static void compile_global_variable_statement(char *name) {
 		case type_id:
 			// See tests/err/global_id_cant_be_reassigned
 			grug_assert(!compiled_init_globals_fn, "Global id variables can't be reassigned");
+			__attribute__((fallthrough));
 		case type_string:
 			if (var->offset < 0x80) {
 				compile_unpadded(MOV_RAX_TO_DEREF_R11_8_BIT_OFFSET);
