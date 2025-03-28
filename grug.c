@@ -4755,7 +4755,8 @@ static void fill_global_variables(void) {
 		grug_assert(global->type == global->assignment_expr.result_type, "Can't assign %s to '%s', which has type %s", type_names[global->assignment_expr.result_type], global->name, type_names[global->type]);
 
 		// This won't be entered by a global `foo: id = get_opponent()`
-		if (global->assignment_expr.type == type_id) {
+		// See tests/ok/global_id_cant_be_reassigned
+		if (global->assignment_expr.type == IDENTIFIER_EXPR) {
 			// See tests/err/global_cant_be_me
 			grug_assert(!streq(global->assignment_expr.literal.string, "me"), "Global variables can't be assigned 'me'");
 
