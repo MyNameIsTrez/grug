@@ -4093,6 +4093,7 @@ static void reset_filling(void) {
 	entity_types_size = 0;
 	data_strings_size = 0;
 	memset(buckets_data_strings, 0xff, sizeof(buckets_data_strings));
+	init_globals_fn_contains_i32_operation = false;
 }
 
 static void push_data_string(char *string) {
@@ -4748,7 +4749,6 @@ static void fill_global_variables(void) {
 
 		check_global_expr(&global->assignment_expr, global->name);
 
-		init_globals_fn_contains_i32_operation = false;
 		parsed_fn_contains_i32_operation_ptr = &init_globals_fn_contains_i32_operation;
 		fill_expr(&global->assignment_expr);
 
