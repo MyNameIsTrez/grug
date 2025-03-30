@@ -8803,6 +8803,7 @@ static void generate_shared_object(char *dll_path) {
 #define MAX_ENTITY_STRINGS_CHARACTERS 420420
 #define MAX_ENTITY_NAME_LENGTH 420
 #define DLL_DIR_PATH "mod_dlls"
+#define MAX_DIRECTORY_DEPTH 42
 
 USED_BY_PROGRAMS struct grug_mod_dir grug_mods;
 
@@ -8825,6 +8826,8 @@ USED_BY_MODS char *grug_fn_path;
 
 static bool is_grug_initialized = false;
 
+static size_t directory_depth;
+
 // Called by the grug-tests repository
 USED_BY_PROGRAMS bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name);
 
@@ -8836,6 +8839,7 @@ static void reset_regenerate_modified_mods(void) {
 	grug_resource_reloads_size = 0;
 	grug_fn_name = "OPTIMIZED OUT FUNCTION NAME";
 	grug_fn_path = "OPTIMIZED OUT FUNCTION PATH";
+	directory_depth = 0;
 }
 
 static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
@@ -9371,6 +9375,9 @@ static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *gr
 }
 
 static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct grug_mod_dir *dir) {
+	directory_depth++;
+	grug_assert(directory_depth < MAX_DIRECTORY_DEPTH, "There is a mod that contains more than %d levels of nested directories", MAX_DIRECTORY_DEPTH);
+
 	DIR *dirp = opendir(mods_dir_path);
 	grug_assert(dirp, "opendir(\"%s\"): %s", mods_dir_path, strerror(errno));
 
@@ -9460,6 +9467,9 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 		free(seen_file_names[i]);
 	}
 	free(seen_file_names);
+
+	assert(directory_depth > 0);
+	directory_depth--;
 }
 
 static void validate_about_file(char *about_json_path) {
@@ -9542,6 +9552,7 @@ static void reload_modified_mods(void) {
 			}
 
 			reload_modified_mod(entry_path, dll_entry_path, subdir);
+			assert(directory_depth == 0);
 		}
 	}
 	grug_assert(errno == 0, "readdir: %s", strerror(errno));
