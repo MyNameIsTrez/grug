@@ -4883,6 +4883,7 @@ static void fill_result_types(void) {
 #define MOV_DEREF_RBP_TO_EAX_8_BIT_OFFSET 0x458b // mov eax, rbp[n]
 #define MOV_DEREF_RBP_TO_EAX_32_BIT_OFFSET 0x858b // mov eax, rbp[n]
 
+#define MOV_AL_TO_DEREF_RBP_8_BIT_OFFSET 0x4588 // mov rbp[n], al
 #define MOV_EAX_TO_DEREF_RBP_8_BIT_OFFSET 0x4589 // mov rbp[n], eax
 #define MOV_ECX_TO_DEREF_RBP_8_BIT_OFFSET 0x4d89 // mov rbp[n], ecx
 #define MOV_EDX_TO_DEREF_RBP_8_BIT_OFFSET 0x5589 // mov rbp[n], edx
@@ -4894,6 +4895,7 @@ static void fill_result_types(void) {
 #define MOV_ESI_TO_DEREF_RBP_8_BIT_OFFSET 0x7589 // mov rbp[n], esi
 #define MOV_DEREF_RAX_TO_EAX_32_BIT_OFFSET 0x808b // mov eax, rax[n]
 #define JE_32_BIT_OFFSET 0x840f // je strict $+n
+#define MOV_AL_TO_DEREF_RBP_32_BIT_OFFSET 0x8588 // mov rbp[n], al
 #define MOV_EAX_TO_DEREF_RBP_32_BIT_OFFSET 0x8589 // mov rbp[n], eax
 #define MOV_ECX_TO_DEREF_RBP_32_BIT_OFFSET 0x8d89 // mov rbp[n], ecx
 #define MOV_EDX_TO_DEREF_RBP_32_BIT_OFFSET 0x9589 // mov rbp[n], edx
@@ -4936,8 +4938,11 @@ static void fill_result_types(void) {
 #define MOV_TO_DEREF_RAX_8_BIT_OFFSET 0x408148 // add qword [byte rax + n], m
 #define MOV_DEREF_RAX_TO_RAX_8_BIT_OFFSET 0x408b48 // mov rax, rax[n]
 
+#define MOVZX_BYTE_DEREF_RAX_TO_EAX_8_BIT_OFFSET 0x40b60f // movzx eax, byte rax[n]
+
 #define INC_DEREF_RAX_8_BIT_OFFSET 0x40ff48 // inc qword [byte rax + n]
 
+#define MOV_AL_TO_DEREF_R11_8_BIT_OFFSET 0x438841 // mov r11[n], al
 #define MOV_EAX_TO_DEREF_R11_8_BIT_OFFSET 0x438941 // mov r11[n], eax
 #define MOV_R8D_TO_DEREF_RBP_8_BIT_OFFSET 0x458944 // mov rbp[n], r8d
 #define MOV_RAX_TO_DEREF_RBP_8_BIT_OFFSET 0x458948 // mov rbp[n], rax
@@ -4945,6 +4950,8 @@ static void fill_result_types(void) {
 #define MOV_R8_TO_DEREF_RBP_8_BIT_OFFSET 0x45894c // mov rbp[n], r8
 
 #define MOV_DEREF_RBP_TO_RAX_8_BIT_OFFSET 0x458b48 // mov rax, rbp[n]
+
+#define MOVZX_BYTE_DEREF_RBP_TO_EAX_8_BIT_OFFSET 0x45b60f // movzx eax, byte rbp[n]
 
 #define MOV_R9D_TO_DEREF_RBP_8_BIT_OFFSET 0x4d8944 // mov rbp[n], r9d
 #define MOV_RCX_TO_DEREF_RBP_8_BIT_OFFSET 0x4d8948 // mov rbp[n], rcx
@@ -4961,13 +4968,16 @@ static void fill_result_types(void) {
 #define CMP_WITH_DEREF_RAX_8_BIT_OFFSET 0x788148 // cmp qword [byte rax + n], m
 
 #define MOV_RDI_TO_DEREF_RBP 0x7d8948 // mov rbp[n], rdi
+#define MOVZX_BYTE_DEREF_RAX_TO_EAX_32_BIT_OFFSET 0x80b60f // movzx eax, byte rax[n]
 #define MOV_DEREF_RAX_TO_RAX_32_BIT_OFFSET 0x808b48 // mov rax, rax[n]
+#define MOV_AL_TO_DEREF_R11_32_BIT_OFFSET 0x838841 // mov r11[n], al
 #define MOV_EAX_TO_DEREF_R11_32_BIT_OFFSET 0x838941 // mov r11[n], eax
 #define MOV_RAX_TO_DEREF_R11_32_BIT_OFFSET 0x838949 // mov r11[n], rax
 #define MOV_R8D_TO_DEREF_RBP_32_BIT_OFFSET 0x858944 // mov rbp[n], r8d
 #define MOV_RAX_TO_DEREF_RBP_32_BIT_OFFSET 0x858948 // mov rbp[n], rax
 #define MOV_R8_TO_DEREF_RBP_32_BIT_OFFSET 0x85894c // mov rbp[n], r8
 #define MOV_DEREF_RBP_TO_RAX_32_BIT_OFFSET 0x858b48 // mov rax, rbp[n]
+#define MOVZX_BYTE_DEREF_RBP_TO_EAX_32_BIT_OFFSET 0x85b60f // movzx eax, byte rbp[n]
 #define MOV_R9D_TO_DEREF_RBP_32_BIT_OFFSET 0x8d8944 // mov rbp[n], r9d
 #define MOV_RCX_TO_DEREF_RBP_32_BIT_OFFSET 0x8d8948 // mov rbp[n], rcx
 #define MOV_R9_TO_DEREF_RBP_32_BIT_OFFSET 0x8d894c // mov rbp[n], r9
@@ -6496,6 +6506,12 @@ static void compile_expr(struct expr expr) {
 					case type_entity:
 						grug_unreachable();
 					case type_bool:
+						if (var->offset <= 0x80) {
+							compile_unpadded(MOVZX_BYTE_DEREF_RBP_TO_EAX_8_BIT_OFFSET);
+						} else {
+							compile_unpadded(MOVZX_BYTE_DEREF_RBP_TO_EAX_32_BIT_OFFSET);
+						}
+						break;
 					case type_i32:
 					case type_f32:
 						if (var->offset <= 0x80) {
@@ -6532,6 +6548,12 @@ static void compile_expr(struct expr expr) {
 				case type_entity:
 					grug_unreachable();
 				case type_bool:
+					if (var->offset < 0x80) {
+						compile_unpadded(MOVZX_BYTE_DEREF_RAX_TO_EAX_8_BIT_OFFSET);
+					} else {
+						compile_unpadded(MOVZX_BYTE_DEREF_RAX_TO_EAX_32_BIT_OFFSET);
+					}
+					break;
 				case type_i32:
 				case type_f32:
 					if (var->offset < 0x80) {
@@ -6607,6 +6629,12 @@ static void compile_global_variable_statement(char *name) {
 		case type_entity:
 			grug_unreachable();
 		case type_bool:
+			if (var->offset < 0x80) {
+				compile_unpadded(MOV_AL_TO_DEREF_R11_8_BIT_OFFSET);
+			} else {
+				compile_unpadded(MOV_AL_TO_DEREF_R11_32_BIT_OFFSET);
+			}
+			break;
 		case type_i32:
 		case type_f32:
 			if (var->offset < 0x80) {
@@ -6646,6 +6674,12 @@ static void compile_variable_statement(struct variable_statement variable_statem
 			case type_entity:
 				grug_unreachable();
 			case type_bool:
+				if (var->offset <= 0x80) {
+					compile_unpadded(MOV_AL_TO_DEREF_RBP_8_BIT_OFFSET);
+				} else {
+					compile_unpadded(MOV_AL_TO_DEREF_RBP_32_BIT_OFFSET);
+				}
+				break;
 			case type_i32:
 			case type_f32:
 				if (var->offset <= 0x80) {
