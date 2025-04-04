@@ -5847,7 +5847,7 @@ static void compile_while_statement(struct while_statement while_statement) {
 	loop_depth++;
 
 	compile_expr(while_statement.condition);
-	compile_unpadded(TEST_EAX_IS_ZERO);
+	compile_unpadded(TEST_AL_IS_ZERO);
 	compile_unpadded(JE_32_BIT_OFFSET);
 	size_t end_jump_offset = codes_size;
 	compile_unpadded(PLACEHOLDER_32);
@@ -5876,7 +5876,7 @@ static void compile_while_statement(struct while_statement while_statement) {
 
 static void compile_if_statement(struct if_statement if_statement) {
 	compile_expr(if_statement.condition);
-	compile_unpadded(TEST_EAX_IS_ZERO);
+	compile_unpadded(TEST_AL_IS_ZERO);
 	compile_unpadded(JE_32_BIT_OFFSET);
 	size_t else_or_end_jump_offset = codes_size;
 	compile_unpadded(PLACEHOLDER_32);
@@ -6123,12 +6123,12 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 	switch (logical_expr.operator) {
 		case AND_TOKEN: {
 			compile_expr(*logical_expr.left_expr);
-			compile_unpadded(TEST_EAX_IS_ZERO);
+			compile_unpadded(TEST_AL_IS_ZERO);
 			compile_unpadded(JE_32_BIT_OFFSET);
 			size_t end_jump_offset = codes_size;
 			compile_unpadded(PLACEHOLDER_32);
 			compile_expr(*logical_expr.right_expr);
-			compile_unpadded(TEST_EAX_IS_ZERO);
+			compile_unpadded(TEST_AL_IS_ZERO);
 			compile_unpadded(MOV_TO_EAX);
 			compile_32(0);
 			compile_unpadded(SETNE_AL);
@@ -6137,7 +6137,7 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 		}
 		case OR_TOKEN: {
 			compile_expr(*logical_expr.left_expr);
-			compile_unpadded(TEST_EAX_IS_ZERO);
+			compile_unpadded(TEST_AL_IS_ZERO);
 			compile_byte(JE_8_BIT_OFFSET);
 			compile_byte(10);
 			compile_byte(MOV_TO_EAX);
@@ -6146,7 +6146,7 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 			size_t end_jump_offset = codes_size;
 			compile_unpadded(PLACEHOLDER_32);
 			compile_expr(*logical_expr.right_expr);
-			compile_unpadded(TEST_EAX_IS_ZERO);
+			compile_unpadded(TEST_AL_IS_ZERO);
 			compile_unpadded(MOV_TO_EAX);
 			compile_32(0);
 			compile_unpadded(SETNE_AL);
@@ -6358,7 +6358,7 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 			break;
 		case NOT_TOKEN:
 			compile_expr(*unary_expr.expr);
-			compile_unpadded(TEST_EAX_IS_ZERO);
+			compile_unpadded(TEST_AL_IS_ZERO);
 			compile_unpadded(MOV_TO_EAX);
 			compile_32(0);
 			compile_unpadded(SETE_AL);
