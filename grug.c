@@ -5005,7 +5005,7 @@ static void fill_result_types(void) {
 #define MOV_RDX_TO_RAX 0xd08948 // mov rax, rdx
 #define ADD_R11D_TO_EAX 0xd80144 // add eax, r11d
 #define SUB_R11D_FROM_EAX 0xd82944 // sub eax, r11d
-#define CMP_RAX_WITH_R11 0xd8394c // cmp rax, r11
+#define CMP_EAX_WITH_R11D 0xd83944 // cmp eax, r11d
 #define TEST_R11_IS_ZERO 0xdb854d // test r11, r11
 #define MOV_R11_TO_RSI 0xde894c // mov rsi, r11
 
@@ -6238,7 +6238,7 @@ static void compile_binary_expr(struct expr expr) {
 			break;
 		case EQUALS_TOKEN:
 			if (binary_expr.left_expr->result_type == type_bool || binary_expr.left_expr->result_type == type_i32) {
-				compile_unpadded(CMP_RAX_WITH_R11);
+				compile_unpadded(CMP_EAX_WITH_R11D);
 				compile_unpadded(MOV_TO_EAX);
 				compile_32(0);
 				compile_unpadded(SETE_AL);
@@ -6260,7 +6260,7 @@ static void compile_binary_expr(struct expr expr) {
 			break;
 		case NOT_EQUALS_TOKEN:
 			if (binary_expr.left_expr->result_type == type_bool || binary_expr.left_expr->result_type == type_i32) {
-				compile_unpadded(CMP_RAX_WITH_R11);
+				compile_unpadded(CMP_EAX_WITH_R11D);
 				compile_unpadded(MOV_TO_EAX);
 				compile_32(0);
 				compile_unpadded(SETNE_AL);
@@ -6281,8 +6281,8 @@ static void compile_binary_expr(struct expr expr) {
 			}
 			break;
 		case GREATER_OR_EQUAL_TOKEN:
-			if (binary_expr.left_expr->result_type == type_bool || binary_expr.left_expr->result_type == type_i32) {
-				compile_unpadded(CMP_RAX_WITH_R11);
+			if (binary_expr.left_expr->result_type == type_i32) {
+				compile_unpadded(CMP_EAX_WITH_R11D);
 				compile_unpadded(MOV_TO_EAX);
 				compile_32(0);
 				compile_unpadded(SETGE_AL);
@@ -6295,8 +6295,8 @@ static void compile_binary_expr(struct expr expr) {
 			}
 			break;
 		case GREATER_TOKEN:
-			if (binary_expr.left_expr->result_type == type_bool || binary_expr.left_expr->result_type == type_i32) {
-				compile_unpadded(CMP_RAX_WITH_R11);
+			if (binary_expr.left_expr->result_type == type_i32) {
+				compile_unpadded(CMP_EAX_WITH_R11D);
 				compile_unpadded(MOV_TO_EAX);
 				compile_32(0);
 				compile_unpadded(SETGT_AL);
@@ -6309,8 +6309,8 @@ static void compile_binary_expr(struct expr expr) {
 			}
 			break;
 		case LESS_OR_EQUAL_TOKEN:
-			if (binary_expr.left_expr->result_type == type_bool || binary_expr.left_expr->result_type == type_i32) {
-				compile_unpadded(CMP_RAX_WITH_R11);
+			if (binary_expr.left_expr->result_type == type_i32) {
+				compile_unpadded(CMP_EAX_WITH_R11D);
 				compile_unpadded(MOV_TO_EAX);
 				compile_32(0);
 				compile_unpadded(SETLE_AL);
@@ -6323,8 +6323,8 @@ static void compile_binary_expr(struct expr expr) {
 			}
 			break;
 		case LESS_TOKEN:
-			if (binary_expr.left_expr->result_type == type_bool || binary_expr.left_expr->result_type == type_i32) {
-				compile_unpadded(CMP_RAX_WITH_R11);
+			if (binary_expr.left_expr->result_type == type_i32) {
+				compile_unpadded(CMP_EAX_WITH_R11D);
 				compile_unpadded(MOV_TO_EAX);
 				compile_32(0);
 				compile_unpadded(SETLT_AL);
