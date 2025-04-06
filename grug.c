@@ -4689,9 +4689,12 @@ static void fill_on_fns(void) {
 		grug_assert(arg_count <= param_count, "Function '%s' got an unexpected extra parameter '%s' with type %s", name, args[param_count].name, type_names[args[param_count].type]);
 
 		for (size_t argument_index = 0; argument_index < arg_count; argument_index++) {
-			enum type arg_type = args[argument_index].type;
 			struct argument param = params[argument_index];
 
+			char *arg_name = args[argument_index].name;
+			grug_assert(streq(arg_name, param.name), "Function '%s' its '%s' parameter was supposed to be named '%s'", name, arg_name, param.name);
+
+			enum type arg_type = args[argument_index].type;
 			grug_assert(arg_type == param.type, "Function '%s' its '%s' parameter was supposed to have the type %s, but got %s", name, param.name, type_names[param.type], type_names[arg_type]);
 		}
 
