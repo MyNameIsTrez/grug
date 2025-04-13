@@ -4571,9 +4571,9 @@ static void fill_statements(struct statement *body_statements, size_t statement_
 					fill_expr(statement.return_statement.value);
 
 					grug_assert(fn_return_type != type_void, "Function '%s' wasn't supposed to return any value", filled_fn_name);
-					grug_assert(statement.return_statement.value->result_type == fn_return_type, "Function '%s' was supposed to return %s", filled_fn_name, type_names[fn_return_type]);
+					grug_assert(statement.return_statement.value->result_type == fn_return_type, "Function '%s' is supposed to return %s", filled_fn_name, type_names[fn_return_type]);
 				} else {
-					grug_assert(fn_return_type == type_void, "Function '%s' was supposed to return a value of type %s", filled_fn_name, type_names[fn_return_type]);
+					grug_assert(fn_return_type == type_void, "Function '%s' is supposed to return a value of type %s", filled_fn_name, type_names[fn_return_type]);
 				}
 				break;
 			case WHILE_STATEMENT:
@@ -4620,11 +4620,11 @@ static void fill_helper_fns(void) {
 		// Unlike fill_statements() its RETURN_STATEMENT case,
 		// this checks whether a return statement *is missing* at the end of the function
 		if (fn.return_type != type_void) {
-			grug_assert(fn.body_statement_count > 0, "Function '%s' was supposed to return %s", filled_fn_name, type_names[fn_return_type]);
+			grug_assert(fn.body_statement_count > 0, "Function '%s' is supposed to return %s as its last line", filled_fn_name, type_names[fn_return_type]);
 
 			struct statement last_statement = fn.body_statements[fn.body_statement_count - 1];
 
-			grug_assert(last_statement.type == RETURN_STATEMENT, "Function '%s' was supposed to return %s", filled_fn_name, type_names[fn_return_type]);
+			grug_assert(last_statement.type == RETURN_STATEMENT, "Function '%s' is supposed to return %s as its last line", filled_fn_name, type_names[fn_return_type]);
 		}
 	}
 }
