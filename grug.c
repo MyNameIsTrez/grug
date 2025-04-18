@@ -9624,10 +9624,10 @@ bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, ch
 	assert(handler && "grug_init() its grug_runtime_error_handler can't be NULL");
 	grug_runtime_error_handler = handler;
 
-	grug_assert(!is_grug_initialized, "grug_init() can't be called more than once");
+	assert(!is_grug_initialized && "grug_init() can't be called more than once");
 
-	grug_assert(!strchr(mods_dir_path, '\\'), "grug_init() its mods_dir_path can't contain backslashes, so replace them with '/'");
-	grug_assert(mods_dir_path[strlen(mods_dir_path) - 1] != '/', "grug_init() its mods_dir_path can't have a trailing '/'");
+	assert(!strchr(mods_dir_path, '\\') && "grug_init() its mods_dir_path can't contain backslashes, so replace them with '/'");
+	assert(mods_dir_path[strlen(mods_dir_path) - 1] != '/' && "grug_init() its mods_dir_path can't have a trailing '/'");
 
 	parse_mod_api_json(mod_api_json_path);
 
