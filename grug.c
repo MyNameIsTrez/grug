@@ -2616,6 +2616,7 @@ static struct helper_fn parse_helper_fn(size_t *i) {
 
 	assert_token_type(*i, SPACE_TOKEN);
 	token = peek_token(*i + 1);
+	fn.return_type = type_void;
 	if (token.type == WORD_TOKEN) {
 		(*i) += 2;
 		fn.return_type = parse_type(token.str);
@@ -4245,6 +4246,8 @@ static void check_arguments(struct argument *params, size_t param_count, struct 
 			push_entity_type(param.entity_type);
 		}
 
+		grug_assert(arg->result_type != type_void, "Function call '%s' expected the type %s for argument '%s', but got a function call that doesn't return anything", name, type_names[param.type], param.name);
+
 		grug_assert(arg->result_type == param.type, "Function call '%s' expected the type %s for argument '%s', but got %s", name, type_names[param.type], param.name, type_names[arg->result_type]);
 	}
 }
@@ -4573,7 +4576,7 @@ static void fill_statements(struct statement *body_statements, size_t statement_
 					fill_expr(statement.return_statement.value);
 
 					grug_assert(fn_return_type != type_void, "Function '%s' wasn't supposed to return any value", filled_fn_name);
-					grug_assert(statement.return_statement.value->result_type == fn_return_type, "Function '%s' is supposed to return %s", filled_fn_name, type_names[fn_return_type]);
+					grug_assert(statement.return_statement.value->result_type == fn_return_type, "Function '%s' is supposed to return %s, not %s", filled_fn_name, type_names[fn_return_type], type_names[statement.return_statement.value->result_type]);
 				} else {
 					grug_assert(fn_return_type == type_void, "Function '%s' is supposed to return a value of type %s", filled_fn_name, type_names[fn_return_type]);
 				}
