@@ -133,9 +133,10 @@ typedef int64_t i64;
 typedef uint64_t u64;
 typedef float f32;
 
-struct grug_error grug_error;
-bool grug_loading_error_in_grug_file;
-struct grug_error previous_grug_error;
+USED_BY_PROGRAMS struct grug_error grug_error;
+USED_BY_PROGRAMS bool grug_loading_error_in_grug_file;
+
+static struct grug_error previous_grug_error;
 static jmp_buf error_jmp_buffer;
 
 static char mods_root_dir_path[STUPID_MAX_PATH];
