@@ -221,8 +221,7 @@ static void *get_dll_symbol(void *dll, char *symbol_name) {
 
 //// RUNTIME ERROR HANDLING
 
-#define GRUG_ON_FN_TIME_LIMIT_MS 10
-static_assert(GRUG_ON_FN_TIME_LIMIT_MS >= 1 && GRUG_ON_FN_TIME_LIMIT_MS <= 999, "This simplifies the generated machine code");
+static size_t on_fn_time_limit_ms;
 
 USED_BY_MODS jmp_buf grug_runtime_error_jmp_buffer;
 
@@ -239,7 +238,7 @@ char *grug_get_runtime_error_reason(enum grug_runtime_error_type type) {
 		case GRUG_ON_FN_TIME_LIMIT_EXCEEDED: {
 			static char temp[420];
 
-			snprintf(temp, sizeof(temp), "Took longer than %d milliseconds to run", GRUG_ON_FN_TIME_LIMIT_MS);
+			snprintf(temp, sizeof(temp), "Took longer than %zu milliseconds to run", on_fn_time_limit_ms);
 
 			return temp;
 		}
@@ -5784,10 +5783,10 @@ static void compile_set_time_limit(void) {
 	// pop rax:
 	compile_byte(POP_RAX);
 
-	// add qword [byte rax + TV_NSEC_OFFSET], GRUG_ON_FN_TIME_LIMIT_MS * NS_PER_MS:
+	// add qword [byte rax + TV_NSEC_OFFSET], on_fn_time_limit_ms * NS_PER_MS:
 	compile_unpadded(MOV_TO_DEREF_RAX_8_BIT_OFFSET);
 	compile_byte(offsetof(struct timespec, tv_nsec));
-	compile_32(GRUG_ON_FN_TIME_LIMIT_MS * NS_PER_MS);
+	compile_32(on_fn_time_limit_ms * NS_PER_MS);
 
 	// cmp qword [byte rax + TV_NSEC_OFFSET], NS_PER_SEC:
 	compile_unpadded(CMP_WITH_DEREF_RAX_8_BIT_OFFSET);
@@ -9608,7 +9607,7 @@ static char *get_basename(char *path) {
 	return base ? base + 1 : path;
 }
 
-bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, char *mods_dir_path) {
+bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, char *mods_dir_path, size_t on_fn_time_limit_ms_) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
@@ -9624,6 +9623,8 @@ bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, ch
 	parse_mod_api_json(mod_api_json_path);
 
 	memcpy(mods_root_dir_path, mods_dir_path, strlen(mods_dir_path) + 1);
+
+	on_fn_time_limit_ms = on_fn_time_limit_ms_;
 
 	is_grug_initialized = true;
 
