@@ -223,6 +223,8 @@ static void *get_dll_symbol(void *dll, char *symbol_name) {
 //// RUNTIME ERROR HANDLING
 
 static size_t on_fn_time_limit_ms;
+static size_t on_fn_time_limit_sec;
+static size_t on_fn_time_limit_ns;
 
 USED_BY_MODS jmp_buf grug_runtime_error_jmp_buffer;
 
@@ -4830,6 +4832,7 @@ static void fill_result_types(void) {
 #define GRUG_STACK_LIMIT 0x10000
 
 #define NS_PER_MS 1000000
+#define MS_PER_SEC 1000
 #define NS_PER_SEC 1000000000
 
 #define NULL_ID 0xffffffffffffffff
@@ -5784,10 +5787,15 @@ static void compile_set_time_limit(void) {
 	// pop rax:
 	compile_byte(POP_RAX);
 
-	// add qword [byte rax + TV_NSEC_OFFSET], on_fn_time_limit_ms * NS_PER_MS:
+	// add qword [byte rax + TV_SEC_OFFSET], on_fn_time_limit_sec:
+	compile_unpadded(MOV_TO_DEREF_RAX_8_BIT_OFFSET);
+	compile_byte(offsetof(struct timespec, tv_sec));
+	compile_32(on_fn_time_limit_sec);
+
+	// add qword [byte rax + TV_NSEC_OFFSET], on_fn_time_limit_ns:
 	compile_unpadded(MOV_TO_DEREF_RAX_8_BIT_OFFSET);
 	compile_byte(offsetof(struct timespec, tv_nsec));
-	compile_32(on_fn_time_limit_ms * NS_PER_MS);
+	compile_32(on_fn_time_limit_ns);
 
 	// cmp qword [byte rax + TV_NSEC_OFFSET], NS_PER_SEC:
 	compile_unpadded(CMP_WITH_DEREF_RAX_8_BIT_OFFSET);
@@ -9626,6 +9634,9 @@ bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, ch
 	memcpy(mods_root_dir_path, mods_dir_path, strlen(mods_dir_path) + 1);
 
 	on_fn_time_limit_ms = on_fn_time_limit_ms_;
+	assert(on_fn_time_limit_ms > 0 && "grug_init() its on_fn_time_limit_ms must be greater than 0");
+	on_fn_time_limit_sec = on_fn_time_limit_ms / MS_PER_SEC;
+	on_fn_time_limit_ns = (on_fn_time_limit_ms % MS_PER_SEC) * NS_PER_MS;
 
 	is_grug_initialized = true;
 
