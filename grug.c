@@ -247,6 +247,8 @@ char *grug_get_runtime_error_reason(enum grug_runtime_error_type type) {
 		}
 		case GRUG_ON_FN_OVERFLOW:
 			return "i32 overflow";
+		case GRUG_ON_FN_GAME_FN_ERROR:
+			return "Game function error";
 	}
 	grug_unreachable();
 }
@@ -1763,7 +1765,6 @@ struct on_fn {
 	size_t body_statement_count;
 	bool calls_helper_fn;
 	bool contains_while_loop;
-	bool contains_i32_operation;
 };
 static struct on_fn on_fns[MAX_ON_FNS];
 static size_t on_fns_size;
@@ -4086,8 +4087,6 @@ static u32 chains_data_strings[MAX_DATA_STRINGS];
 
 static bool *parsed_fn_calls_helper_fn_ptr;
 static bool *parsed_fn_contains_while_loop_ptr;
-static bool *parsed_fn_contains_i32_operation_ptr;
-static bool init_globals_fn_contains_i32_operation;
 
 static void reset_filling(void) {
 	global_variables_size = 0;
@@ -4096,7 +4095,6 @@ static void reset_filling(void) {
 	entity_types_size = 0;
 	data_strings_size = 0;
 	memset(buckets_data_strings, 0xff, sizeof(buckets_data_strings));
-	init_globals_fn_contains_i32_operation = false;
 }
 
 static void push_data_string(char *string) {
@@ -4330,23 +4328,11 @@ static void fill_binary_expr(struct expr *expr) {
 		case DIVISION_TOKEN:
 			grug_assert(binary_expr.left_expr->result_type == type_i32 || binary_expr.left_expr->result_type == type_f32, "'%s' operator expects i32 or f32", get_token_type_str[binary_expr.operator]);
 			expr->result_type = binary_expr.left_expr->result_type;
-
-			if (expr->result_type == type_i32) {
-				*parsed_fn_contains_i32_operation_ptr = true;
-			}
-
 			break;
-
 		case REMAINDER_TOKEN:
 			grug_assert(binary_expr.left_expr->result_type == type_i32, "'%%' operator expects i32");
 			expr->result_type = type_i32;
-
-			if (expr->result_type == type_i32) {
-				*parsed_fn_contains_i32_operation_ptr = true;
-			}
-
 			break;
-
 		case OPEN_PARENTHESIS_TOKEN:
 		case CLOSE_PARENTHESIS_TOKEN:
 		case OPEN_BRACE_TOKEN:
@@ -4488,10 +4474,6 @@ static void fill_expr(struct expr *expr) {
 				grug_assert(expr->result_type == type_bool, "Found 'not' before %s, but it can only be put before a bool", type_names[expr->result_type]);
 			} else if (expr->unary.operator == MINUS_TOKEN) {
 				grug_assert(expr->result_type == type_i32 || expr->result_type == type_f32, "Found '-' before %s, but it can only be put before an i32 or f32", type_names[expr->result_type]);
-
-				if (expr->result_type == type_i32) {
-					*parsed_fn_contains_i32_operation_ptr = true;
-				}
 			} else {
 				grug_unreachable();
 			}
@@ -4707,7 +4689,6 @@ static void fill_on_fns(void) {
 
 		parsed_fn_calls_helper_fn_ptr = &fn->calls_helper_fn;
 		parsed_fn_contains_while_loop_ptr = &fn->contains_while_loop;
-		parsed_fn_contains_i32_operation_ptr = &fn->contains_i32_operation;
 
 		fill_statements(fn->body_statements, fn->body_statement_count);
 	}
@@ -4757,7 +4738,6 @@ static void fill_global_variables(void) {
 
 		check_global_expr(&global->assignment_expr, global->name);
 
-		parsed_fn_contains_i32_operation_ptr = &init_globals_fn_contains_i32_operation;
 		fill_expr(&global->assignment_expr);
 
 		grug_assert(global->type == global->assignment_expr.result_type, "Can't assign %s to '%s', which has type %s", type_names[global->assignment_expr.result_type], global->name, type_names[global->type]);
@@ -4875,6 +4855,9 @@ static void fill_result_types(void) {
 #define MOV_TO_EDI 0xbf // mov edi, n
 
 #define RET 0xc3 // ret
+
+#define MOV_8_BIT_TO_DEREF_RAX 0xc6 // mov [rax], byte n
+
 #define CALL 0xe8 // call a function
 
 #define JMP_8_BIT_OFFSET 0xeb // jmp $+n
@@ -4931,6 +4914,7 @@ static void fill_result_types(void) {
 #define LEA_STRINGS_TO_RDX 0x158d48 // lea rdx, strings[rel n]
 
 #define MOV_R11_TO_DEREF_RAX 0x18894c // mov [rax], r11
+#define MOV_DEREF_R11_TO_R11B 0x1b8a45 // mov r11b, [r11]
 #define MOV_GLOBAL_VARIABLE_TO_R11 0x1d8b4c // mov r11, [rel foo wrt ..got]
 #define LEA_STRINGS_TO_R11 0x1d8d4c // lea r11, strings[rel n]
 #define CMP_RSP_WITH_DEREF_RAX 0x203b48 // cmp rsp, [rax]
@@ -4944,7 +4928,7 @@ static void fill_result_types(void) {
 
 #define NOP_32_BITS 0x401f0f // There isn't a nasm equivalent
 
-#define MOV_TO_DEREF_RAX_8_BIT_OFFSET 0x408148 // add qword [byte rax + n], m
+#define ADD_TO_DEREF_RAX_8_BIT_OFFSET 0x408148 // add qword [byte rax + n], m
 #define MOV_DEREF_RAX_TO_RAX_8_BIT_OFFSET 0x408b48 // mov rax, rax[n]
 
 #define MOVZX_BYTE_DEREF_RAX_TO_EAX_8_BIT_OFFSET 0x40b60f // movzx eax, byte rax[n]
@@ -5015,6 +4999,7 @@ static void fill_result_types(void) {
 #define ADD_R11D_TO_EAX 0xd80144 // add eax, r11d
 #define SUB_R11D_FROM_EAX 0xd82944 // sub eax, r11d
 #define CMP_EAX_WITH_R11D 0xd83944 // cmp eax, r11d
+#define TEST_R11B_IS_ZERO 0xdb8445 // test r11b, r11b
 #define TEST_R11_IS_ZERO 0xdb854d // test r11, r11
 #define MOV_R11_TO_RSI 0xde894c // mov rsi, r11
 
@@ -5339,6 +5324,10 @@ static void compile_padded(u64 n, size_t byte_count) {
 	}
 }
 
+static void compile_16(u16 n) {
+	compile_padded(n, sizeof(u16));
+}
+
 static void compile_32(u32 n) {
 	compile_padded(n, sizeof(u32));
 }
@@ -5555,6 +5544,29 @@ static void compile_longjmp_to_error_handling(enum grug_runtime_error_type type)
 	compile_unpadded(PLACEHOLDER_32);
 }
 
+static void compile_check_game_fn_error(void) {
+	// mov r11, [rel grug_has_game_function_error_happened wrt ..got]:
+	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_R11);
+	push_used_extern_global_variable("grug_has_game_function_error_happened", codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+
+	// mov r11b, [r11]:
+	compile_unpadded(MOV_DEREF_R11_TO_R11B);
+
+	// test r11b, r11b:
+	compile_unpadded(TEST_R11B_IS_ZERO);
+
+	// je %%skip:
+	compile_byte(JE_8_BIT_OFFSET);
+	size_t skip_offset = codes_size;
+	compile_byte(PLACEHOLDER_8);
+
+	compile_longjmp_to_error_handling(GRUG_ON_FN_GAME_FN_ERROR);
+
+	// %%skip:
+	overwrite_jmp_address_8(skip_offset, codes_size);
+}
+
 static void compile_check_overflow(void) {
 	compile_byte(JNO);
 	size_t skip_offset = codes_size;
@@ -5624,16 +5636,6 @@ static void compile_check_time_limit_exceeded(void) {
 	push_used_extern_global_variable("grug_max_time", codes_size);
 	compile_32(PLACEHOLDER_32);
 
-	// ; This is what the below code does:
-	// ; cmp grug_current_time.sec, grug_max_time.sec
-	// ; jl skip
-	// ; jg take
-	// ; cmp grug_current_time.nsec, grug_max_time.nsec
-	// ; jg take
-	// ; jmp skip
-	// ; take: longjmp()
-	// ; skip: ...
-
 	// mov r10, [r11 + TV_SEC_OFFSET]:
 	compile_unpadded(MOV_R11_8_BIT_OFFSET_TO_R10);
 	compile_byte(offsetof(struct timespec, tv_sec));
@@ -5697,6 +5699,15 @@ static void compile_function_epilogue(void) {
 
 static void compile_error_handling(char *grug_path, char *fn_name) {
 	is_error_handler_used = true;
+
+	// mov rax, [rel grug_has_game_function_error_happened wrt ..got]:
+	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
+	push_used_extern_global_variable("grug_has_game_function_error_happened", codes_size);
+	compile_32(PLACEHOLDER_32);
+
+	// mov [rax], byte 0:
+	compile_16(MOV_8_BIT_TO_DEREF_RAX);
+	compile_byte(0);
 
 	// mov rdi, [rel grug_runtime_error_jmp_buffer wrt ..got]:
 	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RDI);
@@ -5791,12 +5802,12 @@ static void compile_set_time_limit(void) {
 	compile_byte(POP_RAX);
 
 	// add qword [byte rax + TV_SEC_OFFSET], on_fn_time_limit_sec:
-	compile_unpadded(MOV_TO_DEREF_RAX_8_BIT_OFFSET);
+	compile_unpadded(ADD_TO_DEREF_RAX_8_BIT_OFFSET);
 	compile_byte(offsetof(struct timespec, tv_sec));
 	compile_32(on_fn_time_limit_sec);
 
 	// add qword [byte rax + TV_NSEC_OFFSET], on_fn_time_limit_ns:
-	compile_unpadded(MOV_TO_DEREF_RAX_8_BIT_OFFSET);
+	compile_unpadded(ADD_TO_DEREF_RAX_8_BIT_OFFSET);
 	compile_byte(offsetof(struct timespec, tv_nsec));
 	compile_32(on_fn_time_limit_ns);
 
@@ -5942,16 +5953,13 @@ static void compile_check_stack_overflow(void) {
 static void compile_call_expr(struct call_expr call_expr) {
 	char *fn_name = call_expr.fn_name;
 
-	bool gets_globals_ptr = false;
-	if (get_helper_fn(fn_name)) {
-		gets_globals_ptr = true;
-	}
+	bool calls_helper_fn = get_helper_fn(fn_name) != NULL;
 
 	// `integer` here refers to the classification type:
 	// "integer types and pointers which use the general purpose registers"
 	// See https://stackoverflow.com/a/57861992/13279557
 	size_t integer_argument_count = 0;
-	if (gets_globals_ptr) {
+	if (calls_helper_fn) {
 		integer_argument_count++;
 	}
 
@@ -6032,7 +6040,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 		}
 	}
 
-	if (gets_globals_ptr) {
+	if (calls_helper_fn) {
 		// Push the secret global variables pointer argument
 		compile_unpadded(MOV_DEREF_RBP_TO_RAX_8_BIT_OFFSET);
 		compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
@@ -6053,7 +6061,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 	size_t popped_floats_count = 0;
 	size_t popped_integers_count = 0;
 
-	if (gets_globals_ptr) {
+	if (calls_helper_fn) {
 		// Pop the secret global variables pointer argument
 		compile_byte(POP_RDI);
 		popped_integers_count++;
@@ -6096,8 +6104,11 @@ static void compile_call_expr(struct call_expr call_expr) {
 	compile_byte(CALL);
 
 	struct grug_game_function *game_fn = get_grug_game_fn(fn_name);
+	bool calls_game_fn = game_fn != NULL;
+	assert(calls_helper_fn || calls_game_fn);
+
 	bool returns_float = false;
-	if (game_fn) {
+	if (calls_game_fn) {
 		push_game_fn_call(fn_name, codes_size);
 		returns_float = game_fn->return_type == type_f32;
 	} else {
@@ -6130,6 +6141,10 @@ static void compile_call_expr(struct call_expr call_expr) {
 
 	if (returns_float) {
 		compile_unpadded(MOV_XMM0_TO_EAX);
+	}
+
+	if (calls_game_fn && !compiling_fast_mode) {
+		compile_check_game_fn_error();
 	}
 }
 
@@ -6851,7 +6866,7 @@ static void compile_function_prologue(void) {
 	}
 }
 
-static void compile_on_fn_impl(char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, char *grug_path, bool on_fn_calls_helper_fn, bool on_fn_contains_while_loop, bool on_fn_contains_i32_operation) {
+static void compile_on_fn_impl(char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, char *grug_path, bool on_fn_calls_helper_fn, bool on_fn_contains_while_loop) {
 	init_argument_variables(fn_arguments, argument_count);
 
 	add_variables_in_statements(body_statements, body_statement_count);
@@ -6886,9 +6901,7 @@ static void compile_on_fn_impl(char *fn_name, struct argument *fn_arguments, siz
 		compile_set_time_limit();
 	}
 
-	if (on_fn_calls_helper_fn || on_fn_contains_while_loop || on_fn_contains_i32_operation) {
-		compile_error_handling(grug_path, fn_name);
-	}
+	compile_error_handling(grug_path, fn_name);
 
 	compile_statements(body_statements, body_statement_count);
 
@@ -6904,7 +6917,7 @@ static void compile_on_fn_impl(char *fn_name, struct argument *fn_arguments, siz
 }
 
 static void compile_on_fn(struct on_fn fn, char *grug_path) {
-	compile_on_fn_impl(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, grug_path, fn.calls_helper_fn, fn.contains_while_loop, fn.contains_i32_operation);
+	compile_on_fn_impl(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, grug_path, fn.calls_helper_fn, fn.contains_while_loop);
 }
 
 static void compile_helper_fn_impl(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
@@ -6957,10 +6970,7 @@ static void compile_init_globals_fn(char *grug_path) {
 
 	compile_save_fn_name_and_path(grug_path, "init_globals");
 
-	if (init_globals_fn_contains_i32_operation) {
-		// Reached by tests/ok/global_containing_negation
-		compile_error_handling(grug_path, "init_globals");
-	}
+	compile_error_handling(grug_path, "init_globals");
 
 	for (size_t i = 0; i < global_variable_statements_size; i++) {
 		struct global_variable_statement global = global_variable_statements[i];
@@ -7942,6 +7952,10 @@ static void push_got(void) {
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
 
+	push_global_variable_offset("grug_has_game_function_error_happened", offset);
+	offset += sizeof(u64);
+	push_zeros(sizeof(u64));
+
 	push_global_variable_offset("grug_fn_name", offset);
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
@@ -8017,6 +8031,7 @@ static void push_dynamic(void) {
 			dynamic_offset -= sizeof(u64); // grug_runtime_error_jmp_buffer
 		}
 		dynamic_offset -= sizeof(u64); // grug_fn_name
+		dynamic_offset -= sizeof(u64); // grug_has_game_function_error_happened
 		dynamic_offset -= sizeof(u64); // grug_on_fns_in_safe_mode
 		if (is_max_time_used) {
 			dynamic_offset -= sizeof(u64); // grug_current_time
@@ -8797,6 +8812,9 @@ static void generate_shared_object(char *dll_path) {
 		}
 
 		push_symbol("grug_fn_name");
+		extern_data_symbols_size++;
+
+		push_symbol("grug_has_game_function_error_happened");
 		extern_data_symbols_size++;
 
 		push_symbol("grug_on_fns_in_safe_mode");
@@ -9669,6 +9687,11 @@ bool grug_regenerate_modified_mods(void) {
 	reset_previous_grug_error();
 
 	return false;
+}
+
+USED_BY_MODS bool grug_has_game_function_error_happened = false;
+void grug_game_function_error_happened(void) {
+	grug_has_game_function_error_happened = true;
 }
 
 USED_BY_MODS bool grug_on_fns_in_safe_mode = true;
