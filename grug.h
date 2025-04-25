@@ -41,7 +41,7 @@ void grug_free_mods(void);
 
 // Calling this during a game function will cause grug
 // to immediately return a runtime error, from the current on_ function call
-void grug_game_function_error_happened(void);
+void grug_game_function_error_happened(char *message);
 
 // These functions are meant to be used together, to write and read the AST of the mods/ directory
 // One use case is that this allows you to for example write a Python program that reads the mods/ AST,

@@ -230,6 +230,8 @@ USED_BY_MODS jmp_buf grug_runtime_error_jmp_buffer;
 
 USED_BY_MODS grug_runtime_error_handler_t grug_runtime_error_handler = NULL;
 
+static char *game_function_error_message;
+
 USED_BY_MODS char *grug_get_runtime_error_reason(enum grug_runtime_error_type type);
 
 char *grug_get_runtime_error_reason(enum grug_runtime_error_type type) {
@@ -248,7 +250,7 @@ char *grug_get_runtime_error_reason(enum grug_runtime_error_type type) {
 		case GRUG_ON_FN_OVERFLOW:
 			return "i32 overflow";
 		case GRUG_ON_FN_GAME_FN_ERROR:
-			return "Game function error";
+			return game_function_error_message;
 	}
 	grug_unreachable();
 }
@@ -9690,8 +9692,9 @@ bool grug_regenerate_modified_mods(void) {
 }
 
 USED_BY_MODS bool grug_has_game_function_error_happened = false;
-void grug_game_function_error_happened(void) {
+void grug_game_function_error_happened(char *message) {
 	grug_has_game_function_error_happened = true;
+	game_function_error_message = message;
 }
 
 USED_BY_MODS bool grug_on_fns_in_safe_mode = true;
