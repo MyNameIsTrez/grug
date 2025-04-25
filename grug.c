@@ -222,6 +222,8 @@ static void *get_dll_symbol(void *dll, char *symbol_name) {
 
 //// RUNTIME ERROR HANDLING
 
+static char runtime_error_reason[420];
+
 static size_t on_fn_time_limit_ms;
 static size_t on_fn_time_limit_sec;
 static size_t on_fn_time_limit_ns;
@@ -229,8 +231,6 @@ static size_t on_fn_time_limit_ns;
 USED_BY_MODS jmp_buf grug_runtime_error_jmp_buffer;
 
 USED_BY_MODS grug_runtime_error_handler_t grug_runtime_error_handler = NULL;
-
-static char *game_function_error_message;
 
 USED_BY_MODS char *grug_get_runtime_error_reason(enum grug_runtime_error_type type);
 
@@ -241,16 +241,13 @@ char *grug_get_runtime_error_reason(enum grug_runtime_error_type type) {
 		case GRUG_ON_FN_STACK_OVERFLOW:
 			return "Stack overflow, so check for accidental infinite recursion";
 		case GRUG_ON_FN_TIME_LIMIT_EXCEEDED: {
-			static char temp[420];
-
-			snprintf(temp, sizeof(temp), "Took longer than %zu milliseconds to run", on_fn_time_limit_ms);
-
-			return temp;
+			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "Took longer than %zu milliseconds to run", on_fn_time_limit_ms);
+			return runtime_error_reason;
 		}
 		case GRUG_ON_FN_OVERFLOW:
 			return "i32 overflow";
 		case GRUG_ON_FN_GAME_FN_ERROR:
-			return game_function_error_message;
+			return runtime_error_reason;
 	}
 	grug_unreachable();
 }
@@ -9694,7 +9691,7 @@ bool grug_regenerate_modified_mods(void) {
 USED_BY_MODS bool grug_has_game_function_error_happened = false;
 void grug_game_function_error_happened(char *message) {
 	grug_has_game_function_error_happened = true;
-	game_function_error_message = message;
+	snprintf(runtime_error_reason, sizeof(runtime_error_reason), "%s", message);
 }
 
 USED_BY_MODS bool grug_on_fns_in_safe_mode = true;
