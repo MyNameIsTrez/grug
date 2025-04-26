@@ -228,8 +228,6 @@ static size_t on_fn_time_limit_ms;
 static size_t on_fn_time_limit_sec;
 static size_t on_fn_time_limit_ns;
 
-USED_BY_MODS jmp_buf grug_runtime_error_jmp_buffer;
-
 USED_BY_MODS grug_runtime_error_handler_t grug_runtime_error_handler = NULL;
 
 USED_BY_MODS char *grug_get_runtime_error_reason(enum grug_runtime_error_type type);
@@ -5544,9 +5542,9 @@ static void compile_longjmp_to_error_handling(enum grug_runtime_error_type type)
 }
 
 static void compile_check_game_fn_error(void) {
-	// mov r11, [rel grug_has_game_function_error_happened wrt ..got]:
+	// mov r11, [rel grug_has_runtime_error_happened wrt ..got]:
 	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_R11);
-	push_used_extern_global_variable("grug_has_game_function_error_happened", codes_size);
+	push_used_extern_global_variable("grug_has_runtime_error_happened", codes_size);
 	compile_unpadded(PLACEHOLDER_32);
 
 	// mov r11b, [r11]:
@@ -5699,9 +5697,9 @@ static void compile_function_epilogue(void) {
 static void compile_error_handling(char *grug_path, char *fn_name) {
 	is_error_handler_used = true;
 
-	// mov rax, [rel grug_has_game_function_error_happened wrt ..got]:
+	// mov rax, [rel grug_has_runtime_error_happened wrt ..got]:
 	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
-	push_used_extern_global_variable("grug_has_game_function_error_happened", codes_size);
+	push_used_extern_global_variable("grug_has_runtime_error_happened", codes_size);
 	compile_32(PLACEHOLDER_32);
 
 	// mov [rax], byte 0:
@@ -7951,7 +7949,7 @@ static void push_got(void) {
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
 
-	push_global_variable_offset("grug_has_game_function_error_happened", offset);
+	push_global_variable_offset("grug_has_runtime_error_happened", offset);
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
 
@@ -8030,7 +8028,7 @@ static void push_dynamic(void) {
 			dynamic_offset -= sizeof(u64); // grug_runtime_error_jmp_buffer
 		}
 		dynamic_offset -= sizeof(u64); // grug_fn_name
-		dynamic_offset -= sizeof(u64); // grug_has_game_function_error_happened
+		dynamic_offset -= sizeof(u64); // grug_has_runtime_error_happened
 		dynamic_offset -= sizeof(u64); // grug_on_fns_in_safe_mode
 		if (is_max_time_used) {
 			dynamic_offset -= sizeof(u64); // grug_current_time
@@ -8813,7 +8811,7 @@ static void generate_shared_object(char *dll_path) {
 		push_symbol("grug_fn_name");
 		extern_data_symbols_size++;
 
-		push_symbol("grug_has_game_function_error_happened");
+		push_symbol("grug_has_runtime_error_happened");
 		extern_data_symbols_size++;
 
 		push_symbol("grug_on_fns_in_safe_mode");
@@ -9688,9 +9686,9 @@ bool grug_regenerate_modified_mods(void) {
 	return false;
 }
 
-USED_BY_MODS bool grug_has_game_function_error_happened = false;
+USED_BY_MODS bool grug_has_runtime_error_happened = false;
 void grug_game_function_error_happened(char *message) {
-	grug_has_game_function_error_happened = true;
+	grug_has_runtime_error_happened = true;
 	snprintf(runtime_error_reason, sizeof(runtime_error_reason), "%s", message);
 }
 
