@@ -145,19 +145,17 @@ static bool streq(char *a, char *b) {
 	return strcmp(a, b) == 0;
 }
 
-// "a" is the haystack, "b" is the needle
-static bool starts_with(char *a, char *b) {
-	return strncmp(a, b, strlen(b)) == 0;
+static bool starts_with(char *haystack, char *needle) {
+	return strncmp(haystack, needle, strlen(needle)) == 0;
 }
 
-// "a" is the haystack, "b" is the needle
-static bool ends_with(char *a, char *b) {
-	size_t len_a = strlen(a);
-	size_t len_b = strlen(b);
-	if (len_a < len_b) {
+static bool ends_with(char *haystack, char *needle) {
+	size_t len_haystack = strlen(haystack);
+	size_t len_needle = strlen(needle);
+	if (len_haystack < len_needle) {
 		return false;
 	}
-	return strncmp(a + len_a - len_b, b, len_b) == 0;
+	return strncmp(haystack + len_haystack - len_needle, needle, len_needle) == 0;
 }
 
 static bool is_lowercase(char *str) {
@@ -4863,7 +4861,7 @@ static void fill_result_types(void) {
 
 #define CALL_DEREF_RAX 0x10ff // call [rax]
 
-#define JNO 0x71 // jno $+n
+#define JNO_8_BIT_OFFSET 0x71 // jno $+n
 
 #define JMP_REL 0x25ff // Not quite jmp [$+n]
 #define PUSH_REL 0x35ff // Not quite push qword [$+n]
@@ -4895,10 +4893,6 @@ static void fill_result_types(void) {
 #define TEST_AL_IS_ZERO 0xc084 // test al, al
 #define TEST_EAX_IS_ZERO 0xc085 // test eax, eax
 
-#define MOV_EAX_TO_EDI 0xc789 // mov edi, eax
-
-#define DEC_EAX 0xc8ff // dec eax
-
 #define NEGATE_EAX 0xd8f7 // neg eax
 
 #define MOV_GLOBAL_VARIABLE_TO_RAX 0x58b48 // mov rax, [rel foo wrt ..got]
@@ -4921,7 +4915,6 @@ static void fill_result_types(void) {
 
 #define MOV_GLOBAL_VARIABLE_TO_RSI 0x358b48 // mov rsi, [rel foo wrt ..got]
 #define MOV_RSI_TO_DEREF_RDI 0x378948 // mov rdi[0x0], rsi
-#define MOV_GLOBAL_VARIABLE_TO_RDI 0x3d8b48 // mov rdi, [rel foo wrt ..got]
 
 #define NOP_32_BITS 0x401f0f // There isn't a nasm equivalent
 
@@ -4949,7 +4942,7 @@ static void fill_result_types(void) {
 #define CMP_DEREF_RAX_8_BIT_OFFSET_WITH_R10 0x50394c // cmp qword [byte rax + n], r10
 #define MOV_RDX_TO_DEREF_RBP_8_BIT_OFFSET 0x558948 // mov rbp[n], rdx
 
-#define MOV_DEREF_RBP_TO_R11 0x5d8b4c // mov r11, rbp[n]
+#define MOV_DEREF_RBP_TO_R11_8_BIT_OFFSET 0x5d8b4c // mov r11, rbp[n]
 
 #define SUB_FROM_DEREF_RAX_8_BIT_OFFSET 0x688148 // sub qword [byte rax + n], m
 
@@ -4957,7 +4950,7 @@ static void fill_result_types(void) {
 
 #define CMP_WITH_DEREF_RAX_8_BIT_OFFSET 0x788148 // cmp qword [byte rax + n], m
 
-#define MOV_RDI_TO_DEREF_RBP 0x7d8948 // mov rbp[n], rdi
+#define MOV_RDI_TO_DEREF_RBP_8_BIT_OFFSET 0x7d8948 // mov rbp[n], rdi
 #define MOVZX_BYTE_DEREF_RAX_TO_EAX_32_BIT_OFFSET 0x80b60f // movzx eax, byte rax[n]
 #define MOV_DEREF_RAX_TO_RAX_32_BIT_OFFSET 0x808b48 // mov rax, rax[n]
 #define MOV_AL_TO_DEREF_R11_32_BIT_OFFSET 0x838841 // mov r11[n], al
@@ -5125,6 +5118,9 @@ static bool is_max_time_used;
 
 static char helper_fn_mode_names[MAX_HELPER_FN_MODE_NAMES_CHARACTERS];
 static size_t helper_fn_mode_names_size;
+
+static char *current_grug_path;
+static char *current_fn_name;
 
 static void reset_compiling(void) {
 	codes_size = 0;
@@ -5514,6 +5510,12 @@ static void compile_expr(struct expr expr);
 
 static void compile_statements(struct statement *statements_offset, size_t statement_count);
 
+static void compile_function_epilogue(void) {
+	compile_unpadded(MOV_RBP_TO_RSP);
+	compile_byte(POP_RBP);
+	compile_byte(RET);
+}
+
 static void push_used_extern_global_variable(char *variable_name, size_t codes_offset) {
 	grug_assert(used_extern_global_variables_size < MAX_USED_EXTERN_GLOBAL_VARIABLES, "There are more than %d usages of game global variables, exceeding MAX_USED_EXTERN_GLOBAL_VARIABLES", MAX_USED_EXTERN_GLOBAL_VARIABLES);
 
@@ -5523,22 +5525,53 @@ static void push_used_extern_global_variable(char *variable_name, size_t codes_o
 	};
 }
 
-static void compile_longjmp_to_error_handling(enum grug_runtime_error_type type) {
-	// mov esi, 1 + type:
-	// The `1 +` here is necessary for the longjmp()
-	// After the setjmp() we get the true value by decrementing it by 1
-	compile_byte(MOV_TO_ESI);
-	compile_32(1 + type);
-
-	// mov rdi, [rel grug_runtime_error_jmp_buffer wrt ..got]:
-	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RDI);
-	push_used_extern_global_variable("grug_runtime_error_jmp_buffer", codes_size);
+static void compile_runtime_error(enum grug_runtime_error_type type) {
+	// mov rax, [rel grug_has_runtime_error_happened wrt ..got]:
+	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
+	push_used_extern_global_variable("grug_has_runtime_error_happened", codes_size);
 	compile_32(PLACEHOLDER_32);
 
-	// call longjmp wrt ..plt:
+	// mov [rax], byte 1:
+	compile_16(MOV_8_BIT_TO_DEREF_RAX);
+	compile_byte(1);
+
+	// mov edi, type:
+	compile_unpadded(MOV_TO_EDI);
+	compile_32(type);
+
+	// call grug_get_runtime_error_reason wrt ..plt:
 	compile_byte(CALL);
-	push_system_fn_call("longjmp", codes_size);
+	push_system_fn_call("grug_get_runtime_error_reason", codes_size);
 	compile_unpadded(PLACEHOLDER_32);
+
+	// mov rdi, rax:
+	compile_unpadded(MOV_RAX_TO_RDI);
+
+	// lea rcx, strings[rel n]:
+	compile_unpadded(LEA_STRINGS_TO_RCX);
+	assert(current_grug_path != NULL);
+	push_data_string_code(current_grug_path, codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+
+	// lea rdx, strings[rel n]:
+	compile_unpadded(LEA_STRINGS_TO_RDX);
+	assert(current_fn_name != NULL);
+	push_data_string_code(current_fn_name, codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+
+	// mov esi, type:
+	compile_unpadded(MOV_TO_ESI);
+	compile_32(type);
+
+	// mov rax, [rel grug_runtime_error_handler wrt ..got]:
+	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
+	push_used_extern_global_variable("grug_runtime_error_handler", codes_size);
+	compile_32(PLACEHOLDER_32);
+
+	// call [rax]:
+	compile_unpadded(CALL_DEREF_RAX);
+
+	compile_function_epilogue();
 }
 
 static void compile_check_game_fn_error(void) {
@@ -5558,18 +5591,54 @@ static void compile_check_game_fn_error(void) {
 	size_t skip_offset = codes_size;
 	compile_byte(PLACEHOLDER_8);
 
-	compile_longjmp_to_error_handling(GRUG_ON_FN_GAME_FN_ERROR);
+	// mov edi, GRUG_ON_FN_GAME_FN_ERROR:
+	compile_byte(MOV_TO_EDI);
+	compile_32(GRUG_ON_FN_GAME_FN_ERROR);
+
+	// call grug_get_runtime_error_reason wrt ..plt:
+	compile_byte(CALL);
+	push_system_fn_call("grug_get_runtime_error_reason", codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+
+	// mov rdi, rax:
+	compile_unpadded(MOV_RAX_TO_RDI);
+
+	// lea rcx, strings[rel n]:
+	compile_unpadded(LEA_STRINGS_TO_RCX);
+	assert(current_grug_path != NULL);
+	push_data_string_code(current_grug_path, codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+
+	// lea rdx, strings[rel n]:
+	compile_unpadded(LEA_STRINGS_TO_RDX);
+	assert(current_fn_name != NULL);
+	push_data_string_code(current_fn_name, codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+
+	// mov esi, GRUG_ON_FN_GAME_FN_ERROR:
+	compile_unpadded(MOV_TO_ESI);
+	compile_32(GRUG_ON_FN_GAME_FN_ERROR);
+
+	// mov rax, [rel grug_runtime_error_handler wrt ..got]:
+	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
+	push_used_extern_global_variable("grug_runtime_error_handler", codes_size);
+	compile_32(PLACEHOLDER_32);
+
+	// call [rax]:
+	compile_unpadded(CALL_DEREF_RAX);
+
+	compile_function_epilogue();
 
 	// %%skip:
 	overwrite_jmp_address_8(skip_offset, codes_size);
 }
 
 static void compile_check_overflow(void) {
-	compile_byte(JNO);
+	compile_byte(JNO_8_BIT_OFFSET);
 	size_t skip_offset = codes_size;
 	compile_byte(PLACEHOLDER_8);
 
-	compile_longjmp_to_error_handling(GRUG_ON_FN_OVERFLOW);
+	compile_runtime_error(GRUG_ON_FN_OVERFLOW);
 
 	overwrite_jmp_address_8(skip_offset, codes_size);
 }
@@ -5589,7 +5658,7 @@ static void compile_check_division_overflow(void) {
 	size_t skip_offset_2 = codes_size;
 	compile_byte(PLACEHOLDER_8);
 
-	compile_longjmp_to_error_handling(GRUG_ON_FN_OVERFLOW);
+	compile_runtime_error(GRUG_ON_FN_OVERFLOW);
 
 	overwrite_jmp_address_8(skip_offset_1, codes_size);
 	overwrite_jmp_address_8(skip_offset_2, codes_size);
@@ -5602,7 +5671,7 @@ static void compile_check_division_by_0(void) {
 	size_t skip_offset = codes_size;
 	compile_byte(PLACEHOLDER_8);
 
-	compile_longjmp_to_error_handling(GRUG_ON_FN_DIVISION_BY_ZERO);
+	compile_runtime_error(GRUG_ON_FN_DIVISION_BY_ZERO);
 
 	overwrite_jmp_address_8(skip_offset, codes_size);
 }
@@ -5672,7 +5741,7 @@ static void compile_check_time_limit_exceeded(void) {
 	overwrite_jmp_address_8(take_offset_1, codes_size);
 	overwrite_jmp_address_8(take_offset_2, codes_size);
 
-	compile_longjmp_to_error_handling(GRUG_ON_FN_TIME_LIMIT_EXCEEDED);
+	compile_runtime_error(GRUG_ON_FN_TIME_LIMIT_EXCEEDED);
 
 	overwrite_jmp_address_8(skip_offset_1, codes_size);
 	overwrite_jmp_address_8(skip_offset_2, codes_size);
@@ -5688,15 +5757,7 @@ static void compile_continue_statement(void) {
 	compile_32(start_of_loop_jump_offset - (codes_size + NEXT_INSTRUCTION_OFFSET));
 }
 
-static void compile_function_epilogue(void) {
-	compile_unpadded(MOV_RBP_TO_RSP);
-	compile_byte(POP_RBP);
-	compile_byte(RET);
-}
-
-static void compile_error_handling(char *grug_path, char *fn_name) {
-	is_error_handler_used = true;
-
+static void compile_clear_has_runtime_error_happened(void) {
 	// mov rax, [rel grug_has_runtime_error_happened wrt ..got]:
 	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
 	push_used_extern_global_variable("grug_has_runtime_error_happened", codes_size);
@@ -5705,74 +5766,6 @@ static void compile_error_handling(char *grug_path, char *fn_name) {
 	// mov [rax], byte 0:
 	compile_16(MOV_8_BIT_TO_DEREF_RAX);
 	compile_byte(0);
-
-	// mov rdi, [rel grug_runtime_error_jmp_buffer wrt ..got]:
-	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RDI);
-	push_used_extern_global_variable("grug_runtime_error_jmp_buffer", codes_size);
-	compile_32(PLACEHOLDER_32);
-
-	// call setjmp wrt ..plt:
-	compile_byte(CALL);
-	push_system_fn_call("setjmp", codes_size);
-	compile_unpadded(PLACEHOLDER_32);
-
-	// test eax, eax:
-	compile_unpadded(TEST_EAX_IS_ZERO);
-
-	// je $+0xn:
-	compile_unpadded(JE_8_BIT_OFFSET);
-	size_t skip_runtime_handler_call_offset = codes_size;
-	compile_byte(PLACEHOLDER_8);
-
-	// dec eax:
-	compile_unpadded(DEC_EAX);
-
-	// push rax:
-	compile_byte(PUSH_RAX);
-
-	// mov edi, eax:
-	compile_unpadded(MOV_EAX_TO_EDI);
-
-	// sub rsp, 8:
-	compile_unpadded(SUB_RSP_8_BITS);
-	compile_byte(8);
-
-	// call grug_get_runtime_error_reason wrt ..plt:
-	compile_byte(CALL);
-	push_system_fn_call("grug_get_runtime_error_reason", codes_size);
-	compile_unpadded(PLACEHOLDER_32);
-
-	// add rsp, 8:
-	compile_unpadded(ADD_RSP_8_BITS);
-	compile_byte(8);
-
-	// mov rdi, rax:
-	compile_unpadded(MOV_RAX_TO_RDI);
-
-	// lea rcx, strings[rel n]:
-	compile_unpadded(LEA_STRINGS_TO_RCX);
-	push_data_string_code(grug_path, codes_size);
-	compile_unpadded(PLACEHOLDER_32);
-
-	// lea rdx, strings[rel n]:
-	compile_unpadded(LEA_STRINGS_TO_RDX);
-	push_data_string_code(fn_name, codes_size);
-	compile_unpadded(PLACEHOLDER_32);
-
-	// pop rsi:
-	compile_byte(POP_RSI);
-
-	// mov rax, [rel grug_runtime_error_handler wrt ..got]:
-	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
-	push_used_extern_global_variable("grug_runtime_error_handler", codes_size);
-	compile_32(PLACEHOLDER_32);
-
-	// call [rax]:
-	compile_unpadded(CALL_DEREF_RAX);
-
-	compile_function_epilogue();
-
-	overwrite_jmp_address_8(skip_runtime_handler_call_offset, codes_size);
 }
 
 static void compile_set_time_limit(void) {
@@ -5942,7 +5935,7 @@ static void compile_check_stack_overflow(void) {
 	size_t skip_offset = codes_size;
 	compile_byte(PLACEHOLDER_8);
 
-	compile_longjmp_to_error_handling(GRUG_ON_FN_STACK_OVERFLOW);
+	compile_runtime_error(GRUG_ON_FN_STACK_OVERFLOW);
 
 	overwrite_jmp_address_8(skip_offset, codes_size);
 }
@@ -6645,7 +6638,7 @@ static void compile_expr(struct expr expr) {
 }
 
 static void compile_global_variable_statement(char *name) {
-	compile_unpadded(MOV_DEREF_RBP_TO_R11);
+	compile_unpadded(MOV_DEREF_RBP_TO_R11_8_BIT_OFFSET);
 	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 
 	struct variable *var = get_global_variable(name);
@@ -6829,7 +6822,7 @@ static void compile_move_globals_ptr(void) {
 	// We need to move the secret global variables pointer to this function's stack frame,
 	// because the RDI register will get clobbered when this function calls another function:
 	// https://stackoverflow.com/a/55387707/13279557
-	compile_unpadded(MOV_RDI_TO_DEREF_RBP);
+	compile_unpadded(MOV_RDI_TO_DEREF_RBP_8_BIT_OFFSET);
 	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 }
 
@@ -6898,7 +6891,12 @@ static void compile_on_fn_impl(char *fn_name, struct argument *fn_arguments, siz
 		compile_set_time_limit();
 	}
 
-	compile_error_handling(grug_path, fn_name);
+	is_error_handler_used = true;
+
+	compile_clear_has_runtime_error_happened();
+
+	current_grug_path = grug_path;
+	current_fn_name = fn_name;
 
 	compile_statements(body_statements, body_statement_count);
 
@@ -6967,7 +6965,12 @@ static void compile_init_globals_fn(char *grug_path) {
 
 	compile_save_fn_name_and_path(grug_path, "init_globals");
 
-	compile_error_handling(grug_path, "init_globals");
+	is_error_handler_used = true;
+
+	compile_clear_has_runtime_error_happened();
+
+	current_grug_path = grug_path;
+	current_fn_name = "init_globals";
 
 	for (size_t i = 0; i < global_variable_statements_size; i++) {
 		struct global_variable_statement global = global_variable_statements[i];
@@ -7957,12 +7960,6 @@ static void push_got(void) {
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
 
-	if (is_error_handler_used) {
-		push_global_variable_offset("grug_runtime_error_jmp_buffer", offset);
-		offset += sizeof(u64);
-		push_zeros(sizeof(u64));
-	}
-
 	push_global_variable_offset("grug_fn_path", offset);
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
@@ -8024,9 +8021,6 @@ static void push_dynamic(void) {
 			dynamic_offset -= sizeof(u64); // grug_max_time
 		}
 		dynamic_offset -= sizeof(u64); // grug_fn_path
-		if (is_error_handler_used) {
-			dynamic_offset -= sizeof(u64); // grug_runtime_error_jmp_buffer
-		}
 		dynamic_offset -= sizeof(u64); // grug_fn_name
 		dynamic_offset -= sizeof(u64); // grug_has_runtime_error_happened
 		dynamic_offset -= sizeof(u64); // grug_on_fns_in_safe_mode
@@ -8802,11 +8796,6 @@ static void generate_shared_object(char *dll_path) {
 
 		push_symbol("grug_fn_path");
 		extern_data_symbols_size++;
-
-		if (is_error_handler_used) {
-			push_symbol("grug_runtime_error_jmp_buffer");
-			extern_data_symbols_size++;
-		}
 
 		push_symbol("grug_fn_name");
 		extern_data_symbols_size++;
