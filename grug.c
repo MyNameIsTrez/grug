@@ -5112,7 +5112,7 @@ static bool compiling_fast_mode;
 
 static bool compiled_init_globals_fn;
 
-static bool is_error_handler_used;
+static bool is_runtime_error_handler_used;
 static bool is_max_rsp_used;
 static bool is_max_time_used;
 
@@ -5139,7 +5139,7 @@ static void reset_compiling(void) {
 	entity_dependencies_size = 0;
 	compiling_fast_mode = false;
 	compiled_init_globals_fn = false;
-	is_error_handler_used = false;
+	is_runtime_error_handler_used = false;
 	is_max_rsp_used = false;
 	is_max_time_used = false;
 	helper_fn_mode_names_size = 0;
@@ -5567,6 +5567,7 @@ static void compile_runtime_error(enum grug_runtime_error_type type) {
 	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
 	push_used_extern_global_variable("grug_runtime_error_handler", codes_size);
 	compile_32(PLACEHOLDER_32);
+	is_runtime_error_handler_used = true;
 
 	// call [rax]:
 	compile_unpadded(CALL_DEREF_RAX);
@@ -5646,6 +5647,7 @@ static void compile_check_game_fn_error(void) {
 	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
 	push_used_extern_global_variable("grug_runtime_error_handler", codes_size);
 	compile_32(PLACEHOLDER_32);
+	is_runtime_error_handler_used = true;
 
 	// call [rax]:
 	compile_unpadded(CALL_DEREF_RAX);
@@ -6918,8 +6920,6 @@ static void compile_on_fn_impl(char *fn_name, struct argument *fn_arguments, siz
 		compile_set_time_limit();
 	}
 
-	is_error_handler_used = true;
-
 	compile_clear_has_runtime_error_happened();
 
 	current_grug_path = grug_path;
@@ -6991,8 +6991,6 @@ static void compile_init_globals_fn(char *grug_path) {
 	size_t skip_safe_code_offset = compile_safe_je();
 
 	compile_save_fn_name_and_path(grug_path, "init_globals");
-
-	is_error_handler_used = true;
 
 	compile_clear_has_runtime_error_happened();
 
@@ -8003,7 +8001,7 @@ static void push_got(void) {
 		push_zeros(sizeof(u64));
 	}
 
-	if (is_error_handler_used) {
+	if (is_runtime_error_handler_used) {
 		push_global_variable_offset("grug_runtime_error_handler", offset);
 		// offset += sizeof(u64);
 		push_zeros(sizeof(u64));
@@ -8038,7 +8036,7 @@ static void push_dynamic(void) {
 	if (has_got()) {
 		// This subtracts the future got_size set by push_got()
 		// TODO: Stop having these hardcoded here
-		if (is_error_handler_used) {
+		if (is_runtime_error_handler_used) {
 			dynamic_offset -= sizeof(u64); // grug_runtime_error_handler
 		}
 		if (is_max_rsp_used) {
@@ -8806,7 +8804,7 @@ static void generate_shared_object(char *dll_path) {
 
 	first_extern_data_symbol_index = data_symbols_size;
 	if (has_got()) {
-		if (is_error_handler_used) {
+		if (is_runtime_error_handler_used) {
 			push_symbol("grug_runtime_error_handler");
 			extern_data_symbols_size++;
 		}
