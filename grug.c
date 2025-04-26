@@ -5574,6 +5574,29 @@ static void compile_runtime_error(enum grug_runtime_error_type type) {
 	compile_function_epilogue();
 }
 
+static void compile_return_if_runtime_error(void) {
+	// mov r11, [rel grug_has_runtime_error_happened wrt ..got]:
+	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_R11);
+	push_used_extern_global_variable("grug_has_runtime_error_happened", codes_size);
+	compile_unpadded(PLACEHOLDER_32);
+
+	// mov r11b, [r11]:
+	compile_unpadded(MOV_DEREF_R11_TO_R11B);
+
+	// test r11b, r11b:
+	compile_unpadded(TEST_R11B_IS_ZERO);
+
+	// je %%skip:
+	compile_byte(JE_8_BIT_OFFSET);
+	size_t skip_offset = codes_size;
+	compile_byte(PLACEHOLDER_8);
+
+	compile_function_epilogue();
+
+	// %%skip:
+	overwrite_jmp_address_8(skip_offset, codes_size);
+}
+
 static void compile_check_game_fn_error(void) {
 	// mov r11, [rel grug_has_runtime_error_happened wrt ..got]:
 	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_R11);
@@ -6133,8 +6156,12 @@ static void compile_call_expr(struct call_expr call_expr) {
 		compile_unpadded(MOV_XMM0_TO_EAX);
 	}
 
-	if (calls_game_fn && !compiling_fast_mode) {
-		compile_check_game_fn_error();
+	if (!compiling_fast_mode) {
+		if (calls_game_fn) {
+			compile_check_game_fn_error();
+		} else {
+			compile_return_if_runtime_error();
+		}
 	}
 }
 
