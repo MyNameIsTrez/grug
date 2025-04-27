@@ -228,9 +228,7 @@ static size_t on_fn_time_limit_ns;
 
 USED_BY_MODS grug_runtime_error_handler_t grug_runtime_error_handler = NULL;
 
-USED_BY_MODS char *grug_get_runtime_error_reason(enum grug_runtime_error_type type);
-
-char *grug_get_runtime_error_reason(enum grug_runtime_error_type type) {
+static char *grug_get_runtime_error_reason(enum grug_runtime_error_type type) {
 	switch (type) {
 		case GRUG_ON_FN_DIVISION_BY_ZERO:
 			return "Division of an i32 by 0";
@@ -246,6 +244,14 @@ char *grug_get_runtime_error_reason(enum grug_runtime_error_type type) {
 			return runtime_error_reason;
 	}
 	grug_unreachable();
+}
+
+USED_BY_MODS void grug_call_runtime_error_handler(enum grug_runtime_error_type type);
+
+void grug_call_runtime_error_handler(enum grug_runtime_error_type type) {
+	char *reason = grug_get_runtime_error_reason(type);
+
+	grug_runtime_error_handler(reason, type, grug_fn_name, grug_fn_path);
 }
 
 //// JSON
@@ -4846,7 +4852,6 @@ static void fill_result_types(void) {
 #define CDQ_SIGN_EXTEND_EAX_BEFORE_DIVISION 0x99 // cdq
 
 #define MOV_TO_EAX 0xb8 // mov eax, n
-#define MOV_TO_ESI 0xbe // mov esi, n
 #define MOV_TO_EDI 0xbf // mov edi, n
 
 #define RET 0xc3 // ret
@@ -4858,8 +4863,6 @@ static void fill_result_types(void) {
 #define JMP_8_BIT_OFFSET 0xeb // jmp $+n
 
 #define JMP_32_BIT_OFFSET 0xe9 // jmp $+n
-
-#define CALL_DEREF_RAX 0x10ff // call [rax]
 
 #define JNO_8_BIT_OFFSET 0x71 // jno $+n
 
@@ -4898,11 +4901,8 @@ static void fill_result_types(void) {
 #define MOV_GLOBAL_VARIABLE_TO_RAX 0x58b48 // mov rax, [rel foo wrt ..got]
 
 #define LEA_STRINGS_TO_RAX 0x58d48 // lea rax, strings[rel n]
-#define LEA_STRINGS_TO_RCX 0xd8d48 // lea rcx, strings[rel n]
 
 #define MOV_R11_8_BIT_OFFSET_TO_R10 0x538b4d // mov r10, [byte r11 + n]
-
-#define LEA_STRINGS_TO_RDX 0x158d48 // lea rdx, strings[rel n]
 
 #define MOV_R11_TO_DEREF_RAX 0x18894c // mov [rax], r11
 #define MOV_DEREF_R11_TO_R11B 0x1b8a45 // mov r11b, [r11]
@@ -5539,38 +5539,10 @@ static void compile_runtime_error(enum grug_runtime_error_type type) {
 	compile_unpadded(MOV_TO_EDI);
 	compile_32(type);
 
-	// call grug_get_runtime_error_reason wrt ..plt:
+	// call grug_call_runtime_error_handler wrt ..plt:
 	compile_byte(CALL);
-	push_system_fn_call("grug_get_runtime_error_reason", codes_size);
+	push_system_fn_call("grug_call_runtime_error_handler", codes_size);
 	compile_unpadded(PLACEHOLDER_32);
-
-	// mov rdi, rax:
-	compile_unpadded(MOV_RAX_TO_RDI);
-
-	// lea rcx, strings[rel n]:
-	compile_unpadded(LEA_STRINGS_TO_RCX);
-	assert(current_grug_path != NULL);
-	push_data_string_code(current_grug_path, codes_size);
-	compile_unpadded(PLACEHOLDER_32);
-
-	// lea rdx, strings[rel n]:
-	compile_unpadded(LEA_STRINGS_TO_RDX);
-	assert(current_fn_name != NULL);
-	push_data_string_code(current_fn_name, codes_size);
-	compile_unpadded(PLACEHOLDER_32);
-
-	// mov esi, type:
-	compile_unpadded(MOV_TO_ESI);
-	compile_32(type);
-
-	// mov rax, [rel grug_runtime_error_handler wrt ..got]:
-	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
-	push_used_extern_global_variable("grug_runtime_error_handler", codes_size);
-	compile_32(PLACEHOLDER_32);
-	is_runtime_error_handler_used = true;
-
-	// call [rax]:
-	compile_unpadded(CALL_DEREF_RAX);
 
 	compile_function_epilogue();
 }
@@ -5619,38 +5591,10 @@ static void compile_check_game_fn_error(void) {
 	compile_byte(MOV_TO_EDI);
 	compile_32(GRUG_ON_FN_GAME_FN_ERROR);
 
-	// call grug_get_runtime_error_reason wrt ..plt:
+	// call grug_call_runtime_error_handler wrt ..plt:
 	compile_byte(CALL);
-	push_system_fn_call("grug_get_runtime_error_reason", codes_size);
+	push_system_fn_call("grug_call_runtime_error_handler", codes_size);
 	compile_unpadded(PLACEHOLDER_32);
-
-	// mov rdi, rax:
-	compile_unpadded(MOV_RAX_TO_RDI);
-
-	// lea rcx, strings[rel n]:
-	compile_unpadded(LEA_STRINGS_TO_RCX);
-	assert(current_grug_path != NULL);
-	push_data_string_code(current_grug_path, codes_size);
-	compile_unpadded(PLACEHOLDER_32);
-
-	// lea rdx, strings[rel n]:
-	compile_unpadded(LEA_STRINGS_TO_RDX);
-	assert(current_fn_name != NULL);
-	push_data_string_code(current_fn_name, codes_size);
-	compile_unpadded(PLACEHOLDER_32);
-
-	// mov esi, GRUG_ON_FN_GAME_FN_ERROR:
-	compile_unpadded(MOV_TO_ESI);
-	compile_32(GRUG_ON_FN_GAME_FN_ERROR);
-
-	// mov rax, [rel grug_runtime_error_handler wrt ..got]:
-	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
-	push_used_extern_global_variable("grug_runtime_error_handler", codes_size);
-	compile_32(PLACEHOLDER_32);
-	is_runtime_error_handler_used = true;
-
-	// call [rax]:
-	compile_unpadded(CALL_DEREF_RAX);
 
 	compile_function_epilogue();
 
