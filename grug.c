@@ -28,7 +28,7 @@
 //
 // ## Programs showcasing grug
 //
-// - [Modding Minecraft with grug](https://github.com/MyNameIsTrez/grug-toys)
+// - [grug mod loader for Minecraft](https://github.com/MyNameIsTrez/grug-mod-loader-for-minecraft)
 // - [Box2D and raylib game](https://github.com/MyNameIsTrez/grug-box2d-and-raylib-game)
 // - [terminal game: C/C++](https://github.com/MyNameIsTrez/grug-terminal-game-c-cpp)
 // - [terminal game: Python](https://github.com/MyNameIsTrez/grug-terminal-game-python)
