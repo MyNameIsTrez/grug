@@ -9424,8 +9424,8 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 			if (!subdir) {
 				struct grug_mod_dir inserted_subdir = {.name = strdup(dp->d_name)};
 				grug_assert(inserted_subdir.name, "strdup: %s", strerror(errno));
+				subdir = dir->dirs + dir->dirs_size;
 				push_subdir(dir, inserted_subdir);
-				subdir = dir->dirs + dir->dirs_size - 1;
 			}
 
 			subdir->_seen = true;
@@ -9535,8 +9535,8 @@ static void reload_modified_mods(void) {
 			if (!subdir) {
 				struct grug_mod_dir inserted_subdir = {.name = strdup(dp->d_name)};
 				grug_assert(inserted_subdir.name, "strdup: %s", strerror(errno));
+				subdir = dir->dirs + dir->dirs_size;
 				push_subdir(dir, inserted_subdir);
-				subdir = dir->dirs + dir->dirs_size - 1;
 			}
 
 			reload_modified_mod(entry_path, dll_entry_path, subdir);
