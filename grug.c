@@ -9529,7 +9529,7 @@ static void reload_modified_mods(void) {
 			validate_about_file(about_json_path);
 
 			char dll_entry_path[STUPID_MAX_PATH];
-			snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_root_dir_path, dp->d_name);
+			grug_assert(snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_root_dir_path, dp->d_name) >= 0, "Filling the variable 'dll_entry_path' failed");
 
 			struct grug_mod_dir *subdir = get_subdir(dir, dp->d_name);
 			if (!subdir) {
