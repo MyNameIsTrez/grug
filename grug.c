@@ -9378,6 +9378,8 @@ static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *gr
 		file = regenerate_dll_and_file(file, grug_path, needs_regeneration, dll_path, grug_filename, dir);
 	}
 
+	file->_seen = true;
+
 	// Needed for grug_get_entitity_file() and check_that_every_entity_exists()
 	add_entity(grug_filename, file);
 
@@ -9418,13 +9420,6 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 		grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
 
 		if (S_ISDIR(entry_stat.st_mode)) {
-			for (size_t i = 0; i < dir->dirs_size; i++) {
-				if (streq(dir->dirs[i].name, dp->d_name)) {
-					dir->dirs[i]._seen = true;
-					break;
-				}
-			}
-
 			struct grug_mod_dir *subdir = get_subdir(dir, dp->d_name);
 			if (!subdir) {
 				struct grug_mod_dir inserted_subdir = {.name = strdup(dp->d_name)};
@@ -9433,15 +9428,10 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 				subdir = dir->dirs + dir->dirs_size - 1;
 			}
 
+			subdir->_seen = true;
+
 			reload_modified_mod(entry_path, dll_entry_path, subdir);
 		} else if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(dp->d_name), ".grug")) {
-			for (size_t i = 0; i < dir->files_size; i++) {
-				if (streq(dir->files[i].name, dp->d_name)) {
-					dir->files[i]._seen = true;
-					break;
-				}
-			}
-
 			reload_grug_file(dll_entry_path, entry_stat.st_mtime, dp->d_name, dir, entry_path);
 		}
 	}
