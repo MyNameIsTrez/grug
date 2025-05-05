@@ -76,11 +76,17 @@ struct grug_file {
 	char *name;
 	char *entity;
 	char *entity_type;
+
 	void *dll;
+
 	size_t globals_size;
 	grug_init_globals_fn_t init_globals_fn;
+
 	void *on_fns;
-	int64_t *resource_mtimes;
+
+	int64_t *_resource_mtimes;
+
+	bool _seen;
 };
 
 struct grug_mod_dir {
@@ -88,11 +94,13 @@ struct grug_mod_dir {
 
 	struct grug_mod_dir *dirs;
 	size_t dirs_size;
-	size_t dirs_capacity;
+	size_t _dirs_capacity;
 
 	struct grug_file *files;
 	size_t files_size;
-	size_t files_capacity;
+	size_t _files_capacity;
+
+	bool _seen;
 };
 
 struct grug_modified {

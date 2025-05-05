@@ -9047,7 +9047,7 @@ static void free_file(struct grug_file file) {
 		print_dlerror("dlclose");
 	}
 
-	free(file.resource_mtimes);
+	free(file._resource_mtimes);
 }
 
 static void free_dir(struct grug_mod_dir dir) {
@@ -9189,9 +9189,9 @@ static void add_entity(char *grug_filename, struct grug_file *file) {
 }
 
 static struct grug_file *push_file(struct grug_mod_dir *dir, struct grug_file file) {
-	if (dir->files_size >= dir->files_capacity) {
-		dir->files_capacity = dir->files_capacity == 0 ? 1 : dir->files_capacity * 2;
-		dir->files = realloc(dir->files, dir->files_capacity * sizeof(*dir->files));
+	if (dir->files_size >= dir->_files_capacity) {
+		dir->_files_capacity = dir->_files_capacity == 0 ? 1 : dir->_files_capacity * 2;
+		dir->files = realloc(dir->files, dir->_files_capacity * sizeof(*dir->files));
 		grug_assert(dir->files, "realloc: %s", strerror(errno));
 	}
 	dir->files[dir->files_size] = file;
@@ -9199,9 +9199,9 @@ static struct grug_file *push_file(struct grug_mod_dir *dir, struct grug_file fi
 }
 
 static void push_subdir(struct grug_mod_dir *dir, struct grug_mod_dir subdir) {
-	if (dir->dirs_size >= dir->dirs_capacity) {
-		dir->dirs_capacity = dir->dirs_capacity == 0 ? 1 : dir->dirs_capacity * 2;
-		dir->dirs = realloc(dir->dirs, dir->dirs_capacity * sizeof(*dir->dirs));
+	if (dir->dirs_size >= dir->_dirs_capacity) {
+		dir->_dirs_capacity = dir->_dirs_capacity == 0 ? 1 : dir->_dirs_capacity * 2;
+		dir->dirs = realloc(dir->dirs, dir->_dirs_capacity * sizeof(*dir->dirs));
 		grug_assert(dir->dirs, "realloc: %s", strerror(errno));
 	}
 	dir->dirs[dir->dirs_size++] = subdir;
@@ -9225,16 +9225,6 @@ static struct grug_mod_dir *get_subdir(struct grug_mod_dir *dir, char *name) {
 		}
 	}
 	return NULL;
-}
-
-// Profiling may indicate that rewriting this to use an O(1) technique like a hash table is worth it
-static bool seen_entry(char *name, char **seen_names, size_t seen_names_size) {
-	for (size_t i = 0; i < seen_names_size; i++) {
-		if (streq(seen_names[i], name)) {
-			return true;
-		}
-	}
-	return false;
 }
 
 static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *grug_path, bool needs_regeneration, char *dll_path, char *grug_filename, struct grug_mod_dir *dir) {
@@ -9297,13 +9287,13 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *g
 		file->on_fns = new_file.on_fns;
 
 		if (dll_resources_size > 0) {
-			file->resource_mtimes = realloc(file->resource_mtimes, dll_resources_size * sizeof(i64));
-			grug_assert(file->resource_mtimes, "realloc: %s", strerror(errno));
+			file->_resource_mtimes = realloc(file->_resource_mtimes, dll_resources_size * sizeof(i64));
+			grug_assert(file->_resource_mtimes, "realloc: %s", strerror(errno));
 		} else {
 			// We can't use realloc() to do this
 			// See https://stackoverflow.com/a/16760080/13279557
-			free(file->resource_mtimes);
-			file->resource_mtimes = NULL;
+			free(file->_resource_mtimes);
+			file->_resource_mtimes = NULL;
 		}
 	} else {
 		new_file.name = strdup(grug_filename);
@@ -9318,8 +9308,8 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *g
 		// We check dll_resources_size > 0, since whether malloc(0) returns NULL is implementation defined
 		// See https://stackoverflow.com/a/1073175/13279557
 		if (dll_resources_size > 0) {
-			new_file.resource_mtimes = malloc(dll_resources_size * sizeof(i64));
-			grug_assert(new_file.resource_mtimes, "malloc: %s", strerror(errno));
+			new_file._resource_mtimes = malloc(dll_resources_size * sizeof(i64));
+			grug_assert(new_file._resource_mtimes, "malloc: %s", strerror(errno));
 		}
 
 		file = push_file(dir, new_file);
@@ -9328,12 +9318,12 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *g
 	if (dll_resources_size > 0) {
 		char **dll_resources = get_dll_symbol(file->dll, "resources");
 
-		// Initialize file->resource_mtimes
+		// Initialize file->_resource_mtimes
 		for (size_t i = 0; i < dll_resources_size; i++) {
 			struct stat resource_stat;
 			grug_assert(stat(dll_resources[i], &resource_stat) == 0, "%s: %s", dll_resources[i], strerror(errno));
 
-			file->resource_mtimes[i] = resource_stat.st_mtime;
+			file->_resource_mtimes[i] = resource_stat.st_mtime;
 		}
 	}
 
@@ -9392,7 +9382,7 @@ static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *gr
 	add_entity(grug_filename, file);
 
 	// Let the game developer know when they need to reload a resource
-	reload_resources_from_dll(dll_path, file->resource_mtimes);
+	reload_resources_from_dll(dll_path, file->_resource_mtimes);
 }
 
 static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct grug_mod_dir *dir) {
@@ -9402,13 +9392,12 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 	DIR *dirp = opendir(mods_dir_path);
 	grug_assert(dirp, "opendir(\"%s\"): %s", mods_dir_path, strerror(errno));
 
-	char **seen_dir_names = NULL;
-	size_t seen_dir_names_size = 0;
-	size_t seen_dir_names_capacity = 0;
-
-	char **seen_file_names = NULL;
-	size_t seen_file_names_size = 0;
-	size_t seen_file_names_capacity = 0;
+	for (size_t i = 0; i < dir->dirs_size; i++) {
+		dir->dirs[i]._seen = false;
+	}
+	for (size_t i = 0; i < dir->files_size; i++) {
+		dir->files[i]._seen = false;
+	}
 
 	errno = 0;
 	struct dirent *dp;
@@ -9429,12 +9418,12 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 		grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
 
 		if (S_ISDIR(entry_stat.st_mode)) {
-			if (seen_dir_names_size >= seen_dir_names_capacity) {
-				seen_dir_names_capacity = seen_dir_names_capacity == 0 ? 1 : seen_dir_names_capacity * 2;
-				seen_dir_names = realloc(seen_dir_names, seen_dir_names_capacity * sizeof(*seen_dir_names));
-				grug_assert(seen_dir_names, "realloc: %s", strerror(errno));
+			for (size_t i = 0; i < dir->dirs_size; i++) {
+				if (streq(dir->dirs[i].name, dp->d_name)) {
+					dir->dirs[i]._seen = true;
+					break;
+				}
 			}
-			seen_dir_names[seen_dir_names_size++] = strdup(dp->d_name);
 
 			struct grug_mod_dir *subdir = get_subdir(dir, dp->d_name);
 			if (!subdir) {
@@ -9446,12 +9435,12 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 
 			reload_modified_mod(entry_path, dll_entry_path, subdir);
 		} else if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(dp->d_name), ".grug")) {
-			if (seen_file_names_size >= seen_file_names_capacity) {
-				seen_file_names_capacity = seen_file_names_capacity == 0 ? 1 : seen_file_names_capacity * 2;
-				seen_file_names = realloc(seen_file_names, seen_file_names_capacity * sizeof(*seen_file_names));
-				grug_assert(seen_file_names, "realloc: %s", strerror(errno));
+			for (size_t i = 0; i < dir->files_size; i++) {
+				if (streq(dir->files[i].name, dp->d_name)) {
+					dir->files[i]._seen = true;
+					break;
+				}
 			}
-			seen_file_names[seen_file_names_size++] = strdup(dp->d_name);
 
 			reload_grug_file(dll_entry_path, entry_stat.st_mtime, dp->d_name, dir, entry_path);
 		}
@@ -9462,32 +9451,20 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 
 	// If the directory used to contain a subdirectory or file
 	// that doesn't exist anymore, free it
-	//
-	// TODO: This can be made O(n) rather than O(n*m) by letting every directory contain a "seen" boolean,
-	// so that we can iterate over all directories and files once here
 	for (size_t i = dir->dirs_size; i > 0;) {
 		i--;
-		if (!seen_entry(dir->dirs[i].name, seen_dir_names, seen_dir_names_size)) {
+		if (!dir->dirs[i]._seen) {
 			free_dir(dir->dirs[i]);
 			dir->dirs[i] = dir->dirs[--dir->dirs_size]; // Swap-remove
 		}
 	}
 	for (size_t i = dir->files_size; i > 0;) {
 		i--;
-		if (!seen_entry(dir->files[i].name, seen_file_names, seen_file_names_size)) {
+		if (!dir->files[i]._seen) {
 			free_file(dir->files[i]);
 			dir->files[i] = dir->files[--dir->files_size]; // Swap-remove
 		}
 	}
-
-	for (size_t i = 0; i < seen_dir_names_size; i++) {
-		free(seen_dir_names[i]);
-	}
-	free(seen_dir_names);
-	for (size_t i = 0; i < seen_file_names_size; i++) {
-		free(seen_file_names[i]);
-	}
-	free(seen_file_names);
 
 	assert(directory_depth > 0);
 	directory_depth--;
