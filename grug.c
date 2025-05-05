@@ -140,6 +140,7 @@ static struct grug_error previous_grug_error;
 static jmp_buf error_jmp_buffer;
 
 static char mods_root_dir_path[STUPID_MAX_PATH];
+static char dll_root_dir_path[STUPID_MAX_PATH];
 
 static bool streq(char *a, char *b) {
 	return strcmp(a, b) == 0;
@@ -8823,7 +8824,6 @@ static void generate_shared_object(char *dll_path) {
 #define MAX_ENTITIES 420420
 #define MAX_ENTITY_STRINGS_CHARACTERS 420420
 #define MAX_ENTITY_NAME_LENGTH 420
-#define DLL_DIR_PATH "mod_dlls"
 #define MAX_DIRECTORY_DEPTH 42
 
 USED_BY_PROGRAMS struct grug_mod_dir grug_mods;
@@ -9529,7 +9529,7 @@ static void reload_modified_mods(void) {
 			validate_about_file(about_json_path);
 
 			char dll_entry_path[STUPID_MAX_PATH];
-			snprintf(dll_entry_path, sizeof(dll_entry_path), DLL_DIR_PATH"/%s", dp->d_name);
+			snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_root_dir_path, dp->d_name);
 
 			struct grug_mod_dir *subdir = get_subdir(dir, dp->d_name);
 			if (!subdir) {
@@ -9559,7 +9559,7 @@ static char *get_basename(char *path) {
 	return base ? base + 1 : path;
 }
 
-bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, char *mods_dir_path, size_t on_fn_time_limit_ms_) {
+bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, char *mods_dir_path, char *dll_dir_path, size_t on_fn_time_limit_ms_) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
@@ -9572,9 +9572,16 @@ bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, ch
 	assert(!strchr(mods_dir_path, '\\') && "grug_init() its mods_dir_path can't contain backslashes, so replace them with '/'");
 	assert(mods_dir_path[strlen(mods_dir_path) - 1] != '/' && "grug_init() its mods_dir_path can't have a trailing '/'");
 
+	assert(!strchr(dll_dir_path, '\\') && "grug_init() its dll_dir_path can't contain backslashes, so replace them with '/'");
+	assert(dll_dir_path[strlen(dll_dir_path) - 1] != '/' && "grug_init() its dll_dir_path can't have a trailing '/'");
+
 	parse_mod_api_json(mod_api_json_path);
 
+	assert(strlen(mods_dir_path) + 1 <= STUPID_MAX_PATH && "grug_init() its mods_dir_path exceeds the maximum path length");
 	memcpy(mods_root_dir_path, mods_dir_path, strlen(mods_dir_path) + 1);
+
+	assert(strlen(dll_dir_path) + 1 <= STUPID_MAX_PATH && "grug_init() its dll_dir_path exceeds the maximum path length");
+	memcpy(dll_root_dir_path, dll_dir_path, strlen(dll_dir_path) + 1);
 
 	on_fn_time_limit_ms = on_fn_time_limit_ms_;
 	assert(on_fn_time_limit_ms > 0 && "grug_init() its on_fn_time_limit_ms must be greater than 0");

@@ -27,7 +27,7 @@ typedef void (*grug_init_globals_fn_t)(void *globals, uint64_t id);
 //// Functions
 
 // Returns whether an error occurred
-bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, char *mods_dir_path, size_t on_fn_time_limit_ms) __attribute__((warn_unused_result));
+bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, char *mods_dir_path, char *dll_dir_path, size_t on_fn_time_limit_ms) __attribute__((warn_unused_result));
 
 // Returns whether an error occurred
 bool grug_regenerate_modified_mods(void) __attribute__((warn_unused_result));
