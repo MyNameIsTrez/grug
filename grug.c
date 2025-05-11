@@ -8994,7 +8994,7 @@ static void reset_previous_grug_error(void) {
 	previous_grug_error.grug_c_line_number = 0;
 }
 
-static void set_file_entity_type(char *grug_filename) {
+static void initialize_file_entity_type(char *grug_filename) {
 	char *dash = strchr(grug_filename, '-');
 
 	grug_assert(dash && dash[1] != '\0', "'%s' is missing an entity type in its name; use a dash to specify it, like 'ak47-gun.grug'", grug_filename);
@@ -9036,7 +9036,7 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name) {
 
 	char *grug_filename = strrchr(grug_path, '/');
 	grug_assert(grug_filename, "The grug file path '%s' does not contain a '/' character", grug_path);
-	set_file_entity_type(grug_filename + 1);
+	initialize_file_entity_type(grug_filename + 1);
 
 	regenerate_dll(grug_path, dll_path);
 
@@ -9152,7 +9152,7 @@ static char *form_entity(char *grug_filename) {
 
 	char *dash = strrchr(grug_filename, '-');
 	if (dash == NULL) {
-		// The function set_file_entity_type() already checked for a missing dash
+		// The function initialize_file_entity_type() already checked for a missing dash
 		grug_unreachable();
 	}
 
@@ -9249,12 +9249,18 @@ static char *strdup_tree(char *str) {
 	}
 }
 
+// TODO: Finish
+static i64 *dup_resource_mtimes(i64 *resource_mtimes, size_t dll_resources_size) {
+}
+
+// TODO: Finish
+static i64 *alloc_resource_mtimes(size_t dll_resources_size) {
+}
+
 static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *grug_path, bool needs_regeneration, char *dll_path, char *grug_filename, struct grug_mod_dir *new_dir) {
 	struct grug_modified modified = {0};
 
 	set_grug_error_path(grug_path);
-
-	set_file_entity_type(grug_filename);
 
 	if (needs_regeneration) {
 		regenerate_dll(grug_path, dll_path);
@@ -9284,10 +9290,6 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *g
 		print_dlerror("dlopen");
 	}
 
-	new_file.name = strdup_tree(grug_filename);
-	new_file.entity = strdup_tree(form_entity(grug_filename));
-	new_file.entity_type = strdup_tree(file_entity_type);
-
 	size_t *globals_size_ptr = get_dll_symbol(new_file.dll, "globals_size");
 	grug_assert(globals_size_ptr, "Retrieving the globals_size variable with get_dll_symbol() failed for %s", dll_path);
 	new_file.globals_size = *globals_size_ptr;
@@ -9306,26 +9308,8 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *g
 	size_t *resources_size_ptr = get_dll_symbol(new_file.dll, "resources_size");
 	size_t dll_resources_size = *resources_size_ptr;
 
-	if (file) {
-		if (dll_resources_size > 0) {
-			?
-			// file->_resource_mtimes = realloc(file->_resource_mtimes, dll_resources_size * sizeof(i64));
-			// grug_assert(file->_resource_mtimes, "realloc: %s", strerror(errno));
-		} else {
-			?
-			// We can't use realloc() to do this
-			// See https://stackoverflow.com/a/16760080/13279557
-			// free(file->_resource_mtimes);
-			// file->_resource_mtimes = NULL;
-		}
-	} else {
-		// We check dll_resources_size > 0, since whether malloc(0) returns NULL is implementation defined
-		// See https://stackoverflow.com/a/1073175/13279557
-		if (dll_resources_size > 0) {
-			?
-			// new_file._resource_mtimes = malloc(dll_resources_size * sizeof(i64));
-			// grug_assert(new_file._resource_mtimes, "malloc: %s", strerror(errno));
-		}
+	if (dll_resources_size > 0) {
+		new_file._resource_mtimes = alloc_resource_mtimes(dll_resources_size);
 	}
 
 	file = push_file(new_dir, new_file);
@@ -9358,6 +9342,8 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *g
 }
 
 static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *grug_filename, struct grug_mod_dir *old_dir, struct grug_mod_dir *new_dir, char *grug_path) {
+	initialize_file_entity_type(grug_filename);
+
 	// Fill dll_path
 	char dll_path[STUPID_MAX_PATH];
 	grug_assert(strlen(dll_entry_path) + 1 <= STUPID_MAX_PATH, "There are more than %d characters in the dll_entry_path '%s', exceeding STUPID_MAX_PATH", STUPID_MAX_PATH, dll_entry_path);
@@ -9391,7 +9377,16 @@ static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *gr
 
 	if (needs_regeneration || !file) {
 		file = regenerate_dll_and_file(file, grug_path, needs_regeneration, dll_path, grug_filename, new_dir);
+	} else {
+		// TODO: I must either:
+		// 1. Store _dll_resources_size in files, or
+		// 2. Call get_dll_symbol(, "resources_size") here
+		file->_resource_mtimes = dup_resource_mtimes(file->_resource_mtimes, dll_resources_size);
 	}
+
+	file->name = strdup_tree(grug_filename);
+	file->entity = strdup_tree(form_entity(grug_filename));
+	file->entity_type = strdup_tree(file_entity_type);
 
 	// Needed for grug_get_entitity_file() and check_that_every_entity_exists()
 	add_entity(grug_filename, file);
@@ -9665,7 +9660,7 @@ bool grug_regenerate_modified_mods(void) {
 
 	reload_modified_mods();
 
-	check_that_every_entity_exists(grug_mods);
+	check_that_every_entity_exists(*grug_mods);
 
 	reset_previous_grug_error();
 
