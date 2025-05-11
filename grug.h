@@ -27,7 +27,7 @@ typedef void (*grug_init_globals_fn_t)(void *globals, uint64_t id);
 //// Functions
 
 // Returns whether an error occurred
-bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, char *mods_dir_path, char *dll_dir_path, size_t on_fn_time_limit_ms) __attribute__((warn_unused_result));
+bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, char *mods_dir_path, char *dll_dir_path, uint64_t on_fn_time_limit_ms) __attribute__((warn_unused_result));
 
 // Returns whether an error occurred
 bool grug_regenerate_modified_mods(void) __attribute__((warn_unused_result));
@@ -35,9 +35,6 @@ bool grug_regenerate_modified_mods(void) __attribute__((warn_unused_result));
 // Do NOT store the returned pointer, as it has a chance to dangle
 // after the next grug_regenerate_modified_mods() call!
 struct grug_file *grug_get_entity_file(char *entity);
-
-// You aren't expected to call this normally
-void grug_free_mods(void);
 
 // Calling this during a game function will cause grug
 // to immediately return a runtime error, from the current on_ function call
@@ -122,7 +119,7 @@ struct grug_error {
 
 //// Globals
 
-extern struct grug_mod_dir grug_mods;
+extern struct grug_mod_dir *grug_mods;
 
 extern struct grug_modified grug_reloads[MAX_RELOADS];
 extern size_t grug_reloads_size;

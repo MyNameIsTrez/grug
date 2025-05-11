@@ -223,7 +223,7 @@ static void *get_dll_symbol(void *dll, char *symbol_name) {
 
 static char runtime_error_reason[420];
 
-static size_t on_fn_time_limit_ms;
+static uint64_t on_fn_time_limit_ms;
 static size_t on_fn_time_limit_sec;
 static size_t on_fn_time_limit_ns;
 
@@ -236,7 +236,7 @@ static char *grug_get_runtime_error_reason(enum grug_runtime_error_type type) {
 		case GRUG_ON_FN_STACK_OVERFLOW:
 			return "Stack overflow, so check for accidental infinite recursion";
 		case GRUG_ON_FN_TIME_LIMIT_EXCEEDED: {
-			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "Took longer than %zu milliseconds to run", on_fn_time_limit_ms);
+			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "Took longer than %llu milliseconds to run", on_fn_time_limit_ms);
 			return runtime_error_reason;
 		}
 		case GRUG_ON_FN_OVERFLOW:
@@ -3070,14 +3070,16 @@ static void dump_mods_to_opened_json(char *dir_path) {
 	size_t seen_dir_count = 0;
 	errno = 0;
 	while ((dp = readdir(dirp))) {
-		if (streq(dp->d_name, ".") || streq(dp->d_name, "..")) {
+		char *name = dp->d_name;
+
+		if (streq(name, ".") || streq(name, "..")) {
 			continue;
 		}
 
 		char entry_path[STUPID_MAX_PATH];
-		snprintf(entry_path, sizeof(entry_path), "%s/%s", dir_path, dp->d_name);
+		snprintf(entry_path, sizeof(entry_path), "%s/%s", dir_path, name);
 
-		grug_assert(is_lowercase(dp->d_name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", dp->d_name, entry_path);
+		grug_assert(is_lowercase(name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", name, entry_path);
 
 		struct stat entry_stat;
 		grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
@@ -3089,7 +3091,7 @@ static void dump_mods_to_opened_json(char *dir_path) {
 				dump(",");
 			}
 
-			dump("\"%s\":{", dp->d_name);
+			dump("\"%s\":{", name);
 			dump_mods_to_opened_json(entry_path);
 			dump("}");
 
@@ -3105,19 +3107,21 @@ static void dump_mods_to_opened_json(char *dir_path) {
 	rewinddir(dirp);
 	errno = 0;
 	while ((dp = readdir(dirp))) {
-		if (streq(dp->d_name, ".") || streq(dp->d_name, "..")) {
+		char *name = dp->d_name;
+
+		if (streq(name, ".") || streq(name, "..")) {
 			continue;
 		}
 
 		char entry_path[STUPID_MAX_PATH];
-		snprintf(entry_path, sizeof(entry_path), "%s/%s", dir_path, dp->d_name);
+		snprintf(entry_path, sizeof(entry_path), "%s/%s", dir_path, name);
 
-		grug_assert(is_lowercase(dp->d_name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", dp->d_name, entry_path);
+		grug_assert(is_lowercase(name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", name, entry_path);
 
 		struct stat entry_stat;
 		grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
 
-		if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(dp->d_name), ".grug")) {
+		if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(name), ".grug")) {
 			if (seen_file_count == 0) {
 				if (seen_dir_count > 0) {
 					dump(",");
@@ -3128,7 +3132,7 @@ static void dump_mods_to_opened_json(char *dir_path) {
 				dump(",");
 			}
 
-			dump("\"%s\":", dp->d_name);
+			dump("\"%s\":", name);
 			dump_file_to_opened_json(entry_path);
 
 			seen_file_count++;
@@ -8824,9 +8828,14 @@ static void generate_shared_object(char *dll_path) {
 #define MAX_ENTITIES 420420
 #define MAX_ENTITY_STRINGS_CHARACTERS 420420
 #define MAX_ENTITY_NAME_LENGTH 420
-#define MAX_DIRECTORY_DEPTH 42
+#define MAX_PATH_CHARS 420420
+#define MAX_PATHS 420420
+#define MAX_PATH_DATA_QUEUE_SIZE 420420
 
-USED_BY_PROGRAMS struct grug_mod_dir grug_mods;
+USED_BY_PROGRAMS struct grug_mod_dir *grug_mods;
+
+static struct grug_mod_dir grug_mods_1;
+static struct grug_mod_dir grug_mods_2;
 
 USED_BY_PROGRAMS struct grug_modified grug_reloads[MAX_RELOADS];
 USED_BY_PROGRAMS size_t grug_reloads_size;
@@ -8847,7 +8856,22 @@ USED_BY_MODS char *grug_fn_path;
 
 static bool is_grug_initialized = false;
 
-static size_t directory_depth;
+static char path_chars[MAX_PATH_CHARS];
+static size_t path_chars_size;
+
+static char *paths[MAX_PATHS];
+static size_t paths_size;
+
+struct path_data {
+	char *mods_dir_path;
+	char *dll_dir_path;
+	struct grug_mod_dir *old_dir;
+	struct grug_mod_dir *new_dir;
+};
+static struct path_data path_data_queue[MAX_PATH_DATA_QUEUE_SIZE];
+static size_t path_data_queue_size;
+
+static bool pingpong = false;
 
 // Called by the grug-tests repository
 USED_BY_PROGRAMS bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name);
@@ -8860,7 +8884,8 @@ static void reset_regenerate_modified_mods(void) {
 	grug_resource_reloads_size = 0;
 	grug_fn_name = "OPTIMIZED OUT FUNCTION NAME";
 	grug_fn_path = "OPTIMIZED OUT FUNCTION PATH";
-	directory_depth = 0;
+	path_chars_size = 0;
+	paths_size = 0;
 }
 
 static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
@@ -9038,35 +9063,20 @@ static void try_create_parent_dirs(char *file_path) {
 	}
 }
 
-static void free_file(struct grug_file file) {
-	free(file.name);
-	free(file.entity);
-	free(file.entity_type);
-
+static void dlclose_file(struct grug_file file) {
 	if (file.dll && dlclose(file.dll)) {
 		print_dlerror("dlclose");
 	}
-
-	free(file._resource_mtimes);
 }
 
-static void free_dir(struct grug_mod_dir dir) {
-	free(dir.name);
-
+static void dlclose_dir(struct grug_mod_dir dir) {
 	for (size_t i = 0; i < dir.dirs_size; i++) {
-		free_dir(dir.dirs[i]);
+		dlclose_dir(dir.dirs[i]);
 	}
-	free(dir.dirs);
 
 	for (size_t i = 0; i < dir.files_size; i++) {
-		free_file(dir.files[i]);
+		dlclose_file(dir.files[i]);
 	}
-	free(dir.files);
-}
-
-void grug_free_mods(void) {
-	free_dir(grug_mods);
-	memset(&grug_mods, 0, sizeof(grug_mods));
 }
 
 static u32 get_entity_index(char *entity) {
@@ -9227,7 +9237,19 @@ static struct grug_mod_dir *get_subdir(struct grug_mod_dir *dir, char *name) {
 	return NULL;
 }
 
-static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *grug_path, bool needs_regeneration, char *dll_path, char *grug_filename, struct grug_mod_dir *dir) {
+// The word "tree" refers to grug_mods being a tree of directories and files.
+// This function allocates a string, that automatically gets freed after 2 update calls (pingpong).
+static char *strdup_tree(char *str) {
+	if (pingpong) {
+		static char *strings[?];
+		static char chars[?];
+	} else {
+		static char *strings[?];
+		static char chars[?];
+	}
+}
+
+static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *grug_path, bool needs_regeneration, char *dll_path, char *grug_filename, struct grug_mod_dir *new_dir) {
 	struct grug_modified modified = {0};
 
 	set_grug_error_path(grug_path);
@@ -9262,6 +9284,10 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *g
 		print_dlerror("dlopen");
 	}
 
+	new_file.name = strdup_tree(grug_filename);
+	new_file.entity = strdup_tree(form_entity(grug_filename));
+	new_file.entity_type = strdup_tree(file_entity_type);
+
 	size_t *globals_size_ptr = get_dll_symbol(new_file.dll, "globals_size");
 	grug_assert(globals_size_ptr, "Retrieving the globals_size variable with get_dll_symbol() failed for %s", dll_path);
 	new_file.globals_size = *globals_size_ptr;
@@ -9281,39 +9307,28 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *g
 	size_t dll_resources_size = *resources_size_ptr;
 
 	if (file) {
-		file->dll = new_file.dll;
-		file->globals_size = new_file.globals_size;
-		file->init_globals_fn = new_file.init_globals_fn;
-		file->on_fns = new_file.on_fns;
-
 		if (dll_resources_size > 0) {
-			file->_resource_mtimes = realloc(file->_resource_mtimes, dll_resources_size * sizeof(i64));
-			grug_assert(file->_resource_mtimes, "realloc: %s", strerror(errno));
+			?
+			// file->_resource_mtimes = realloc(file->_resource_mtimes, dll_resources_size * sizeof(i64));
+			// grug_assert(file->_resource_mtimes, "realloc: %s", strerror(errno));
 		} else {
+			?
 			// We can't use realloc() to do this
 			// See https://stackoverflow.com/a/16760080/13279557
-			free(file->_resource_mtimes);
-			file->_resource_mtimes = NULL;
+			// free(file->_resource_mtimes);
+			// file->_resource_mtimes = NULL;
 		}
 	} else {
-		new_file.name = strdup(grug_filename);
-		grug_assert(new_file.name, "strdup: %s", strerror(errno));
-
-		new_file.entity = strdup(form_entity(grug_filename));
-		grug_assert(new_file.entity, "strdup: %s", strerror(errno));
-
-		new_file.entity_type = strdup(file_entity_type);
-		grug_assert(new_file.entity_type, "strdup: %s", strerror(errno));
-
 		// We check dll_resources_size > 0, since whether malloc(0) returns NULL is implementation defined
 		// See https://stackoverflow.com/a/1073175/13279557
 		if (dll_resources_size > 0) {
-			new_file._resource_mtimes = malloc(dll_resources_size * sizeof(i64));
-			grug_assert(new_file._resource_mtimes, "malloc: %s", strerror(errno));
+			?
+			// new_file._resource_mtimes = malloc(dll_resources_size * sizeof(i64));
+			// grug_assert(new_file._resource_mtimes, "malloc: %s", strerror(errno));
 		}
-
-		file = push_file(dir, new_file);
 	}
+
+	file = push_file(new_dir, new_file);
 
 	if (dll_resources_size > 0) {
 		char **dll_resources = get_dll_symbol(file->dll, "resources");
@@ -9342,7 +9357,7 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *g
 	return file;
 }
 
-static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *grug_filename, struct grug_mod_dir *dir, char *grug_path) {
+static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *grug_filename, struct grug_mod_dir *old_dir, struct grug_mod_dir *new_dir, char *grug_path) {
 	// Fill dll_path
 	char dll_path[STUPID_MAX_PATH];
 	grug_assert(strlen(dll_entry_path) + 1 <= STUPID_MAX_PATH, "There are more than %d characters in the dll_entry_path '%s', exceeding STUPID_MAX_PATH", STUPID_MAX_PATH, dll_entry_path);
@@ -9372,13 +9387,11 @@ static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *gr
 	// If the dll doesn't exist or is outdated
 	bool needs_regeneration = !dll_exists || grug_file_mtime > dll_stat.st_mtime;
 
-	struct grug_file *file = get_file(dir, grug_filename);
+	struct grug_file *file = get_file(old_dir, grug_filename);
 
 	if (needs_regeneration || !file) {
-		file = regenerate_dll_and_file(file, grug_path, needs_regeneration, dll_path, grug_filename, dir);
+		file = regenerate_dll_and_file(file, grug_path, needs_regeneration, dll_path, grug_filename, new_dir);
 	}
-
-	file->_seen = true;
 
 	// Needed for grug_get_entitity_file() and check_that_every_entity_exists()
 	add_entity(grug_filename, file);
@@ -9387,77 +9400,108 @@ static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *gr
 	reload_resources_from_dll(dll_path, file->_resource_mtimes);
 }
 
-static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct grug_mod_dir *dir) {
-	directory_depth++;
-	grug_assert(directory_depth < MAX_DIRECTORY_DEPTH, "There is a mod that contains more than %d levels of nested directories", MAX_DIRECTORY_DEPTH);
-
-	DIR *dirp = opendir(mods_dir_path);
-	grug_assert(dirp, "opendir(\"%s\"): %s", mods_dir_path, strerror(errno));
-
-	for (size_t i = 0; i < dir->dirs_size; i++) {
-		dir->dirs[i]._seen = false;
-	}
-	for (size_t i = 0; i < dir->files_size; i++) {
-		dir->files[i]._seen = false;
+static void reload_entry(char *name, char *mods_dir_path, char *dll_dir_path, struct grug_mod_dir *old_dir, struct grug_mod_dir *new_dir) {
+	if (streq(name, ".") || streq(name, "..")) {
+		return;
 	}
 
-	errno = 0;
-	struct dirent *dp;
-	while ((dp = readdir(dirp))) {
-		if (streq(dp->d_name, ".") || streq(dp->d_name, "..")) {
-			continue;
-		}
+	static char entry_path[STUPID_MAX_PATH];
+	snprintf(entry_path, sizeof(entry_path), "%s/%s", mods_dir_path, name);
 
-		char entry_path[STUPID_MAX_PATH];
-		snprintf(entry_path, sizeof(entry_path), "%s/%s", mods_dir_path, dp->d_name);
+	grug_assert(is_lowercase(name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", name, entry_path);
 
-		grug_assert(is_lowercase(dp->d_name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", dp->d_name, entry_path);
+	static char dll_entry_path[STUPID_MAX_PATH];
+	snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_dir_path, name);
 
-		char dll_entry_path[STUPID_MAX_PATH];
-		snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_dir_path, dp->d_name);
+	struct stat entry_stat;
+	grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
 
-		struct stat entry_stat;
-		grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
+	if (S_ISDIR(entry_stat.st_mode)) {
+		struct grug_mod_dir *old_subdir = old_dir ? get_subdir(old_dir, name) : NULL;
 
-		if (S_ISDIR(entry_stat.st_mode)) {
-			struct grug_mod_dir *subdir = get_subdir(dir, dp->d_name);
-			if (!subdir) {
-				struct grug_mod_dir inserted_subdir = {.name = strdup(dp->d_name)};
-				grug_assert(inserted_subdir.name, "strdup: %s", strerror(errno));
-				subdir = dir->dirs + dir->dirs_size;
-				push_subdir(dir, inserted_subdir);
+		struct grug_mod_dir pushed_new_subdir = {.name = strdup_tree(name)};
+		struct grug_mod_dir *new_subdir = &new_dir->dirs[new_dir->dirs_size];
+		push_subdir(new_dir, pushed_new_subdir);
+
+		enqueue_path_data((struct path_data){
+			.mods_dir_path = strdup_tree(entry_path),
+			.dll_dir_path = strdup_tree(dll_entry_path),
+			.old_dir = old_subdir,
+			.new_dir = new_subdir,
+		});
+	} else if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(name), ".grug")) {
+		reload_grug_file(dll_entry_path, entry_stat.st_mtime, name, old_dir, new_dir, entry_path);
+	}
+}
+
+// TODO: Implement
+static struct path_data dequeue_path_data(void) {
+	return (struct path_data){0};
+}
+
+static void enqueue_path_data(struct path_data path_data) {
+	grug_assert(path_data_queue_size < MAX_PATH_DATA_QUEUE_SIZE, "There are more than %d entries in the path_data_queue array, exceeding MAX_PATH_DATA_QUEUE_SIZE", MAX_PATH_DATA_QUEUE_SIZE);
+	// TODO: Index as a circular buffer
+	path_data_queue[?] = path_data;
+	path_data_queue_size++;
+}
+
+static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct grug_mod_dir *old_mod_dir, struct grug_mod_dir *new_mod_dir) {
+	enqueue_path_data((struct path_data){
+		.mods_dir_path = mods_dir_path,
+		.dll_dir_path = dll_dir_path,
+		.old_dir = old_mod_dir,
+		.new_dir = new_mod_dir,
+	});
+
+	while (path_data_queue_size > 0) {
+		struct path_data path_data = dequeue_path_data();
+
+		// Unpack popped data
+		char *mods_dir_path = path_data.mods_dir_path;
+		char *dll_dir_path = path_data.dll_dir_path;
+		struct grug_mod_dir *old_dir = path_data.old_dir;
+		struct grug_mod_dir *new_dir = path_data.new_dir;
+
+		DIR *dirp = opendir(mods_dir_path);
+		grug_assert(dirp, "opendir(\"%s\"): %s", mods_dir_path, strerror(errno));
+
+		// If the old directory used to contain a subdirectory or file
+		// that doesn't exist anymore, we'll be closing its shared libraries.
+		// This is why we initialize every old directory and file as being not seen.
+		if (old_dir) {
+			for (size_t i = 0; i < old_dir->dirs_size; i++) {
+				old_dir->dirs[i]._seen = false;
 			}
+			for (size_t i = 0; i < old_dir->files_size; i++) {
+				old_dir->files[i]._seen = false;
+			}
+		}
 
-			subdir->_seen = true;
+		errno = 0;
+		struct dirent *dp;
+		while ((dp = readdir(dirp))) {
+			reload_entry(dp->d_name, mods_dir_path, dll_dir_path, old_dir, new_dir);
+		}
+		grug_assert(errno == 0, "readdir: %s", strerror(errno));
 
-			reload_modified_mod(entry_path, dll_entry_path, subdir);
-		} else if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(dp->d_name), ".grug")) {
-			reload_grug_file(dll_entry_path, entry_stat.st_mtime, dp->d_name, dir, entry_path);
+		closedir(dirp);
+
+		// If the old directory used to contain a subdirectory or file
+		// that doesn't exist anymore, close its shared libraries.
+		if (old_dir) {
+			for (size_t i = 0; i < old_dir->dirs_size; i++) {
+				if (!old_dir->dirs[i]._seen) {
+					dlclose_dir(old_dir->dirs[i]);
+				}
+			}
+			for (size_t i = 0; i < old_dir->files_size; i++) {
+				if (!old_dir->files[i]._seen) {
+					dlclose_file(old_dir->files[i]);
+				}
+			}
 		}
 	}
-	grug_assert(errno == 0, "readdir: %s", strerror(errno));
-
-	closedir(dirp);
-
-	// If the directory used to contain a subdirectory or file
-	// that doesn't exist anymore, free it
-	for (size_t i = dir->dirs_size; i > 0;) {
-		i--;
-		if (!dir->dirs[i]._seen) {
-			free_dir(dir->dirs[i]);
-			dir->dirs[i] = dir->dirs[--dir->dirs_size]; // Swap-remove
-		}
-	}
-	for (size_t i = dir->files_size; i > 0;) {
-		i--;
-		if (!dir->files[i]._seen) {
-			free_file(dir->files[i]);
-			dir->files[i] = dir->files[--dir->files_size]; // Swap-remove
-		}
-	}
-
-	assert(directory_depth > 0);
-	directory_depth--;
 }
 
 static void validate_about_file(char *about_json_path) {
@@ -9500,7 +9544,23 @@ static void validate_about_file(char *about_json_path) {
 }
 
 static void reload_modified_mods(void) {
-	struct grug_mod_dir *dir = &grug_mods;
+	struct grug_mod_dir *old_mods_dir;
+	struct grug_mod_dir *new_mods_dir;
+
+	// We flip the old and new mod tree every update, because:
+	// 1. We reconstruct the entire tree every update.
+	// 2. We need to keep the original resource_mtimes array that's in grug_files, across updates.
+	if (pingpong) {
+		old_mods_dir = &grug_mods_1;
+		new_mods_dir = &grug_mods_2;
+	} else {
+		old_mods_dir = &grug_mods_2;
+		new_mods_dir = &grug_mods_1;
+	}
+
+	grug_mods = new_mods_dir;
+
+	grug_mods->name = strdup_tree(get_basename(mods_root_dir_path));
 
 	DIR *dirp = opendir(mods_root_dir_path);
 	grug_assert(dirp, "opendir(\"%s\"): %s", mods_root_dir_path, strerror(errno));
@@ -9508,39 +9568,39 @@ static void reload_modified_mods(void) {
 	errno = 0;
 	struct dirent *dp;
 	while ((dp = readdir(dirp))) {
-		if (streq(dp->d_name, ".") || streq(dp->d_name, "..")) {
+		char *name = dp->d_name;
+
+		if (streq(name, ".") || streq(name, "..")) {
 			continue;
 		}
 
-		char entry_path[STUPID_MAX_PATH];
-		grug_assert(snprintf(entry_path, sizeof(entry_path), "%s/%s", mods_root_dir_path, dp->d_name) >= 0, "Filling the variable 'entry_path' failed");
+		static char entry_path[STUPID_MAX_PATH];
+		grug_assert(snprintf(entry_path, sizeof(entry_path), "%s/%s", mods_root_dir_path, name) >= 0, "Filling the variable 'entry_path' failed");
 
-		grug_assert(is_lowercase(dp->d_name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", dp->d_name, entry_path);
+		grug_assert(is_lowercase(name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", name, entry_path);
 
 		struct stat entry_stat;
 		grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
 
 		if (S_ISDIR(entry_stat.st_mode)) {
-			mod = dp->d_name;
+			mod = name;
 
-			char about_json_path[STUPID_MAX_PATH];
+			static char about_json_path[STUPID_MAX_PATH];
 			grug_assert(snprintf(about_json_path, sizeof(about_json_path), "%s/about.json", entry_path) >= 0, "Filling the variable 'about_json_path' failed");
 
 			validate_about_file(about_json_path);
 
-			char dll_entry_path[STUPID_MAX_PATH];
-			grug_assert(snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_root_dir_path, dp->d_name) >= 0, "Filling the variable 'dll_entry_path' failed");
+			static char dll_entry_path[STUPID_MAX_PATH];
+			grug_assert(snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_root_dir_path, name) >= 0, "Filling the variable 'dll_entry_path' failed");
 
-			struct grug_mod_dir *subdir = get_subdir(dir, dp->d_name);
-			if (!subdir) {
-				struct grug_mod_dir inserted_subdir = {.name = strdup(dp->d_name)};
-				grug_assert(inserted_subdir.name, "strdup: %s", strerror(errno));
-				subdir = dir->dirs + dir->dirs_size;
-				push_subdir(dir, inserted_subdir);
-			}
+			// This always returns NULL during the first call of reload_modified_mods()
+			struct grug_mod_dir *old_mod_dir = get_subdir(old_mods_dir, name);
 
-			reload_modified_mod(entry_path, dll_entry_path, subdir);
-			assert(directory_depth == 0);
+			struct grug_mod_dir pushed_new_mod_dir = {.name = strdup_tree(name)};
+			struct grug_mod_dir *new_mod_dir = &new_mods_dir->dirs[new_mods_dir->dirs_size];
+			push_subdir(new_mods_dir, pushed_new_mod_dir);
+
+			reload_modified_mod(entry_path, dll_entry_path, old_mod_dir, new_mod_dir);
 		}
 	}
 	grug_assert(errno == 0, "readdir: %s", strerror(errno));
@@ -9559,7 +9619,7 @@ static char *get_basename(char *path) {
 	return base ? base + 1 : path;
 }
 
-bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, char *mods_dir_path, char *dll_dir_path, size_t on_fn_time_limit_ms_) {
+bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, char *mods_dir_path, char *dll_dir_path, uint64_t on_fn_time_limit_ms_) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
@@ -9584,7 +9644,6 @@ bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, ch
 	memcpy(dll_root_dir_path, dll_dir_path, strlen(dll_dir_path) + 1);
 
 	on_fn_time_limit_ms = on_fn_time_limit_ms_;
-	assert(on_fn_time_limit_ms > 0 && "grug_init() its on_fn_time_limit_ms must be greater than 0");
 	on_fn_time_limit_sec = on_fn_time_limit_ms / MS_PER_SEC;
 	on_fn_time_limit_ns = (on_fn_time_limit_ms % MS_PER_SEC) * NS_PER_MS;
 
@@ -9604,16 +9663,13 @@ bool grug_regenerate_modified_mods(void) {
 
 	grug_loading_error_in_grug_file = false;
 
-	if (!grug_mods.name) {
-		grug_mods.name = strdup(get_basename(mods_root_dir_path));
-		grug_assert(grug_mods.name, "strdup: %s", strerror(errno));
-	}
-
 	reload_modified_mods();
 
 	check_that_every_entity_exists(grug_mods);
 
 	reset_previous_grug_error();
+
+	pingpong = !pingpong;
 
 	return false;
 }
