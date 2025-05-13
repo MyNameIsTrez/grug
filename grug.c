@@ -9283,20 +9283,32 @@ static char *strdup_tree(char *old_str) {
 	return new_str;
 }
 
-static i64 *dup_resource_mtimes(i64 *resource_mtimes, size_t dll_resources_size) {
+static i64 *alloc_resource_mtimes(size_t dll_resources_size) {
+	i64 *resource_mtimes;
+
 	if (pingpong) {
-		// TODO: Implement
+		grug_assert(tree_mtimes_1_size + dll_resources_size < MAX_TREE_MTIMES, "There are more than %d resource mtimes in tree_mtimes_1, exceeding MAX_TREE_MTIMES", MAX_TREE_MTIMES);
+
+		resource_mtimes = &tree_mtimes_1[tree_mtimes_1_size];
+
+		tree_mtimes_1_size += dll_resources_size;
 	} else {
-		// TODO: Implement
+		grug_assert(tree_mtimes_2_size + dll_resources_size < MAX_TREE_MTIMES, "There are more than %d resource mtimes in tree_mtimes_2, exceeding MAX_TREE_MTIMES", MAX_TREE_MTIMES);
+
+		resource_mtimes = &tree_mtimes_2[tree_mtimes_2_size];
+
+		tree_mtimes_2_size += dll_resources_size;
 	}
+
+	return resource_mtimes;
 }
 
-static i64 *alloc_resource_mtimes(size_t dll_resources_size) {
-	if (pingpong) {
-		// TODO: Implement
-	} else {
-		// TODO: Implement
-	}
+static i64 *dup_resource_mtimes(i64 *old_resource_mtimes, size_t dll_resources_size) {
+	i64 *new_resource_mtimes = alloc_resource_mtimes(dll_resources_size);
+
+	memcpy(new_resource_mtimes, old_resource_mtimes, dll_resources_size * sizeof(i64));
+
+	return new_resource_mtimes;
 }
 
 static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *grug_path, bool needs_regeneration, char *dll_path, char *grug_filename, struct grug_mod_dir *new_dir) {
