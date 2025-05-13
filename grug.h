@@ -82,6 +82,7 @@ struct grug_file {
 	void *on_fns;
 
 	int64_t *_resource_mtimes;
+	size_t _resources_size;
 
 	bool _seen;
 };

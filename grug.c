@@ -53,6 +53,7 @@
 #include <dlfcn.h>
 #include <elf.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <math.h>
 #include <setjmp.h>
@@ -236,7 +237,7 @@ static char *grug_get_runtime_error_reason(enum grug_runtime_error_type type) {
 		case GRUG_ON_FN_STACK_OVERFLOW:
 			return "Stack overflow, so check for accidental infinite recursion";
 		case GRUG_ON_FN_TIME_LIMIT_EXCEEDED: {
-			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "Took longer than %llu milliseconds to run", on_fn_time_limit_ms);
+			snprintf(runtime_error_reason, sizeof(runtime_error_reason), "Took longer than %" PRIu64 " milliseconds to run", on_fn_time_limit_ms);
 			return runtime_error_reason;
 		}
 		case GRUG_ON_FN_OVERFLOW:
@@ -8828,8 +8829,6 @@ static void generate_shared_object(char *dll_path) {
 #define MAX_ENTITIES 420420
 #define MAX_ENTITY_STRINGS_CHARACTERS 420420
 #define MAX_ENTITY_NAME_LENGTH 420
-#define MAX_PATH_CHARS 420420
-#define MAX_PATHS 420420
 #define MAX_PATH_DATA_QUEUE_SIZE 420420
 #define MAX_TREE_CHARS 420420
 #define MAX_TREE_MTIMES 420420
@@ -8858,20 +8857,15 @@ USED_BY_MODS char *grug_fn_path;
 
 static bool is_grug_initialized = false;
 
-static char path_chars[MAX_PATH_CHARS];
-static size_t path_chars_size;
-
-static char *paths[MAX_PATHS];
-static size_t paths_size;
-
 struct path_data {
-	char *mods_dir_path;
-	char *dll_dir_path;
+	char *mods_subdir_path;
+	char *dll_subdir_path;
 	struct grug_mod_dir *old_dir;
 	struct grug_mod_dir *new_dir;
 };
 static struct path_data path_data_queue[MAX_PATH_DATA_QUEUE_SIZE];
 static size_t path_data_queue_size;
+static size_t path_data_queue_start_index;
 
 static bool pingpong = false;
 
@@ -8880,8 +8874,8 @@ static char tree_chars_2[MAX_TREE_CHARS];
 static size_t tree_chars_1_size;
 static size_t tree_chars_2_size;
 
-static i64 *tree_mtimes_1[MAX_TREE_MTIMES];
-static i64 *tree_mtimes_2[MAX_TREE_MTIMES];
+static i64 tree_mtimes_1[MAX_TREE_MTIMES];
+static i64 tree_mtimes_2[MAX_TREE_MTIMES];
 static size_t tree_mtimes_1_size;
 static size_t tree_mtimes_2_size;
 
@@ -8896,8 +8890,8 @@ static void reset_regenerate_modified_mods(void) {
 	grug_resource_reloads_size = 0;
 	grug_fn_name = "OPTIMIZED OUT FUNCTION NAME";
 	grug_fn_path = "OPTIMIZED OUT FUNCTION PATH";
-	path_chars_size = 0;
-	paths_size = 0;
+	path_data_queue_size = 0;
+	path_data_queue_start_index = 0;
 
 	if (pingpong) {
 		tree_chars_1_size = 0;
@@ -8908,7 +8902,7 @@ static void reset_regenerate_modified_mods(void) {
 	}
 }
 
-static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
+static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes, size_t dll_resources_size) {
 	void *dll = dlopen(dll_path, RTLD_NOW);
 	if (!dll) {
 		print_dlerror("dlopen");
@@ -8916,21 +8910,6 @@ static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
 		// Needed for clang's --analyze, since it doesn't recognize
 		// that print_dlerror() its longjmp guarantees that `dll`
 		// will always be non-null when this if-statement has *not* been entered
-		return;
-	}
-
-	size_t *dll_resources_size_ptr = get_dll_symbol(dll, "resources_size");
-	if (!dll_resources_size_ptr) {
-		if (dlclose(dll)) {
-			print_dlerror("dlclose");
-		}
-		grug_error("Retrieving resources_size with get_dll_symbol() failed for %s", dll_path);
-	}
-
-	if (*dll_resources_size_ptr == 0) {
-		if (dlclose(dll)) {
-			print_dlerror("dlclose");
-		}
 		return;
 	}
 
@@ -8942,7 +8921,7 @@ static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
 		grug_error("Retrieving resources with get_dll_symbol() failed for %s", dll_path);
 	}
 
-	for (size_t i = 0; i < *dll_resources_size_ptr; i++) {
+	for (size_t i = 0; i < dll_resources_size; i++) {
 		char *resource = dll_resources[i];
 
 		struct stat resource_stat;
@@ -9311,32 +9290,7 @@ static i64 *dup_resource_mtimes(i64 *old_resource_mtimes, size_t dll_resources_s
 	return new_resource_mtimes;
 }
 
-static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *grug_path, bool needs_regeneration, char *dll_path, char *grug_filename, struct grug_mod_dir *new_dir) {
-	struct grug_modified modified = {0};
-
-	set_grug_error_path(grug_path);
-
-	if (needs_regeneration) {
-		regenerate_dll(grug_path, dll_path);
-	}
-
-	if (file && file->dll) {
-		modified.old_dll = file->dll;
-
-		// This dlclose() needs to happen after the regenerate_dll() call,
-		// since even if regenerate_dll() throws when a typo is introduced to a mod,
-		// we want to keep the pre-typo DLL version open so the game doesn't crash
-		//
-		// This dlclose() needs to happen before the upcoming dlopen() call,
-		// since the DLL won't be reloaded otherwise
-		if (dlclose(file->dll)) {
-			print_dlerror("dlclose");
-		}
-
-		// Not necessary, but makes debugging less confusing
-		file->dll = NULL;
-	}
-
+static struct grug_file *regenerate_file(struct grug_file *file, char *dll_path, struct grug_mod_dir *new_dir) {
 	struct grug_file new_file = {0};
 
 	new_file.dll = dlopen(dll_path, RTLD_NOW);
@@ -9368,6 +9322,8 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *g
 
 	file = push_file(new_dir, new_file);
 
+	file->_resources_size = dll_resources_size;
+
 	if (dll_resources_size > 0) {
 		char **dll_resources = get_dll_symbol(file->dll, "resources");
 
@@ -9378,18 +9334,6 @@ static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *g
 
 			file->_resource_mtimes[i] = resource_stat.st_mtime;
 		}
-	}
-
-	// Let the game developer know that a grug file was recompiled
-	if (needs_regeneration) {
-		// Since modified.path is the maximum path length of operating systems,
-		// it shouldn't be possible for grug_path to exceed it
-		assert(strlen(grug_path) + 1 <= sizeof(modified.path));
-
-		memcpy(modified.path, grug_path, strlen(grug_path) + 1);
-
-		modified.file = *file;
-		push_reload(modified);
 	}
 
 	return file;
@@ -9404,6 +9348,7 @@ static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *gr
 	memcpy(dll_path, dll_entry_path, strlen(dll_entry_path) + 1);
 
 	char *extension = get_file_extension(dll_path);
+
 	// The code that called this reload_grug_file() function has already checked
 	// that the file ends with ".grug", so '.' will always be found here
 	assert(extension[0] == '.');
@@ -9430,12 +9375,46 @@ static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *gr
 	struct grug_file *file = get_file(old_dir, grug_filename);
 
 	if (needs_regeneration || !file) {
-		file = regenerate_dll_and_file(file, grug_path, needs_regeneration, dll_path, grug_filename, new_dir);
+		struct grug_modified modified = {0};
+
+		set_grug_error_path(grug_path);
+
+		if (needs_regeneration) {
+			regenerate_dll(grug_path, dll_path);
+		}
+
+		if (file && file->dll) {
+			modified.old_dll = file->dll;
+
+			// This dlclose() needs to happen after the regenerate_dll() call,
+			// since even if regenerate_dll() throws when a typo is introduced to a mod,
+			// we want to keep the pre-typo DLL version open so the game doesn't crash
+			//
+			// This dlclose() needs to happen before the upcoming dlopen() call,
+			// since the DLL won't be reloaded otherwise
+			if (dlclose(file->dll)) {
+				print_dlerror("dlclose");
+			}
+
+			// Not necessary, but makes debugging less confusing
+			file->dll = NULL;
+		}
+
+		file = regenerate_file(file, dll_path, new_dir);
+
+		// Let the game developer know that a grug file was recompiled
+		if (needs_regeneration) {
+			// Since modified.path is the maximum path length of operating systems,
+			// it shouldn't be possible for grug_path to exceed it
+			assert(strlen(grug_path) + 1 <= sizeof(modified.path));
+
+			memcpy(modified.path, grug_path, strlen(grug_path) + 1);
+
+			modified.file = *file;
+			push_reload(modified);
+		}
 	} else {
-		// TODO: I must either:
-		// 1. Store _dll_resources_size in files (most likely the best option), or
-		// 2. Call get_dll_symbol(, "resources_size") here
-		file->_resource_mtimes = dup_resource_mtimes(file->_resource_mtimes, dll_resources_size);
+		file->_resource_mtimes = dup_resource_mtimes(file->_resource_mtimes, file->_resources_size);
 	}
 
 	file->name = strdup_tree(grug_filename);
@@ -9446,21 +9425,46 @@ static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *gr
 	add_entity(grug_filename, file);
 
 	// Let the game developer know when they need to reload a resource
-	reload_resources_from_dll(dll_path, file->_resource_mtimes);
+	if (file->_resources_size > 0) {
+		reload_resources_from_dll(dll_path, file->_resource_mtimes, file->_resources_size);
+	}
 }
 
-static void reload_entry(char *name, char *mods_dir_path, char *dll_dir_path, struct grug_mod_dir *old_dir, struct grug_mod_dir *new_dir) {
+static struct path_data dequeue_path_data(void) {
+	assert(path_data_queue_size > 0);
+	path_data_queue_size--;
+
+	size_t index = path_data_queue_start_index;
+
+	// The deque is implemented as a circular buffer
+	path_data_queue_start_index = (path_data_queue_start_index + 1) % MAX_PATH_DATA_QUEUE_SIZE;
+
+	return path_data_queue[index];
+}
+
+static void enqueue_path_data(struct path_data path_data) {
+	grug_assert(path_data_queue_size < MAX_PATH_DATA_QUEUE_SIZE, "There are more than %d entries in the path_data_queue array, exceeding MAX_PATH_DATA_QUEUE_SIZE", MAX_PATH_DATA_QUEUE_SIZE);
+
+	// The deque is implemented as a circular buffer
+	size_t index = (path_data_queue_start_index + path_data_queue_size) % MAX_PATH_DATA_QUEUE_SIZE;
+
+	path_data_queue[index] = path_data;
+
+	path_data_queue_size++;
+}
+
+static void reload_entry(char *name, char *mods_subdir_path, char *dll_subdir_path, struct grug_mod_dir *old_dir, struct grug_mod_dir *new_dir) {
 	if (streq(name, ".") || streq(name, "..")) {
 		return;
 	}
 
 	static char entry_path[STUPID_MAX_PATH];
-	snprintf(entry_path, sizeof(entry_path), "%s/%s", mods_dir_path, name);
+	snprintf(entry_path, sizeof(entry_path), "%s/%s", mods_subdir_path, name);
 
 	grug_assert(is_lowercase(name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", name, entry_path);
 
 	static char dll_entry_path[STUPID_MAX_PATH];
-	snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_dir_path, name);
+	snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_subdir_path, name);
 
 	struct stat entry_stat;
 	grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
@@ -9473,8 +9477,8 @@ static void reload_entry(char *name, char *mods_dir_path, char *dll_dir_path, st
 		push_subdir(new_dir, pushed_new_subdir);
 
 		enqueue_path_data((struct path_data){
-			.mods_dir_path = strdup_tree(entry_path),
-			.dll_dir_path = strdup_tree(dll_entry_path),
+			.mods_subdir_path = strdup_tree(entry_path),
+			.dll_subdir_path = strdup_tree(dll_entry_path),
 			.old_dir = old_subdir,
 			.new_dir = new_subdir,
 		});
@@ -9483,22 +9487,10 @@ static void reload_entry(char *name, char *mods_dir_path, char *dll_dir_path, st
 	}
 }
 
-// TODO: Implement
-static struct path_data dequeue_path_data(void) {
-	return (struct path_data){0};
-}
-
-static void enqueue_path_data(struct path_data path_data) {
-	grug_assert(path_data_queue_size < MAX_PATH_DATA_QUEUE_SIZE, "There are more than %d entries in the path_data_queue array, exceeding MAX_PATH_DATA_QUEUE_SIZE", MAX_PATH_DATA_QUEUE_SIZE);
-	// TODO: Index as a circular buffer
-	path_data_queue[?] = path_data;
-	path_data_queue_size++;
-}
-
-static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct grug_mod_dir *old_mod_dir, struct grug_mod_dir *new_mod_dir) {
+static void reload_modified_mod(char *mod_dir_path, char *dll_dir_path, struct grug_mod_dir *old_mod_dir, struct grug_mod_dir *new_mod_dir) {
 	enqueue_path_data((struct path_data){
-		.mods_dir_path = mods_dir_path,
-		.dll_dir_path = dll_dir_path,
+		.mods_subdir_path = mod_dir_path,
+		.dll_subdir_path = dll_dir_path,
 		.old_dir = old_mod_dir,
 		.new_dir = new_mod_dir,
 	});
@@ -9507,13 +9499,13 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 		struct path_data path_data = dequeue_path_data();
 
 		// Unpack popped data
-		char *mods_dir_path = path_data.mods_dir_path;
-		char *dll_dir_path = path_data.dll_dir_path;
+		char *mods_subdir_path = path_data.mods_subdir_path;
+		char *dll_subdir_path = path_data.dll_subdir_path;
 		struct grug_mod_dir *old_dir = path_data.old_dir;
 		struct grug_mod_dir *new_dir = path_data.new_dir;
 
-		DIR *dirp = opendir(mods_dir_path);
-		grug_assert(dirp, "opendir(\"%s\"): %s", mods_dir_path, strerror(errno));
+		DIR *dirp = opendir(mods_subdir_path);
+		grug_assert(dirp, "opendir(\"%s\"): %s", mods_subdir_path, strerror(errno));
 
 		// If the old directory used to contain a subdirectory or file
 		// that doesn't exist anymore, we'll be closing its shared libraries.
@@ -9530,7 +9522,7 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 		errno = 0;
 		struct dirent *dp;
 		while ((dp = readdir(dirp))) {
-			reload_entry(dp->d_name, mods_dir_path, dll_dir_path, old_dir, new_dir);
+			reload_entry(dp->d_name, mods_subdir_path, dll_subdir_path, old_dir, new_dir);
 		}
 		grug_assert(errno == 0, "readdir: %s", strerror(errno));
 
@@ -9590,6 +9582,17 @@ static void validate_about_file(char *about_json_path) {
 		grug_assert(!streq(field->key, ""), "%s its %zuth field key must not be an empty string", about_json_path, i + 1);
 		field++;
 	}
+}
+
+// Cases:
+// 1. "" => ""
+// 2. "/" => ""
+// 3. "/a" => "a"
+// 4. "/a/" => ""
+// 5. "/a/b" => "b"
+static char *get_basename(char *path) {
+	char *base = strrchr(path, '/');
+	return base ? base + 1 : path;
 }
 
 static void reload_modified_mods(void) {
@@ -9655,17 +9658,6 @@ static void reload_modified_mods(void) {
 	grug_assert(errno == 0, "readdir: %s", strerror(errno));
 
 	closedir(dirp);
-}
-
-// Cases:
-// 1. "" => ""
-// 2. "/" => ""
-// 3. "/a" => "a"
-// 4. "/a/" => ""
-// 5. "/a/b" => "b"
-static char *get_basename(char *path) {
-	char *base = strrchr(path, '/');
-	return base ? base + 1 : path;
 }
 
 bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, char *mods_dir_path, char *dll_dir_path, uint64_t on_fn_time_limit_ms_) {
