@@ -8831,6 +8831,8 @@ static void generate_shared_object(char *dll_path) {
 #define MAX_PATH_CHARS 420420
 #define MAX_PATHS 420420
 #define MAX_PATH_DATA_QUEUE_SIZE 420420
+#define MAX_TREE_CHARS 420420
+#define MAX_TREE_MTIMES 420420
 
 USED_BY_PROGRAMS struct grug_mod_dir *grug_mods;
 
@@ -8873,6 +8875,16 @@ static size_t path_data_queue_size;
 
 static bool pingpong = false;
 
+static char tree_chars_1[MAX_TREE_CHARS];
+static char tree_chars_2[MAX_TREE_CHARS];
+static size_t tree_chars_1_size;
+static size_t tree_chars_2_size;
+
+static i64 *tree_mtimes_1[MAX_TREE_MTIMES];
+static i64 *tree_mtimes_2[MAX_TREE_MTIMES];
+static size_t tree_mtimes_1_size;
+static size_t tree_mtimes_2_size;
+
 // Called by the grug-tests repository
 USED_BY_PROGRAMS bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name);
 
@@ -8886,6 +8898,14 @@ static void reset_regenerate_modified_mods(void) {
 	grug_fn_path = "OPTIMIZED OUT FUNCTION PATH";
 	path_chars_size = 0;
 	paths_size = 0;
+
+	if (pingpong) {
+		tree_chars_1_size = 0;
+		tree_mtimes_1_size = 0;
+	} else {
+		tree_chars_2_size = 0;
+		tree_mtimes_2_size = 0;
+	}
 }
 
 static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes) {
@@ -9239,22 +9259,44 @@ static struct grug_mod_dir *get_subdir(struct grug_mod_dir *dir, char *name) {
 
 // The word "tree" refers to grug_mods being a tree of directories and files.
 // This function allocates a string, that automatically gets freed after 2 update calls (pingpong).
-static char *strdup_tree(char *str) {
+static char *strdup_tree(char *old_str) {
+	size_t length = strlen(old_str);
+
+	char *new_str;
+
 	if (pingpong) {
-		static char *strings[?];
-		static char chars[?];
+		grug_assert(tree_chars_1_size + length < MAX_TREE_CHARS, "There are more than %d characters in the tree_chars_1 array, exceeding MAX_TREE_CHARS", MAX_TREE_CHARS);
+
+		new_str = tree_chars_1 + tree_chars_1_size;
+
+		memcpy(tree_chars_1 + tree_chars_1_size, old_str, length + 1);
+		tree_chars_1_size += length + 1;
 	} else {
-		static char *strings[?];
-		static char chars[?];
+		grug_assert(tree_chars_2_size + length < MAX_TREE_CHARS, "There are more than %d characters in the tree_chars_2 array, exceeding MAX_TREE_CHARS", MAX_TREE_CHARS);
+
+		new_str = tree_chars_2 + tree_chars_2_size;
+
+		memcpy(tree_chars_2 + tree_chars_2_size, old_str, length + 1);
+		tree_chars_2_size += length + 1;
+	}
+
+	return new_str;
+}
+
+static i64 *dup_resource_mtimes(i64 *resource_mtimes, size_t dll_resources_size) {
+	if (pingpong) {
+		// TODO: Implement
+	} else {
+		// TODO: Implement
 	}
 }
 
-// TODO: Finish
-static i64 *dup_resource_mtimes(i64 *resource_mtimes, size_t dll_resources_size) {
-}
-
-// TODO: Finish
 static i64 *alloc_resource_mtimes(size_t dll_resources_size) {
+	if (pingpong) {
+		// TODO: Implement
+	} else {
+		// TODO: Implement
+	}
 }
 
 static struct grug_file *regenerate_dll_and_file(struct grug_file *file, char *grug_path, bool needs_regeneration, char *dll_path, char *grug_filename, struct grug_mod_dir *new_dir) {
@@ -9379,7 +9421,7 @@ static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *gr
 		file = regenerate_dll_and_file(file, grug_path, needs_regeneration, dll_path, grug_filename, new_dir);
 	} else {
 		// TODO: I must either:
-		// 1. Store _dll_resources_size in files, or
+		// 1. Store _dll_resources_size in files (most likely the best option), or
 		// 2. Call get_dll_symbol(, "resources_size") here
 		file->_resource_mtimes = dup_resource_mtimes(file->_resource_mtimes, dll_resources_size);
 	}
