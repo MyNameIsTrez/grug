@@ -9113,11 +9113,14 @@ static void check_that_every_entity_exists(struct grug_mod_dir dir) {
 		struct grug_file file = dir.files[i];
 
 		size_t *entities_size_ptr = get_dll_symbol(file.dll, "entities_size");
+		grug_assert(entities_size_ptr, "Retrieving the entities_size variable with get_dll_symbol() failed for '%s'", file.name);
 
 		if (*entities_size_ptr > 0) {
 			char **dll_entities = get_dll_symbol(file.dll, "entities");
+			grug_assert(entities_size_ptr, "Retrieving the dll_entities variable with get_dll_symbol() failed for '%s'", file.name);
 
 			char **dll_entity_types = get_dll_symbol(file.dll, "entity_types");
+			grug_assert(entities_size_ptr, "Retrieving the dll_entity_types variable with get_dll_symbol() failed for '%s'", file.name);
 
 			for (size_t dll_entity_index = 0; dll_entity_index < *entities_size_ptr; dll_entity_index++) {
 				char *entity = dll_entities[dll_entity_index];
@@ -9207,13 +9210,14 @@ static struct grug_file *push_file(struct grug_mod_dir *dir, struct grug_file fi
 	return &dir->files[dir->files_size++];
 }
 
-static void push_subdir(struct grug_mod_dir *dir, struct grug_mod_dir subdir) {
+static struct grug_mod_dir *push_subdir(struct grug_mod_dir *dir, struct grug_mod_dir subdir) {
 	if (dir->dirs_size >= dir->_dirs_capacity) {
 		dir->_dirs_capacity = dir->_dirs_capacity == 0 ? 1 : dir->_dirs_capacity * 2;
 		dir->dirs = realloc(dir->dirs, dir->_dirs_capacity * sizeof(*dir->dirs));
 		grug_assert(dir->dirs, "realloc: %s", strerror(errno));
 	}
-	dir->dirs[dir->dirs_size++] = subdir;
+	dir->dirs[dir->dirs_size] = subdir;
+	return &dir->dirs[dir->dirs_size++];
 }
 
 // Profiling may indicate that rewriting this to use an O(1) technique like a hash table is worth it
@@ -9283,7 +9287,11 @@ static i64 *alloc_resource_mtimes(size_t dll_resources_size) {
 }
 
 static i64 *dup_resource_mtimes(i64 *old_resource_mtimes, size_t dll_resources_size) {
+	assert(old_resource_mtimes != NULL);
+	assert(dll_resources_size > 0);
+
 	i64 *new_resource_mtimes = alloc_resource_mtimes(dll_resources_size);
+	assert(new_resource_mtimes != NULL);
 
 	memcpy(new_resource_mtimes, old_resource_mtimes, dll_resources_size * sizeof(i64));
 
@@ -9372,7 +9380,7 @@ static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *gr
 	// If the dll doesn't exist or is outdated
 	bool needs_regeneration = !dll_exists || grug_file_mtime > dll_stat.st_mtime;
 
-	struct grug_file *file = get_file(old_dir, grug_filename);
+	struct grug_file *file = old_dir ? get_file(old_dir, grug_filename) : NULL;
 
 	if (needs_regeneration || !file) {
 		struct grug_modified modified = {0};
@@ -9413,8 +9421,17 @@ static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *gr
 			modified.file = *file;
 			push_reload(modified);
 		}
+
+		file->_seen = true;
 	} else {
-		file->_resource_mtimes = dup_resource_mtimes(file->_resource_mtimes, file->_resources_size);
+		if (file->_resource_mtimes) {
+			file->_resource_mtimes = dup_resource_mtimes(file->_resource_mtimes, file->_resources_size);
+		}
+
+		// Mark the old file as having been seen, so dlclose() doesn't get called on it later
+		file->_seen = true;
+
+		file = push_file(new_dir, *file);
 	}
 
 	file->name = strdup_tree(grug_filename);
@@ -9470,11 +9487,14 @@ static void reload_entry(char *name, char *mods_subdir_path, char *dll_subdir_pa
 	grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
 
 	if (S_ISDIR(entry_stat.st_mode)) {
-		struct grug_mod_dir *old_subdir = old_dir ? get_subdir(old_dir, name) : NULL;
+		struct grug_mod_dir *old_subdir = NULL;
+		if (old_dir) {
+			old_subdir = get_subdir(old_dir, name);
+			old_subdir->_seen = true;
+		}
 
 		struct grug_mod_dir pushed_new_subdir = {.name = strdup_tree(name)};
-		struct grug_mod_dir *new_subdir = &new_dir->dirs[new_dir->dirs_size];
-		push_subdir(new_dir, pushed_new_subdir);
+		struct grug_mod_dir *new_subdir = push_subdir(new_dir, pushed_new_subdir);
 
 		enqueue_path_data((struct path_data){
 			.mods_subdir_path = strdup_tree(entry_path),
@@ -9649,8 +9669,7 @@ static void reload_modified_mods(void) {
 			struct grug_mod_dir *old_mod_dir = get_subdir(old_mods_dir, name);
 
 			struct grug_mod_dir pushed_new_mod_dir = {.name = strdup_tree(name)};
-			struct grug_mod_dir *new_mod_dir = &new_mods_dir->dirs[new_mods_dir->dirs_size];
-			push_subdir(new_mods_dir, pushed_new_mod_dir);
+			struct grug_mod_dir *new_mod_dir = push_subdir(new_mods_dir, pushed_new_mod_dir);
 
 			reload_modified_mod(entry_path, dll_entry_path, old_mod_dir, new_mod_dir);
 		}
