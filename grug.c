@@ -9386,12 +9386,12 @@ static void reload_entry(char *name, char *mods_dir_path, char *dll_dir_path, st
 		return;
 	}
 
-	static char entry_path[STUPID_MAX_PATH];
+	char entry_path[STUPID_MAX_PATH];
 	snprintf(entry_path, sizeof(entry_path), "%s/%s", mods_dir_path, name);
 
 	grug_assert(is_lowercase(name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", name, entry_path);
 
-	static char dll_entry_path[STUPID_MAX_PATH];
+	char dll_entry_path[STUPID_MAX_PATH];
 	snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_dir_path, name);
 
 	struct stat entry_stat;
