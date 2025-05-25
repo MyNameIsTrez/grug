@@ -8829,7 +8829,7 @@ static void generate_shared_object(char *dll_path) {
 #define MAX_ENTITIES 420420
 #define MAX_ENTITY_STRINGS_CHARACTERS 420420
 #define MAX_ENTITY_NAME_LENGTH 420
-#define MAX_PATH_DATA_QUEUE_SIZE 420420
+#define MAX_DIRECTORY_DEPTH 42
 
 USED_BY_PROGRAMS struct grug_mod_dir grug_mods;
 
@@ -8852,14 +8852,7 @@ USED_BY_MODS char *grug_fn_path;
 
 static bool is_grug_initialized = false;
 
-struct path_data {
-	char *mods_subdir_path;
-	char *dll_subdir_path;
-	struct grug_mod_dir *dir;
-};
-static struct path_data path_data_queue[MAX_PATH_DATA_QUEUE_SIZE];
-static size_t path_data_queue_size;
-static size_t path_data_queue_start_index;
+static size_t directory_depth;
 
 // Called by the grug-tests repository
 USED_BY_PROGRAMS bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name);
@@ -8872,6 +8865,7 @@ static void reset_regenerate_modified_mods(void) {
 	grug_resource_reloads_size = 0;
 	grug_fn_name = "OPTIMIZED OUT FUNCTION NAME";
 	grug_fn_path = "OPTIMIZED OUT FUNCTION PATH";
+	directory_depth = 0;
 }
 
 static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes, size_t dll_resources_size) {
@@ -9385,41 +9379,20 @@ static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *gr
 	}
 }
 
-static struct path_data dequeue_path_data(void) {
-	assert(path_data_queue_size > 0);
-	path_data_queue_size--;
+static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct grug_mod_dir *dir);
 
-	size_t index = path_data_queue_start_index;
-
-	// The deque is implemented as a circular buffer
-	path_data_queue_start_index = (path_data_queue_start_index + 1) % MAX_PATH_DATA_QUEUE_SIZE;
-
-	return path_data_queue[index];
-}
-
-static void enqueue_path_data(struct path_data path_data) {
-	grug_assert(path_data_queue_size < MAX_PATH_DATA_QUEUE_SIZE, "There are more than %d entries in the path_data_queue array, exceeding MAX_PATH_DATA_QUEUE_SIZE", MAX_PATH_DATA_QUEUE_SIZE);
-
-	// The deque is implemented as a circular buffer
-	size_t index = (path_data_queue_start_index + path_data_queue_size) % MAX_PATH_DATA_QUEUE_SIZE;
-
-	path_data_queue[index] = path_data;
-
-	path_data_queue_size++;
-}
-
-static void reload_entry(char *name, char *mods_subdir_path, char *dll_subdir_path, struct grug_mod_dir *dir) {
+static void reload_entry(char *name, char *mods_dir_path, char *dll_dir_path, struct grug_mod_dir *dir) {
 	if (streq(name, ".") || streq(name, "..")) {
 		return;
 	}
 
 	static char entry_path[STUPID_MAX_PATH];
-	snprintf(entry_path, sizeof(entry_path), "%s/%s", mods_subdir_path, name);
+	snprintf(entry_path, sizeof(entry_path), "%s/%s", mods_dir_path, name);
 
 	grug_assert(is_lowercase(name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", name, entry_path);
 
 	static char dll_entry_path[STUPID_MAX_PATH];
-	snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_subdir_path, name);
+	snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_dir_path, name);
 
 	struct stat entry_stat;
 	grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
@@ -9435,71 +9408,54 @@ static void reload_entry(char *name, char *mods_subdir_path, char *dll_subdir_pa
 
 		subdir->_seen = true;
 
-		enqueue_path_data((struct path_data){
-			.mods_subdir_path = strdup(entry_path),
-			.dll_subdir_path = strdup(dll_entry_path),
-			.dir = subdir,
-		});
+		reload_modified_mod(entry_path, dll_entry_path, subdir);
 	} else if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(name), ".grug")) {
 		reload_grug_file(dll_entry_path, entry_stat.st_mtime, name, dir, entry_path);
 	}
 }
 
-static void reload_modified_mod(char *mod_dir_path, char *dll_dir_path, struct grug_mod_dir *mod_dir) {
-	enqueue_path_data((struct path_data){
-		.mods_subdir_path = strdup(mod_dir_path),
-		.dll_subdir_path = strdup(dll_dir_path),
-		.dir = mod_dir,
-	});
+static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct grug_mod_dir *dir) {
+	directory_depth++;
+	grug_assert(directory_depth < MAX_DIRECTORY_DEPTH, "There is a mod that contains more than %d levels of nested directories", MAX_DIRECTORY_DEPTH);
 
-	while (path_data_queue_size > 0) {
-		struct path_data path_data = dequeue_path_data();
+	DIR *dirp = opendir(mods_dir_path);
+	grug_assert(dirp, "opendir(\"%s\"): %s", mods_dir_path, strerror(errno));
 
-		// Unpack popped data
-		char *mods_subdir_path = path_data.mods_subdir_path;
-		char *dll_subdir_path = path_data.dll_subdir_path;
-		struct grug_mod_dir *dir = path_data.dir;
+	for (size_t i = 0; i < dir->dirs_size; i++) {
+		dir->dirs[i]._seen = false;
+	}
+	for (size_t i = 0; i < dir->files_size; i++) {
+		dir->files[i]._seen = false;
+	}
 
-		DIR *dirp = opendir(mods_subdir_path);
-		grug_assert(dirp, "opendir(\"%s\"): %s", mods_subdir_path, strerror(errno));
+	errno = 0;
+	struct dirent *dp;
+	while ((dp = readdir(dirp))) {
+		reload_entry(dp->d_name, mods_dir_path, dll_dir_path, dir);
+	}
+	grug_assert(errno == 0, "readdir: %s", strerror(errno));
 
-		// If the old directory used to contain a subdirectory or file
-		// that doesn't exist anymore, we'll be closing its shared libraries.
-		// This is why we initialize every old directory and file as being not seen.
-		if (dir) {
-			for (size_t i = 0; i < dir->dirs_size; i++) {
-				dir->dirs[i]._seen = false;
-			}
-			for (size_t i = 0; i < dir->files_size; i++) {
-				dir->files[i]._seen = false;
-			}
-		}
+	closedir(dirp);
 
-		errno = 0;
-		struct dirent *dp;
-		while ((dp = readdir(dirp))) {
-			reload_entry(dp->d_name, mods_subdir_path, dll_subdir_path, dir);
-		}
-		grug_assert(errno == 0, "readdir: %s", strerror(errno));
-
-		closedir(dirp);
-
-		free(mods_subdir_path);
-		free(dll_subdir_path);
-
-		// If the directory used to contain a subdirectory or file
-		// that doesn't exist anymore, free it.
-		for (size_t i = 0; i < dir->dirs_size; i++) {
-			if (!dir->dirs[i]._seen) {
-				free_dir(dir->dirs[i]);
-			}
-		}
-		for (size_t i = 0; i < dir->files_size; i++) {
-			if (!dir->files[i]._seen) {
-				free_file(dir->files[i]);
-			}
+	// If the directory used to contain a subdirectory or file
+	// that doesn't exist anymore, free it
+	for (size_t i = dir->dirs_size; i > 0;) {
+		i--;
+		if (!dir->dirs[i]._seen) {
+			free_dir(dir->dirs[i]);
+			dir->dirs[i] = dir->dirs[--dir->dirs_size]; // Swap-remove
 		}
 	}
+	for (size_t i = dir->files_size; i > 0;) {
+		i--;
+		if (!dir->files[i]._seen) {
+			free_file(dir->files[i]);
+			dir->files[i] = dir->files[--dir->files_size]; // Swap-remove
+		}
+	}
+
+	assert(directory_depth > 0);
+	directory_depth--;
 }
 
 static void validate_about_file(char *about_json_path) {
@@ -9602,6 +9558,7 @@ static void reload_modified_mods(void) {
 			subdir->_seen = true;
 
 			reload_modified_mod(entry_path, dll_entry_path, subdir);
+			assert(directory_depth == 0);
 		}
 	}
 	grug_assert(errno == 0, "readdir: %s", strerror(errno));
