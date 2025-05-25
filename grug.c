@@ -8830,13 +8830,8 @@ static void generate_shared_object(char *dll_path) {
 #define MAX_ENTITY_STRINGS_CHARACTERS 420420
 #define MAX_ENTITY_NAME_LENGTH 420
 #define MAX_PATH_DATA_QUEUE_SIZE 420420
-#define MAX_TREE_CHARS 420420
-#define MAX_TREE_MTIMES 420420
 
-USED_BY_PROGRAMS struct grug_mod_dir *grug_mods;
-
-static struct grug_mod_dir grug_mods_1;
-static struct grug_mod_dir grug_mods_2;
+USED_BY_PROGRAMS struct grug_mod_dir grug_mods;
 
 USED_BY_PROGRAMS struct grug_modified grug_reloads[MAX_RELOADS];
 USED_BY_PROGRAMS size_t grug_reloads_size;
@@ -8860,24 +8855,11 @@ static bool is_grug_initialized = false;
 struct path_data {
 	char *mods_subdir_path;
 	char *dll_subdir_path;
-	struct grug_mod_dir *old_dir;
-	struct grug_mod_dir *new_dir;
+	struct grug_mod_dir *dir;
 };
 static struct path_data path_data_queue[MAX_PATH_DATA_QUEUE_SIZE];
 static size_t path_data_queue_size;
 static size_t path_data_queue_start_index;
-
-static bool pingpong = false;
-
-static char tree_chars_1[MAX_TREE_CHARS];
-static char tree_chars_2[MAX_TREE_CHARS];
-static size_t tree_chars_1_size;
-static size_t tree_chars_2_size;
-
-static i64 tree_mtimes_1[MAX_TREE_MTIMES];
-static i64 tree_mtimes_2[MAX_TREE_MTIMES];
-static size_t tree_mtimes_1_size;
-static size_t tree_mtimes_2_size;
 
 // Called by the grug-tests repository
 USED_BY_PROGRAMS bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name);
@@ -8890,16 +8872,6 @@ static void reset_regenerate_modified_mods(void) {
 	grug_resource_reloads_size = 0;
 	grug_fn_name = "OPTIMIZED OUT FUNCTION NAME";
 	grug_fn_path = "OPTIMIZED OUT FUNCTION PATH";
-	path_data_queue_size = 0;
-	path_data_queue_start_index = 0;
-
-	if (pingpong) {
-		tree_chars_1_size = 0;
-		tree_mtimes_1_size = 0;
-	} else {
-		tree_chars_2_size = 0;
-		tree_mtimes_2_size = 0;
-	}
 }
 
 static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes, size_t dll_resources_size) {
@@ -9062,20 +9034,30 @@ static void try_create_parent_dirs(char *file_path) {
 	}
 }
 
-static void dlclose_file(struct grug_file file) {
+static void free_file(struct grug_file file) {
+	free(file.name);
+	free(file.entity);
+	free(file.entity_type);
+
 	if (file.dll && dlclose(file.dll)) {
 		print_dlerror("dlclose");
 	}
+
+	free(file._resource_mtimes);
 }
 
-static void dlclose_dir(struct grug_mod_dir dir) {
+static void free_dir(struct grug_mod_dir dir) {
+	free(dir.name);
+
 	for (size_t i = 0; i < dir.dirs_size; i++) {
-		dlclose_dir(dir.dirs[i]);
+		free_dir(dir.dirs[i]);
 	}
+	free(dir.dirs);
 
 	for (size_t i = 0; i < dir.files_size; i++) {
-		dlclose_file(dir.files[i]);
+		free_file(dir.files[i]);
 	}
+	free(dir.files);
 }
 
 static u32 get_entity_index(char *entity) {
@@ -9240,65 +9222,7 @@ static struct grug_mod_dir *get_subdir(struct grug_mod_dir *dir, char *name) {
 	return NULL;
 }
 
-// The word "tree" refers to grug_mods being a tree of directories and files.
-// This function allocates a string, that automatically gets freed after 2 update calls (pingpong).
-static char *strdup_tree(char *old_str) {
-	size_t length = strlen(old_str);
-
-	char *new_str;
-
-	if (pingpong) {
-		grug_assert(tree_chars_1_size + length < MAX_TREE_CHARS, "There are more than %d characters in the tree_chars_1 array, exceeding MAX_TREE_CHARS", MAX_TREE_CHARS);
-
-		new_str = tree_chars_1 + tree_chars_1_size;
-
-		memcpy(tree_chars_1 + tree_chars_1_size, old_str, length + 1);
-		tree_chars_1_size += length + 1;
-	} else {
-		grug_assert(tree_chars_2_size + length < MAX_TREE_CHARS, "There are more than %d characters in the tree_chars_2 array, exceeding MAX_TREE_CHARS", MAX_TREE_CHARS);
-
-		new_str = tree_chars_2 + tree_chars_2_size;
-
-		memcpy(tree_chars_2 + tree_chars_2_size, old_str, length + 1);
-		tree_chars_2_size += length + 1;
-	}
-
-	return new_str;
-}
-
-static i64 *alloc_resource_mtimes(size_t dll_resources_size) {
-	i64 *resource_mtimes;
-
-	if (pingpong) {
-		grug_assert(tree_mtimes_1_size + dll_resources_size < MAX_TREE_MTIMES, "There are more than %d resource mtimes in tree_mtimes_1, exceeding MAX_TREE_MTIMES", MAX_TREE_MTIMES);
-
-		resource_mtimes = &tree_mtimes_1[tree_mtimes_1_size];
-
-		tree_mtimes_1_size += dll_resources_size;
-	} else {
-		grug_assert(tree_mtimes_2_size + dll_resources_size < MAX_TREE_MTIMES, "There are more than %d resource mtimes in tree_mtimes_2, exceeding MAX_TREE_MTIMES", MAX_TREE_MTIMES);
-
-		resource_mtimes = &tree_mtimes_2[tree_mtimes_2_size];
-
-		tree_mtimes_2_size += dll_resources_size;
-	}
-
-	return resource_mtimes;
-}
-
-static i64 *dup_resource_mtimes(i64 *old_resource_mtimes, size_t dll_resources_size) {
-	assert(old_resource_mtimes != NULL);
-	assert(dll_resources_size > 0);
-
-	i64 *new_resource_mtimes = alloc_resource_mtimes(dll_resources_size);
-	assert(new_resource_mtimes != NULL);
-
-	memcpy(new_resource_mtimes, old_resource_mtimes, dll_resources_size * sizeof(i64));
-
-	return new_resource_mtimes;
-}
-
-static struct grug_file *regenerate_file(struct grug_file *file, char *dll_path, struct grug_mod_dir *new_dir) {
+static struct grug_file *regenerate_file(struct grug_file *file, char *dll_path, char *grug_filename, struct grug_mod_dir *dir) {
 	struct grug_file new_file = {0};
 
 	new_file.dll = dlopen(dll_path, RTLD_NOW);
@@ -9324,13 +9248,40 @@ static struct grug_file *regenerate_file(struct grug_file *file, char *dll_path,
 	size_t *resources_size_ptr = get_dll_symbol(new_file.dll, "resources_size");
 	size_t dll_resources_size = *resources_size_ptr;
 
-	if (dll_resources_size > 0) {
-		new_file._resource_mtimes = alloc_resource_mtimes(dll_resources_size);
+	if (file) {
+		file->dll = new_file.dll;
+		file->globals_size = new_file.globals_size;
+		file->init_globals_fn = new_file.init_globals_fn;
+		file->on_fns = new_file.on_fns;
+
+		if (dll_resources_size > 0) {
+			file->_resource_mtimes = realloc(file->_resource_mtimes, dll_resources_size * sizeof(i64));
+			grug_assert(file->_resource_mtimes, "realloc: %s", strerror(errno));
+		} else {
+			// We can't use realloc() to do this
+			// See https://stackoverflow.com/a/16760080/13279557
+			free(file->_resource_mtimes);
+			file->_resource_mtimes = NULL;
+		}
+	} else {
+		new_file.name = strdup(grug_filename);
+		grug_assert(new_file.name, "strdup: %s", strerror(errno));
+
+		new_file.entity = strdup(form_entity(grug_filename));
+		grug_assert(new_file.entity, "strdup: %s", strerror(errno));
+
+		new_file.entity_type = strdup(file_entity_type);
+		grug_assert(new_file.entity_type, "strdup: %s", strerror(errno));
+
+		// We check dll_resources_size > 0, since whether malloc(0) returns NULL is implementation defined
+		// See https://stackoverflow.com/a/1073175/13279557
+		if (dll_resources_size > 0) {
+			new_file._resource_mtimes = malloc(dll_resources_size * sizeof(i64));
+			grug_assert(new_file._resource_mtimes, "malloc: %s", strerror(errno));
+		}
+
+		file = push_file(dir, new_file);
 	}
-
-	file = push_file(new_dir, new_file);
-
-	file->_resources_size = dll_resources_size;
 
 	if (dll_resources_size > 0) {
 		char **dll_resources = get_dll_symbol(file->dll, "resources");
@@ -9347,7 +9298,7 @@ static struct grug_file *regenerate_file(struct grug_file *file, char *dll_path,
 	return file;
 }
 
-static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *grug_filename, struct grug_mod_dir *old_dir, struct grug_mod_dir *new_dir, char *grug_path) {
+static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *grug_filename, struct grug_mod_dir *dir, char *grug_path) {
 	initialize_file_entity_type(grug_filename);
 
 	// Fill dll_path
@@ -9380,7 +9331,7 @@ static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *gr
 	// If the dll doesn't exist or is outdated
 	bool needs_regeneration = !dll_exists || grug_file_mtime > dll_stat.st_mtime;
 
-	struct grug_file *file = old_dir ? get_file(old_dir, grug_filename) : NULL;
+	struct grug_file *file = get_file(dir, grug_filename);
 
 	if (needs_regeneration || !file) {
 		struct grug_modified modified = {0};
@@ -9408,7 +9359,7 @@ static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *gr
 			file->dll = NULL;
 		}
 
-		file = regenerate_file(file, dll_path, new_dir);
+		file = regenerate_file(file, dll_path, grug_filename, dir);
 
 		// Let the game developer know that a grug file was recompiled
 		if (needs_regeneration) {
@@ -9421,22 +9372,9 @@ static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *gr
 			modified.file = *file;
 			push_reload(modified);
 		}
-
-		file->_seen = true;
-	} else {
-		if (file->_resource_mtimes) {
-			file->_resource_mtimes = dup_resource_mtimes(file->_resource_mtimes, file->_resources_size);
-		}
-
-		// Mark the old file as having been seen, so dlclose() doesn't get called on it later
-		file->_seen = true;
-
-		file = push_file(new_dir, *file);
 	}
 
-	file->name = strdup_tree(grug_filename);
-	file->entity = strdup_tree(form_entity(grug_filename));
-	file->entity_type = strdup_tree(file_entity_type);
+	file->_seen = true;
 
 	// Needed for grug_get_entitity_file() and check_that_every_entity_exists()
 	add_entity(grug_filename, file);
@@ -9470,7 +9408,7 @@ static void enqueue_path_data(struct path_data path_data) {
 	path_data_queue_size++;
 }
 
-static void reload_entry(char *name, char *mods_subdir_path, char *dll_subdir_path, struct grug_mod_dir *old_dir, struct grug_mod_dir *new_dir) {
+static void reload_entry(char *name, char *mods_subdir_path, char *dll_subdir_path, struct grug_mod_dir *dir) {
 	if (streq(name, ".") || streq(name, "..")) {
 		return;
 	}
@@ -9487,32 +9425,31 @@ static void reload_entry(char *name, char *mods_subdir_path, char *dll_subdir_pa
 	grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
 
 	if (S_ISDIR(entry_stat.st_mode)) {
-		struct grug_mod_dir *old_subdir = NULL;
-		if (old_dir) {
-			old_subdir = get_subdir(old_dir, name);
-			old_subdir->_seen = true;
+		struct grug_mod_dir *subdir = get_subdir(dir, name);
+
+		if (!subdir) {
+			struct grug_mod_dir inserted_subdir = {.name = strdup(name)};
+			grug_assert(inserted_subdir.name, "strdup: %s", strerror(errno));
+			subdir = push_subdir(dir, inserted_subdir);
 		}
 
-		struct grug_mod_dir pushed_new_subdir = {.name = strdup_tree(name)};
-		struct grug_mod_dir *new_subdir = push_subdir(new_dir, pushed_new_subdir);
+		subdir->_seen = true;
 
 		enqueue_path_data((struct path_data){
-			.mods_subdir_path = strdup_tree(entry_path),
-			.dll_subdir_path = strdup_tree(dll_entry_path),
-			.old_dir = old_subdir,
-			.new_dir = new_subdir,
+			.mods_subdir_path = strdup(entry_path),
+			.dll_subdir_path = strdup(dll_entry_path),
+			.dir = subdir,
 		});
 	} else if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(name), ".grug")) {
-		reload_grug_file(dll_entry_path, entry_stat.st_mtime, name, old_dir, new_dir, entry_path);
+		reload_grug_file(dll_entry_path, entry_stat.st_mtime, name, dir, entry_path);
 	}
 }
 
-static void reload_modified_mod(char *mod_dir_path, char *dll_dir_path, struct grug_mod_dir *old_mod_dir, struct grug_mod_dir *new_mod_dir) {
+static void reload_modified_mod(char *mod_dir_path, char *dll_dir_path, struct grug_mod_dir *mod_dir) {
 	enqueue_path_data((struct path_data){
-		.mods_subdir_path = mod_dir_path,
-		.dll_subdir_path = dll_dir_path,
-		.old_dir = old_mod_dir,
-		.new_dir = new_mod_dir,
+		.mods_subdir_path = strdup(mod_dir_path),
+		.dll_subdir_path = strdup(dll_dir_path),
+		.dir = mod_dir,
 	});
 
 	while (path_data_queue_size > 0) {
@@ -9521,8 +9458,7 @@ static void reload_modified_mod(char *mod_dir_path, char *dll_dir_path, struct g
 		// Unpack popped data
 		char *mods_subdir_path = path_data.mods_subdir_path;
 		char *dll_subdir_path = path_data.dll_subdir_path;
-		struct grug_mod_dir *old_dir = path_data.old_dir;
-		struct grug_mod_dir *new_dir = path_data.new_dir;
+		struct grug_mod_dir *dir = path_data.dir;
 
 		DIR *dirp = opendir(mods_subdir_path);
 		grug_assert(dirp, "opendir(\"%s\"): %s", mods_subdir_path, strerror(errno));
@@ -9530,36 +9466,37 @@ static void reload_modified_mod(char *mod_dir_path, char *dll_dir_path, struct g
 		// If the old directory used to contain a subdirectory or file
 		// that doesn't exist anymore, we'll be closing its shared libraries.
 		// This is why we initialize every old directory and file as being not seen.
-		if (old_dir) {
-			for (size_t i = 0; i < old_dir->dirs_size; i++) {
-				old_dir->dirs[i]._seen = false;
+		if (dir) {
+			for (size_t i = 0; i < dir->dirs_size; i++) {
+				dir->dirs[i]._seen = false;
 			}
-			for (size_t i = 0; i < old_dir->files_size; i++) {
-				old_dir->files[i]._seen = false;
+			for (size_t i = 0; i < dir->files_size; i++) {
+				dir->files[i]._seen = false;
 			}
 		}
 
 		errno = 0;
 		struct dirent *dp;
 		while ((dp = readdir(dirp))) {
-			reload_entry(dp->d_name, mods_subdir_path, dll_subdir_path, old_dir, new_dir);
+			reload_entry(dp->d_name, mods_subdir_path, dll_subdir_path, dir);
 		}
 		grug_assert(errno == 0, "readdir: %s", strerror(errno));
 
 		closedir(dirp);
 
-		// If the old directory used to contain a subdirectory or file
-		// that doesn't exist anymore, close its shared libraries.
-		if (old_dir) {
-			for (size_t i = 0; i < old_dir->dirs_size; i++) {
-				if (!old_dir->dirs[i]._seen) {
-					dlclose_dir(old_dir->dirs[i]);
-				}
+		free(mods_subdir_path);
+		free(dll_subdir_path);
+
+		// If the directory used to contain a subdirectory or file
+		// that doesn't exist anymore, free it.
+		for (size_t i = 0; i < dir->dirs_size; i++) {
+			if (!dir->dirs[i]._seen) {
+				free_dir(dir->dirs[i]);
 			}
-			for (size_t i = 0; i < old_dir->files_size; i++) {
-				if (!old_dir->files[i]._seen) {
-					dlclose_file(old_dir->files[i]);
-				}
+		}
+		for (size_t i = 0; i < dir->files_size; i++) {
+			if (!dir->files[i]._seen) {
+				free_file(dir->files[i]);
 			}
 		}
 	}
@@ -9616,26 +9553,14 @@ static char *get_basename(char *path) {
 }
 
 static void reload_modified_mods(void) {
-	struct grug_mod_dir *old_mods_dir;
-	struct grug_mod_dir *new_mods_dir;
-
-	// We flip the old and new mod tree every update, because:
-	// 1. We reconstruct the entire tree every update.
-	// 2. We need to keep the original resource_mtimes array that's in grug_files, across updates.
-	if (pingpong) {
-		old_mods_dir = &grug_mods_1;
-		new_mods_dir = &grug_mods_2;
-	} else {
-		old_mods_dir = &grug_mods_2;
-		new_mods_dir = &grug_mods_1;
-	}
-
-	grug_mods = new_mods_dir;
-
-	grug_mods->name = strdup_tree(get_basename(mods_root_dir_path));
+	struct grug_mod_dir *dir = &grug_mods;
 
 	DIR *dirp = opendir(mods_root_dir_path);
 	grug_assert(dirp, "opendir(\"%s\"): %s", mods_root_dir_path, strerror(errno));
+
+	for (size_t i = 0; i < dir->dirs_size; i++) {
+		dir->dirs[i]._seen = false;
+	}
 
 	errno = 0;
 	struct dirent *dp;
@@ -9666,17 +9591,31 @@ static void reload_modified_mods(void) {
 			grug_assert(snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_root_dir_path, name) >= 0, "Filling the variable 'dll_entry_path' failed");
 
 			// This always returns NULL during the first call of reload_modified_mods()
-			struct grug_mod_dir *old_mod_dir = get_subdir(old_mods_dir, name);
+			struct grug_mod_dir *subdir = get_subdir(dir, name);
 
-			struct grug_mod_dir pushed_new_mod_dir = {.name = strdup_tree(name)};
-			struct grug_mod_dir *new_mod_dir = push_subdir(new_mods_dir, pushed_new_mod_dir);
+			if (!subdir) {
+				struct grug_mod_dir inserted_subdir = {.name = strdup(name)};
+				grug_assert(inserted_subdir.name, "strdup: %s", strerror(errno));
+				subdir = push_subdir(dir, inserted_subdir);
+			}
 
-			reload_modified_mod(entry_path, dll_entry_path, old_mod_dir, new_mod_dir);
+			subdir->_seen = true;
+
+			reload_modified_mod(entry_path, dll_entry_path, subdir);
 		}
 	}
 	grug_assert(errno == 0, "readdir: %s", strerror(errno));
 
 	closedir(dirp);
+
+	// If the directory used to contain a mod that doesn't exist anymore, free it
+	for (size_t i = dir->dirs_size; i > 0;) {
+		i--;
+		if (!dir->dirs[i]._seen) {
+			free_dir(dir->dirs[i]);
+			dir->dirs[i] = dir->dirs[--dir->dirs_size]; // Swap-remove
+		}
+	}
 }
 
 bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, char *mods_dir_path, char *dll_dir_path, uint64_t on_fn_time_limit_ms_) {
@@ -9723,13 +9662,16 @@ bool grug_regenerate_modified_mods(void) {
 
 	grug_loading_error_in_grug_file = false;
 
+	if (!grug_mods.name) {
+		grug_mods.name = strdup(get_basename(mods_root_dir_path));
+		grug_assert(grug_mods.name, "strdup: %s", strerror(errno));
+	}
+
 	reload_modified_mods();
 
-	check_that_every_entity_exists(*grug_mods);
+	check_that_every_entity_exists(grug_mods);
 
 	reset_previous_grug_error();
-
-	pingpong = !pingpong;
 
 	return false;
 }

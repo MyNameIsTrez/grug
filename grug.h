@@ -120,7 +120,7 @@ struct grug_error {
 
 //// Globals
 
-extern struct grug_mod_dir *grug_mods;
+extern struct grug_mod_dir grug_mods;
 
 extern struct grug_modified grug_reloads[MAX_RELOADS];
 extern size_t grug_reloads_size;
