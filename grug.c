@@ -2604,7 +2604,7 @@ static struct helper_fn parse_helper_fn(size_t *i) {
 
 	struct token token = consume_token(i);
 	fn.fn_name = token.str;
-	
+
 	if (!seen_called_helper_fn_name(fn.fn_name)) {
 		grug_error("%s() is defined before the first time it gets called", fn.fn_name);
 	}
@@ -7594,10 +7594,12 @@ static void patch_program_headers(void) {
 	overwrite_64(dynamic_size, 0x140); // file_size
 	overwrite_64(dynamic_size, 0x148); // mem_size
 
+	// empty segment for GNU_STACK
+
 	// .dynamic, .got segment
-	overwrite_64(dynamic_offset, 0x160); // offset
-	overwrite_64(dynamic_offset, 0x168); // virtual_address
-	overwrite_64(dynamic_offset, 0x170); // physical_address
+	overwrite_64(dynamic_offset, 0x198); // offset
+	overwrite_64(dynamic_offset, 0x1a0); // virtual_address
+	overwrite_64(dynamic_offset, 0x1a8); // physical_address
 	size_t segment_5_size = dynamic_size;
 	if (has_got()) {
 		segment_5_size += got_size;
@@ -7606,8 +7608,8 @@ static void patch_program_headers(void) {
 		segment_5_size += GOT_PLT_INTRO_SIZE;
 #endif
 	}
-	overwrite_64(segment_5_size, 0x178); // file_size
-	overwrite_64(segment_5_size, 0x180); // mem_size
+	overwrite_64(segment_5_size, 0x1b0); // file_size
+	overwrite_64(segment_5_size, 0x1b8); // mem_size
 }
 
 static void patch_bytes(void) {
@@ -8396,8 +8398,15 @@ static void push_program_headers(void) {
 	push_program_header(PT_DYNAMIC, PF_R | PF_W, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, 8);
 
 	// Segment 5
-	// .dynamic, .got
+	// empty segment for GNU_STACK
+	// We only need GNU_STACK because of a breaking change that was recently made by GNU C Library version 2.41
+	// See https://github.com/ValveSoftware/Source-1-Games/issues/6978#issuecomment-2631834285
 	// 0x158 to 0x190
+	push_program_header(PT_GNU_STACK, PF_R | PF_W, 0, 0, 0, 0, 0, 0x10);
+
+	// Segment 6
+	// .dynamic, .got
+	// 0x190 to 0x1c8
 	push_program_header(PT_GNU_RELRO, PF_R, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, PLACEHOLDER_64, 1);
 }
 
@@ -8475,7 +8484,7 @@ static void push_elf_header(void) {
 
 	// Number of program header entries
 	// 0x38 to 0x3a
-	push_byte(6);
+	push_byte(7);
 	push_byte(0);
 
 	// Single section header entry size
