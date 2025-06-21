@@ -4071,6 +4071,7 @@ static u32 buckets_global_variables[MAX_GLOBAL_VARIABLES];
 static u32 chains_global_variables[MAX_GLOBAL_VARIABLES];
 
 static size_t stack_frame_bytes;
+static size_t max_stack_frame_bytes;
 
 static enum type fn_return_type;
 static char *filled_fn_name;
@@ -4419,7 +4420,11 @@ static struct variable *get_local_variable(char *name) {
 			return NULL;
 		}
 
-		if (streq(name, variables[i].name)) {
+		// When a scope block is exited, the local variables in it aren't reachable anymore.
+		// These unreachable local variables are marked with an offset of SIZE_MAX.
+		// It is possible for a new local variable with the same name to be added after the block,
+		// which is why we still keep looping in that case.
+		if (streq(name, variables[i].name) && variables[i].offset != SIZE_MAX) {
 			break;
 		}
 
@@ -4512,7 +4517,11 @@ static void add_local_variable(char *name, enum type type) {
 	variables[variables_size] = (struct variable){
 		.name = name,
 		.type = type,
-		.offset = stack_frame_bytes, // This field is unused by the section "TYPE PROPAGATION", but used by the section "COMPILING"
+
+		// This field is used by the "COMPILING" section to track the stack location of a local variable.
+		// The "TYPE PROPAGATION" section only checks whether it is SIZE_MAX,
+		// since that indicates that the variable is unreachable, due to having exited the scope block.
+		.offset = stack_frame_bytes,
 	};
 
 	u32 bucket_index = elf_hash(name) % MAX_VARIABLES_PER_FUNCTION;
@@ -4522,30 +4531,53 @@ static void add_local_variable(char *name, enum type type) {
 	buckets_variables[bucket_index] = variables_size++;
 }
 
+static void fill_variable_statement(struct variable_statement variable_statement) {
+	// This has to happen before the add_local_variable() we do below,
+	// because `a: i32 = a` should throw
+	fill_expr(variable_statement.assignment_expr);
+
+	struct variable *var = get_variable(variable_statement.name);
+
+	if (variable_statement.has_type) {
+		grug_assert(!var, "The variable '%s' already exists", variable_statement.name);
+
+		grug_assert(variable_statement.type == variable_statement.assignment_expr->result_type, "Can't assign %s to '%s', which has type %s", type_names[variable_statement.assignment_expr->result_type], variable_statement.name, type_names[variable_statement.type]);
+
+		add_local_variable(variable_statement.name, variable_statement.type);
+	} else {
+		grug_assert(var, "Can't assign to the variable '%s', since it does not exist", variable_statement.name);
+
+		grug_assert(var->type == variable_statement.assignment_expr->result_type, "Can't assign %s to '%s', which has type %s", type_names[variable_statement.assignment_expr->result_type], var->name, type_names[var->type]);
+	}
+}
+
+static void mark_local_variables_unreachable(struct statement *body_statements, size_t statement_count) {
+	// Mark all local variables in this exited scope block as being unreachable.
+	for (size_t i = 0; i < statement_count; i++) {
+		struct statement statement = body_statements[i];
+
+		if (statement.type == VARIABLE_STATEMENT && statement.variable_statement.has_type) {
+			struct variable *var = get_local_variable(statement.variable_statement.name);
+			assert(var);
+
+			var->offset = SIZE_MAX;
+
+			// Even though we have already calculated the final stack frame size in advance
+			// before we started compiling the function's body, we are still calling add_local_variable()
+			// during the compilation of the function body. And that fn uses stack_frame_bytes.
+			assert(stack_frame_bytes >= type_sizes[var->type]);
+			stack_frame_bytes -= type_sizes[var->type];
+		}
+	}
+}
+
 static void fill_statements(struct statement *body_statements, size_t statement_count) {
 	for (size_t i = 0; i < statement_count; i++) {
 		struct statement statement = body_statements[i];
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
-				// This has to happen before the add_local_variable() we do below,
-				// because `a: i32 = a` should throw
-				fill_expr(statement.variable_statement.assignment_expr);
-
-				struct variable *var = get_variable(statement.variable_statement.name);
-
-				if (statement.variable_statement.has_type) {
-					grug_assert(!var, "The variable '%s' already exists", statement.variable_statement.name);
-
-					grug_assert(statement.variable_statement.type == statement.variable_statement.assignment_expr->result_type, "Can't assign %s to '%s', which has type %s", type_names[statement.variable_statement.assignment_expr->result_type], statement.variable_statement.name, type_names[statement.variable_statement.type]);
-
-					add_local_variable(statement.variable_statement.name, statement.variable_statement.type);
-				} else if (var) {
-					grug_assert(var->type == statement.variable_statement.assignment_expr->result_type, "Can't assign %s to '%s', which has type %s", type_names[statement.variable_statement.assignment_expr->result_type], var->name, type_names[var->type]);
-				} else {
-					grug_error("Can't assign to the variable '%s', since it does not exist", statement.variable_statement.name);
-				}
-
+				fill_variable_statement(statement.variable_statement);
 				break;
 			case CALL_STATEMENT:
 				fill_call_expr(statement.call_statement.expr);
@@ -4585,17 +4617,22 @@ static void fill_statements(struct statement *body_statements, size_t statement_
 				break;
 		}
 	}
+
+	mark_local_variables_unreachable(body_statements, statement_count);
 }
 
-static void init_argument_variables(struct argument *fn_arguments, size_t argument_count) {
+static void add_argument_variables(struct argument *fn_arguments, size_t argument_count) {
 	variables_size = 0;
 	memset(buckets_variables, 0xff, sizeof(buckets_variables));
 
 	stack_frame_bytes = GLOBAL_VARIABLES_POINTER_SIZE;
+	max_stack_frame_bytes = stack_frame_bytes;
 
 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
 		struct argument arg = fn_arguments[argument_index];
 		add_local_variable(arg.name, arg.type);
+
+		max_stack_frame_bytes += type_sizes[arg.type];
 	}
 }
 
@@ -4607,7 +4644,7 @@ static void fill_helper_fns(void) {
 
 		filled_fn_name = fn.fn_name;
 
-		init_argument_variables(fn.arguments, fn.argument_count);
+		add_argument_variables(fn.arguments, fn.argument_count);
 
 		fill_statements(fn.body_statements, fn.body_statement_count);
 
@@ -4692,7 +4729,7 @@ static void fill_on_fns(void) {
 			grug_assert(arg_type == param.type, "Function '%s' its '%s' parameter was supposed to have the type %s, but got %s", name, param.name, type_names[param.type], type_names[arg_type]);
 		}
 
-		init_argument_variables(args, arg_count);
+		add_argument_variables(args, arg_count);
 
 		parsed_fn_calls_helper_fn_ptr = &fn->calls_helper_fn;
 		parsed_fn_contains_while_loop_ptr = &fn->contains_while_loop;
@@ -4802,7 +4839,6 @@ static void fill_result_types(void) {
 #define MAX_HELPER_FN_CALLS 420420
 #define MAX_USED_GAME_FNS 420
 #define MAX_HELPER_FN_OFFSETS 420420
-#define MAX_STACK_SIZE 420420
 #define MAX_RESOURCES 420420
 #define MAX_HELPER_FN_MODE_NAMES_CHARACTERS 420420
 #define MAX_LOOP_DEPTH 420
@@ -5098,7 +5134,7 @@ static size_t helper_fn_offsets_size;
 static u32 buckets_helper_fn_offsets[MAX_HELPER_FN_OFFSETS];
 static u32 chains_helper_fn_offsets[MAX_HELPER_FN_OFFSETS];
 
-static size_t stack_size;
+static size_t pushed;
 
 static size_t start_of_loop_jump_offsets[MAX_LOOP_DEPTH];
 struct loop_break_statements {
@@ -5139,7 +5175,6 @@ static void reset_compiling(void) {
 	extern_fns_size = 0;
 	used_extern_fn_symbols_size = 0;
 	helper_fn_offsets_size = 0;
-	stack_size = 0;
 	loop_depth = 0;
 	resources_size = 0;
 	entity_dependencies_size = 0;
@@ -5353,19 +5388,18 @@ static void overwrite_jmp_address_32(size_t jump_address, size_t size) {
 }
 
 static void stack_pop_r11(void) {
-	assert(stack_size > 0);
-	--stack_size;
-
 	compile_unpadded(POP_R11);
 	stack_frame_bytes -= sizeof(u64);
+
+	assert(pushed > 0);
+	pushed--;
 }
 
 static void stack_push_rax(void) {
-	grug_assert(stack_size < MAX_STACK_SIZE, "There are more than %d stack values, exceeding MAX_STACK_SIZE", MAX_STACK_SIZE);
-	stack_size++;
-
 	compile_byte(PUSH_RAX);
 	stack_frame_bytes += sizeof(u64);
+
+	pushed++;
 }
 
 static void move_arguments(struct argument *fn_arguments, size_t argument_count) {
@@ -5887,15 +5921,6 @@ static void compile_if_statement(struct if_statement if_statement) {
 	}
 }
 
-// 0 0000 => 0 0000
-// 0 0001 => 0 1111 (NOT 1 1111, due to the `& 0xf`)
-// 0 1111 => 0 0001
-// 1 0000 => 0 0000
-// 1 0001 => 0 1111
-static size_t get_padding(void) {
-	return -stack_frame_bytes & 0xf;
-}
-
 static void compile_check_stack_overflow(void) {
 	// mov rax, [rel grug_max_rsp wrt ..got]:
 	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
@@ -5948,19 +5973,25 @@ static void compile_call_expr(struct call_expr call_expr) {
 		pushes += integer_argument_count - 6;
 	}
 
-	// Ensures the call will be 16-byte aligned, even when there are local variables
-	// We multiply by `pushes` instead of `argument_count`,
-	// because the arguments that don't spill onto the stack will get popped
-	// into their registers (rdi, rsi, etc.) before the CALL instruction
-	stack_frame_bytes += pushes * sizeof(u64);
-	size_t padding = get_padding();
-	stack_frame_bytes -= pushes * sizeof(u64);
+	// The reason that we increment `pushed` by `pushes` here,
+	// instead of just doing it after the below `stack_push_rax()` calls,
+	// is because we need to know *right now* whether SUB_RSP_8_BITS needs to be emitted.
+	pushed += pushes;
 
-	if (padding > 0) {
+	// Ensures the call will be 16-byte aligned, even when there are local variables.
+	// We add `pushes` instead of `argument_count`,
+	// because the arguments that don't spill onto the stack will get popped
+	// into their registers (rdi, rsi, etc.) before the CALL instruction.
+	bool requires_padding = pushed % 2 == 1;
+	if (requires_padding) {
 		compile_unpadded(SUB_RSP_8_BITS);
-		compile_byte(padding);
-		stack_frame_bytes += padding;
+		compile_byte(sizeof(u64));
+		stack_frame_bytes += sizeof(u64);
 	}
+
+	// We need to restore the balance,
+	// as the below `stack_push_rax()` calls also increment `pushed`.
+	pushed -= pushes;
 
 	// These are 1-based indices that ensure
 	// we don't push the args twice that end up on the stack
@@ -6014,14 +6045,15 @@ static void compile_call_expr(struct call_expr call_expr) {
 
 	size_t popped_argument_count = integer_argument_count + float_argument_count;
 
-	// The reason we need to decrement stack_size and stack_frame_bytes here manually,
+	// The reason we need to decrement `pushed` and `stack_frame_bytes` here manually,
 	// rather than having pop_rax(), pop_rdi(), etc. do it for us,
 	// is because we use the lookup tables movs[] and pops[] below here
-	assert(stack_size >= popped_argument_count);
-	stack_size -= popped_argument_count;
+	assert(pushed >= popped_argument_count);
+	pushed -= popped_argument_count;
 
 	// u64 is the size of the RAX register that gets pushed for every argument
-	stack_frame_bytes -= sizeof(u64) * popped_argument_count;
+	assert(stack_frame_bytes >= popped_argument_count * sizeof(u64));
+	stack_frame_bytes -= popped_argument_count * sizeof(u64);
 
 	size_t popped_floats_count = 0;
 	size_t popped_integers_count = 0;
@@ -6090,7 +6122,7 @@ static void compile_call_expr(struct call_expr call_expr) {
 	// Ensures the top of the stack is where it was before the alignment,
 	// which is important during nested expressions, since they expect
 	// the top of the stack to hold their intermediate values
-	size_t offset = padding + pushes * sizeof(u64);
+	size_t offset = (pushes + requires_padding) * sizeof(u64);
 	if (offset > 0) {
 		if (offset < 0x80) {
 			compile_unpadded(ADD_RSP_8_BITS);
@@ -6101,8 +6133,12 @@ static void compile_call_expr(struct call_expr call_expr) {
 			compile_unpadded(ADD_RSP_32_BITS);
 			compile_32(offset);
 		}
+
 		stack_frame_bytes += offset;
 	}
+
+	assert(pushed >= pushes);
+	pushed -= pushes;
 
 	if (returns_float) {
 		compile_unpadded(MOV_XMM0_TO_EAX);
@@ -6664,6 +6700,11 @@ static void compile_global_variable_statement(char *name) {
 static void compile_variable_statement(struct variable_statement variable_statement) {
 	compile_expr(*variable_statement.assignment_expr);
 
+	// The "TYPE PROPAGATION" section already checked for any possible errors.
+	if (variable_statement.has_type) {
+		add_local_variable(variable_statement.name, variable_statement.type);
+	}
+
 	struct variable *var = get_local_variable(variable_statement.name);
 	if (var) {
 		switch (var->type) {
@@ -6743,28 +6784,34 @@ static void compile_statements(struct statement *body_statements, size_t stateme
 				break;
 		}
 	}
+
+	mark_local_variables_unreachable(body_statements, statement_count);
 }
 
-static void add_variables_in_statements(struct statement *body_statements, size_t statement_count) {
+static void calc_max_local_variable_stack_usage(struct statement *body_statements, size_t statement_count) {
 	for (size_t i = 0; i < statement_count; i++) {
 		struct statement statement = body_statements[i];
 
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
 				if (statement.variable_statement.has_type) {
-					add_local_variable(statement.variable_statement.name, statement.variable_statement.type);
+					stack_frame_bytes += type_sizes[statement.variable_statement.type];
+
+					if (stack_frame_bytes > max_stack_frame_bytes) {
+						max_stack_frame_bytes = stack_frame_bytes;
+					}
 				}
 				break;
 			case IF_STATEMENT:
-				add_variables_in_statements(statement.if_statement.if_body_statements, statement.if_statement.if_body_statement_count);
+				calc_max_local_variable_stack_usage(statement.if_statement.if_body_statements, statement.if_statement.if_body_statement_count);
 
 				if (statement.if_statement.else_body_statement_count > 0) {
-					add_variables_in_statements(statement.if_statement.else_body_statements, statement.if_statement.else_body_statement_count);
+					calc_max_local_variable_stack_usage(statement.if_statement.else_body_statements, statement.if_statement.else_body_statement_count);
 				}
 
 				break;
 			case WHILE_STATEMENT:
-				add_variables_in_statements(statement.while_statement.body_statements, statement.while_statement.body_statement_count);
+				calc_max_local_variable_stack_usage(statement.while_statement.body_statements, statement.while_statement.body_statement_count);
 				break;
 			case CALL_STATEMENT:
 			case RETURN_STATEMENT:
@@ -6773,6 +6820,16 @@ static void add_variables_in_statements(struct statement *body_statements, size_
 			case EMPTY_LINE_STATEMENT:
 			case COMMENT_STATEMENT:
 				break;
+		}
+	}
+
+	// All local variables in this exited scope block are now unreachable.
+	for (size_t i = 0; i < statement_count; i++) {
+		struct statement statement = body_statements[i];
+
+		if (statement.type == VARIABLE_STATEMENT && statement.variable_statement.has_type) {
+			assert(stack_frame_bytes >= type_sizes[statement.variable_statement.type]);
+			stack_frame_bytes -= type_sizes[statement.variable_statement.type];
 		}
 	}
 }
@@ -6814,31 +6871,30 @@ static size_t round_to_power_of_2(size_t n, size_t multiple) {
 }
 
 static void compile_function_prologue(void) {
-	// Function prologue
 	compile_byte(PUSH_RBP);
 
-	// Deliberately leaving this out, so we don't have to worry about adding 8
-	// after turning stack_frame_bytes into a multiple of 16
-	// stack_frame_bytes += sizeof(u64);
+	// Deliberately leaving this out, as we also don't include the 8 byte starting offset
+	// that the calling convention guarantees on entering a function (from pushing the return address).
+	// max_stack_frame_bytes += sizeof(u64);
 
 	compile_unpadded(MOV_RSP_TO_RBP);
 
-	// Make space in the stack for the arguments and variables
-	// The System V ABI requires 16-byte stack alignment: https://stackoverflow.com/q/49391001/13279557
-	stack_frame_bytes = round_to_power_of_2(stack_frame_bytes, 0x10);
-	if (stack_frame_bytes < 0x80) {
+	// The System V ABI requires 16-byte stack alignment for function calls: https://stackoverflow.com/q/49391001/13279557
+	max_stack_frame_bytes = round_to_power_of_2(max_stack_frame_bytes, 0x10);
+
+	if (max_stack_frame_bytes < 0x80) {
 		compile_unpadded(SUB_RSP_8_BITS);
-		compile_byte(stack_frame_bytes);
+		compile_byte(max_stack_frame_bytes);
 	} else {
 		compile_unpadded(SUB_RSP_32_BITS);
-		compile_32(stack_frame_bytes);
+		compile_32(max_stack_frame_bytes);
 	}
 }
 
 static void compile_on_fn_impl(char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, char *grug_path, bool on_fn_calls_helper_fn, bool on_fn_contains_while_loop) {
-	init_argument_variables(fn_arguments, argument_count);
+	add_argument_variables(fn_arguments, argument_count);
 
-	add_variables_in_statements(body_statements, body_statement_count);
+	calc_max_local_variable_stack_usage(body_statements, body_statement_count);
 
 	compile_function_prologue();
 
@@ -6876,6 +6932,7 @@ static void compile_on_fn_impl(char *fn_name, struct argument *fn_arguments, siz
 	current_fn_name = fn_name;
 
 	compile_statements(body_statements, body_statement_count);
+	assert(pushed == 0);
 
 	compile_function_epilogue();
 
@@ -6883,6 +6940,7 @@ static void compile_on_fn_impl(char *fn_name, struct argument *fn_arguments, siz
 
 	compiling_fast_mode = true;
 	compile_statements(body_statements, body_statement_count);
+	assert(pushed == 0);
 	compiling_fast_mode = false;
 
 	compile_function_epilogue();
@@ -6893,9 +6951,9 @@ static void compile_on_fn(struct on_fn fn, char *grug_path) {
 }
 
 static void compile_helper_fn_impl(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
-	init_argument_variables(fn_arguments, argument_count);
+	add_argument_variables(fn_arguments, argument_count);
 
-	add_variables_in_statements(body_statements, body_statement_count);
+	calc_max_local_variable_stack_usage(body_statements, body_statement_count);
 
 	compile_function_prologue();
 
@@ -6909,6 +6967,7 @@ static void compile_helper_fn_impl(struct argument *fn_arguments, size_t argumen
 	}
 
 	compile_statements(body_statements, body_statement_count);
+	assert(pushed == 0);
 
 	compile_function_epilogue();
 }
@@ -6930,6 +6989,7 @@ static void compile_init_globals_fn(char *grug_path) {
 	}
 
 	stack_frame_bytes = GLOBAL_VARIABLES_POINTER_SIZE;
+	max_stack_frame_bytes = stack_frame_bytes;
 
 	compile_function_prologue();
 
@@ -6954,6 +7014,7 @@ static void compile_init_globals_fn(char *grug_path) {
 
 		compile_global_variable_statement(global.name);
 	}
+	assert(pushed == 0);
 
 	compile_function_epilogue();
 
@@ -6967,6 +7028,7 @@ static void compile_init_globals_fn(char *grug_path) {
 
 		compile_global_variable_statement(global.name);
 	}
+	assert(pushed == 0);
 	compiling_fast_mode = false;
 
 	compile_function_epilogue();
