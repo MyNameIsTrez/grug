@@ -61,6 +61,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <threads.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -249,7 +250,6 @@ static char *grug_get_runtime_error_reason(enum grug_runtime_error_type type) {
 }
 
 USED_BY_MODS void grug_call_runtime_error_handler(enum grug_runtime_error_type type);
-
 void grug_call_runtime_error_handler(enum grug_runtime_error_type type) {
 	char *reason = grug_get_runtime_error_reason(type);
 
@@ -4950,7 +4950,7 @@ static void fill_result_types(void) {
 #define MOV_DEREF_R11_TO_R11B 0x1b8a45 // mov r11b, [r11]
 #define MOV_GLOBAL_VARIABLE_TO_R11 0x1d8b4c // mov r11, [rel foo wrt ..got]
 #define LEA_STRINGS_TO_R11 0x1d8d4c // lea r11, strings[rel n]
-#define CMP_RSP_WITH_DEREF_RAX 0x203b48 // cmp rsp, [rax]
+#define CMP_RSP_WITH_RAX 0xc43948 // cmp rsp, rax
 #define MOV_RSP_TO_DEREF_RAX 0x208948 // mov [rax], rsp
 
 #define SUB_DEREF_RAX_32_BITS 0x288148 // sub qword [rax], n
@@ -5155,7 +5155,6 @@ static bool compiling_fast_mode;
 static bool compiled_init_globals_fn;
 
 static bool is_runtime_error_handler_used;
-static bool is_max_rsp_used;
 static bool is_max_time_used;
 
 static char helper_fn_mode_names[MAX_HELPER_FN_MODE_NAMES_CHARACTERS];
@@ -5181,7 +5180,6 @@ static void reset_compiling(void) {
 	compiling_fast_mode = false;
 	compiled_init_globals_fn = false;
 	is_runtime_error_handler_used = false;
-	is_max_rsp_used = false;
 	is_max_time_used = false;
 	helper_fn_mode_names_size = 0;
 }
@@ -5922,13 +5920,13 @@ static void compile_if_statement(struct if_statement if_statement) {
 }
 
 static void compile_check_stack_overflow(void) {
-	// mov rax, [rel grug_max_rsp wrt ..got]:
-	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
-	push_used_extern_global_variable("grug_max_rsp", codes_size);
-	compile_32(PLACEHOLDER_32);
+	// call grug_get_max_rsp wrt ..plt:
+	compile_byte(CALL);
+	push_system_fn_call("grug_get_max_rsp", codes_size);
+	compile_unpadded(PLACEHOLDER_32);
 
-	// cmp rsp, [rax]:
-	compile_unpadded(CMP_RSP_WITH_DEREF_RAX);
+	// cmp rsp, rax:
+	compile_unpadded(CMP_RSP_WITH_RAX);
 
 	// jg $+0xn:
 	compile_byte(JG_8_BIT_OFFSET);
@@ -6907,12 +6905,10 @@ static void compile_on_fn_impl(char *fn_name, struct argument *fn_arguments, siz
 	compile_save_fn_name_and_path(grug_path, fn_name);
 
 	if (on_fn_calls_helper_fn) {
-		is_max_rsp_used = true;
-
-		// mov rax, [rel grug_max_rsp wrt ..got]:
-		compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
-		push_used_extern_global_variable("grug_max_rsp", codes_size);
-		compile_32(PLACEHOLDER_32);
+		// call grug_get_max_rsp_addr wrt ..plt:
+		compile_byte(CALL);
+		push_system_fn_call("grug_get_max_rsp_addr", codes_size);
+		compile_unpadded(PLACEHOLDER_32);
 
 		// mov [rax], rsp:
 		compile_unpadded(MOV_RSP_TO_DEREF_RAX);
@@ -7218,7 +7214,7 @@ static size_t resources_offset;
 static size_t entities_offset;
 static size_t entity_types_offset;
 
-USED_BY_MODS u64 grug_max_rsp;
+static thread_local u64 grug_max_rsp;
 USED_BY_MODS struct timespec grug_current_time;
 USED_BY_MODS struct timespec grug_max_time;
 
@@ -7230,6 +7226,16 @@ static void reset_generate_shared_object(void) {
 	bytes_size = 0;
 	game_fn_offsets_size = 0;
 	global_variable_offsets_size = 0;
+}
+
+USED_BY_MODS u64* grug_get_max_rsp_addr(void);
+USED_BY_MODS u64* grug_get_max_rsp_addr(void) {
+    return &grug_max_rsp;
+}
+
+USED_BY_MODS u64 grug_get_max_rsp(void);
+USED_BY_MODS u64 grug_get_max_rsp(void) {
+    return grug_max_rsp;
 }
 
 static void overwrite(u64 n, size_t bytes_offset, size_t overwrite_count) {
@@ -8009,12 +8015,6 @@ static void push_got(void) {
 		push_zeros(sizeof(u64));
 	}
 
-	if (is_max_rsp_used) {
-		push_global_variable_offset("grug_max_rsp", offset);
-		offset += sizeof(u64);
-		push_zeros(sizeof(u64));
-	}
-
 	if (is_runtime_error_handler_used) {
 		push_global_variable_offset("grug_runtime_error_handler", offset);
 		// offset += sizeof(u64);
@@ -8052,9 +8052,6 @@ static void push_dynamic(void) {
 		// TODO: Stop having these hardcoded here
 		if (is_runtime_error_handler_used) {
 			dynamic_offset -= sizeof(u64); // grug_runtime_error_handler
-		}
-		if (is_max_rsp_used) {
-			dynamic_offset -= sizeof(u64); // grug_max_rsp
 		}
 		if (is_max_time_used) {
 			dynamic_offset -= sizeof(u64); // grug_max_time
@@ -8830,11 +8827,6 @@ static void generate_shared_object(char *dll_path) {
 			extern_data_symbols_size++;
 		}
 
-		if (is_max_rsp_used) {
-			push_symbol("grug_max_rsp");
-			extern_data_symbols_size++;
-		}
-
 		if (is_max_time_used) {
 			push_symbol("grug_max_time");
 			extern_data_symbols_size++;
@@ -8924,9 +8916,6 @@ USED_BY_MODS char *grug_fn_path;
 static bool is_grug_initialized = false;
 
 static size_t directory_depth;
-
-// Called by the grug-tests repository
-USED_BY_PROGRAMS bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name);
 
 static void reset_regenerate_modified_mods(void) {
 	grug_reloads_size = 0;
@@ -9057,6 +9046,7 @@ static void set_grug_error_path(char *grug_path) {
 
 // This function just exists for the grug-tests repository
 // It returns whether an error occurred
+USED_BY_PROGRAMS bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name);
 bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name) {
 	assert(is_grug_initialized && "You forgot to call grug_init() once at program startup!");
 
