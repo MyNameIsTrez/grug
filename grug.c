@@ -4871,7 +4871,6 @@ static void fill_result_types(void) {
 
 #define PUSH_RAX 0x50 // push rax
 #define PUSH_RBP 0x55 // push rbp
-#define PUSH_RSI 0x56 // push rsi
 
 #define POP_RAX 0x58 // pop rax
 #define POP_RCX 0x59 // pop rcx
@@ -4884,7 +4883,6 @@ static void fill_result_types(void) {
 
 #define JE_8_BIT_OFFSET 0x74 // je $+n
 #define JNE_8_BIT_OFFSET 0x75 // jne $+n
-#define JL_8_BIT_OFFSET 0x7c // jl $+0n
 #define JG_8_BIT_OFFSET 0x7f // jg $+n
 
 #define MOV_DEREF_RAX_TO_AL 0x8a // mov al, [rax]
@@ -4901,8 +4899,6 @@ static void fill_result_types(void) {
 #define MOV_8_BIT_TO_DEREF_RAX 0xc6 // mov [rax], byte n
 
 #define CALL 0xe8 // call a function
-
-#define JMP_8_BIT_OFFSET 0xeb // jmp $+n
 
 #define JMP_32_BIT_OFFSET 0xe9 // jmp $+n
 
@@ -4944,8 +4940,6 @@ static void fill_result_types(void) {
 
 #define LEA_STRINGS_TO_RAX 0x58d48 // lea rax, strings[rel n]
 
-#define MOV_R11_8_BIT_OFFSET_TO_R10 0x538b4d // mov r10, [byte r11 + n]
-
 #define MOV_R11_TO_DEREF_RAX 0x18894c // mov [rax], r11
 #define MOV_DEREF_R11_TO_R11B 0x1b8a45 // mov r11b, [r11]
 #define MOV_GLOBAL_VARIABLE_TO_R11 0x1d8b4c // mov r11, [rel foo wrt ..got]
@@ -4955,17 +4949,13 @@ static void fill_result_types(void) {
 
 #define SUB_DEREF_RAX_32_BITS 0x288148 // sub qword [rax], n
 
-#define MOV_GLOBAL_VARIABLE_TO_RSI 0x358b48 // mov rsi, [rel foo wrt ..got]
 #define MOV_RSI_TO_DEREF_RDI 0x378948 // mov rdi[0x0], rsi
 
 #define NOP_32_BITS 0x401f0f // There isn't a nasm equivalent
 
-#define ADD_TO_DEREF_RAX_8_BIT_OFFSET 0x408148 // add qword [byte rax + n], m
 #define MOV_DEREF_RAX_TO_RAX_8_BIT_OFFSET 0x408b48 // mov rax, rax[n]
 
 #define MOVZX_BYTE_DEREF_RAX_TO_EAX_8_BIT_OFFSET 0x40b60f // movzx eax, byte rax[n]
-
-#define INC_DEREF_RAX_8_BIT_OFFSET 0x40ff48 // inc qword [byte rax + n]
 
 #define MOV_AL_TO_DEREF_R11_8_BIT_OFFSET 0x438841 // mov r11[n], al
 #define MOV_EAX_TO_DEREF_R11_8_BIT_OFFSET 0x438941 // mov r11[n], eax
@@ -4981,16 +4971,11 @@ static void fill_result_types(void) {
 #define MOV_R9D_TO_DEREF_RBP_8_BIT_OFFSET 0x4d8944 // mov rbp[n], r9d
 #define MOV_RCX_TO_DEREF_RBP_8_BIT_OFFSET 0x4d8948 // mov rbp[n], rcx
 #define MOV_R9_TO_DEREF_RBP_8_BIT_OFFSET 0x4d894c // mov rbp[n], r9
-#define CMP_DEREF_RAX_8_BIT_OFFSET_WITH_R10 0x50394c // cmp qword [byte rax + n], r10
 #define MOV_RDX_TO_DEREF_RBP_8_BIT_OFFSET 0x558948 // mov rbp[n], rdx
 
 #define MOV_DEREF_RBP_TO_R11_8_BIT_OFFSET 0x5d8b4c // mov r11, rbp[n]
 
-#define SUB_FROM_DEREF_RAX_8_BIT_OFFSET 0x688148 // sub qword [byte rax + n], m
-
 #define MOV_RSI_TO_DEREF_RBP_8_BIT_OFFSET 0x758948 // mov rbp[n], rsi
-
-#define CMP_WITH_DEREF_RAX_8_BIT_OFFSET 0x788148 // cmp qword [byte rax + n], m
 
 #define MOV_RDI_TO_DEREF_RBP_8_BIT_OFFSET 0x7d8948 // mov rbp[n], rdi
 #define MOVZX_BYTE_DEREF_RAX_TO_EAX_32_BIT_OFFSET 0x80b60f // movzx eax, byte rax[n]
@@ -5155,7 +5140,6 @@ static bool compiling_fast_mode;
 static bool compiled_init_globals_fn;
 
 static bool is_runtime_error_handler_used;
-static bool is_max_time_used;
 
 static char helper_fn_mode_names[MAX_HELPER_FN_MODE_NAMES_CHARACTERS];
 static size_t helper_fn_mode_names_size;
@@ -5180,7 +5164,6 @@ static void reset_compiling(void) {
 	compiling_fast_mode = false;
 	compiled_init_globals_fn = false;
 	is_runtime_error_handler_used = false;
-	is_max_time_used = false;
 	helper_fn_mode_names_size = 0;
 }
 
@@ -5684,74 +5667,24 @@ static void compile_check_division_by_0(void) {
 }
 
 static void compile_check_time_limit_exceeded(void) {
-	// mov rsi, [rel grug_current_time wrt ..got]:
-	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RSI);
-	push_used_extern_global_variable("grug_current_time", codes_size);
-	compile_32(PLACEHOLDER_32);
-
-	// push rsi:
-	compile_byte(PUSH_RSI);
-
-	// mov edi, CLOCK_PROCESS_CPUTIME_ID:
-	compile_byte(MOV_TO_EDI);
-	compile_32(CLOCK_PROCESS_CPUTIME_ID);
-
-	// call clock_gettime wrt ..plt:
+	// call grug_is_time_limit_exceeded wrt ..plt:
 	compile_byte(CALL);
-	push_system_fn_call("clock_gettime", codes_size);
+	push_system_fn_call("grug_is_time_limit_exceeded", codes_size);
 	compile_unpadded(PLACEHOLDER_32);
 
-	// pop rax:
-	compile_byte(POP_RAX);
+	// test al, al:
+	compile_unpadded(TEST_AL_IS_ZERO);
 
-	// mov r11, [rel grug_max_time wrt ..got]:
-	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_R11);
-	push_used_extern_global_variable("grug_max_time", codes_size);
-	compile_32(PLACEHOLDER_32);
-
-	// mov r10, [r11 + TV_SEC_OFFSET]:
-	compile_unpadded(MOV_R11_8_BIT_OFFSET_TO_R10);
-	compile_byte(offsetof(struct timespec, tv_sec));
-
-	// cmp [byte rax + TV_SEC_OFFSET], r10:
-	compile_unpadded(CMP_DEREF_RAX_8_BIT_OFFSET_WITH_R10);
-	compile_byte(offsetof(struct timespec, tv_sec));
-
-	// jl $+0xn:
-	compile_byte(JL_8_BIT_OFFSET);
-	size_t skip_offset_1 = codes_size;
+	// je %%skip:
+	compile_byte(JE_8_BIT_OFFSET);
+	size_t skip_offset = codes_size;
 	compile_byte(PLACEHOLDER_8);
 
-	// jg $+0xn:
-	compile_byte(JG_8_BIT_OFFSET);
-	size_t take_offset_1 = codes_size;
-	compile_byte(PLACEHOLDER_8);
-
-	// mov r10, [r11 + TV_NSEC_OFFSET]:
-	compile_unpadded(MOV_R11_8_BIT_OFFSET_TO_R10);
-	compile_byte(offsetof(struct timespec, tv_nsec));
-
-	// cmp [byte rax + TV_NSEC_OFFSET], r10:
-	compile_unpadded(CMP_DEREF_RAX_8_BIT_OFFSET_WITH_R10);
-	compile_byte(offsetof(struct timespec, tv_nsec));
-
-	// jg $+0xn:
-	compile_byte(JG_8_BIT_OFFSET);
-	size_t take_offset_2 = codes_size;
-	compile_byte(PLACEHOLDER_8);
-
-	// jmp $+0xn:
-	compile_byte(JMP_8_BIT_OFFSET);
-	size_t skip_offset_2 = codes_size;
-	compile_byte(PLACEHOLDER_8);
-
-	overwrite_jmp_address_8(take_offset_1, codes_size);
-	overwrite_jmp_address_8(take_offset_2, codes_size);
-
+	// runtime_error GRUG_ON_FN_TIME_LIMIT_EXCEEDED
 	compile_runtime_error(GRUG_ON_FN_TIME_LIMIT_EXCEEDED);
 
-	overwrite_jmp_address_8(skip_offset_1, codes_size);
-	overwrite_jmp_address_8(skip_offset_2, codes_size);
+	// %%skip:
+	overwrite_jmp_address_8(skip_offset, codes_size);
 }
 
 static void compile_continue_statement(void) {
@@ -5773,61 +5706,6 @@ static void compile_clear_has_runtime_error_happened(void) {
 	// mov [rax], byte 0:
 	compile_16(MOV_8_BIT_TO_DEREF_RAX);
 	compile_byte(0);
-}
-
-static void compile_set_time_limit(void) {
-	is_max_time_used = true;
-
-	// mov rsi, [rel grug_max_time wrt ..got]:
-	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RSI);
-	push_used_extern_global_variable("grug_max_time", codes_size);
-	compile_32(PLACEHOLDER_32);
-
-	// push rsi:
-	compile_byte(PUSH_RSI);
-
-	// mov edi, CLOCK_PROCESS_CPUTIME_ID:
-	compile_byte(MOV_TO_EDI);
-	compile_32(CLOCK_PROCESS_CPUTIME_ID);
-
-	// call clock_gettime wrt ..plt:
-	compile_byte(CALL);
-	push_system_fn_call("clock_gettime", codes_size);
-	compile_unpadded(PLACEHOLDER_32);
-
-	// pop rax:
-	compile_byte(POP_RAX);
-
-	// add qword [byte rax + TV_SEC_OFFSET], on_fn_time_limit_sec:
-	compile_unpadded(ADD_TO_DEREF_RAX_8_BIT_OFFSET);
-	compile_byte(offsetof(struct timespec, tv_sec));
-	compile_32(on_fn_time_limit_sec);
-
-	// add qword [byte rax + TV_NSEC_OFFSET], on_fn_time_limit_ns:
-	compile_unpadded(ADD_TO_DEREF_RAX_8_BIT_OFFSET);
-	compile_byte(offsetof(struct timespec, tv_nsec));
-	compile_32(on_fn_time_limit_ns);
-
-	// cmp qword [byte rax + TV_NSEC_OFFSET], NS_PER_SEC:
-	compile_unpadded(CMP_WITH_DEREF_RAX_8_BIT_OFFSET);
-	compile_byte(offsetof(struct timespec, tv_nsec));
-	compile_32(NS_PER_SEC);
-
-	// jl $+0xn:
-	compile_byte(JL_8_BIT_OFFSET);
-	size_t skip_offset = codes_size;
-	compile_byte(PLACEHOLDER_8);
-
-	// sub qword [byte rax + TV_NSEC_OFFSET], NS_PER_SEC:
-	compile_unpadded(SUB_FROM_DEREF_RAX_8_BIT_OFFSET);
-	compile_byte(offsetof(struct timespec, tv_nsec));
-	compile_32(NS_PER_SEC);
-
-	// inc qword [byte rax + TV_SEC_OFFSET]:
-	compile_unpadded(INC_DEREF_RAX_8_BIT_OFFSET);
-	compile_byte(offsetof(struct timespec, tv_sec));
-
-	overwrite_jmp_address_8(skip_offset, codes_size);
 }
 
 static void compile_save_fn_name_and_path(char *grug_path, char *fn_name) {
@@ -6919,7 +6797,10 @@ static void compile_on_fn_impl(char *fn_name, struct argument *fn_arguments, siz
 	}
 
 	if (on_fn_calls_helper_fn || on_fn_contains_while_loop) {
-		compile_set_time_limit();
+		// call grug_set_time_limit wrt ..plt:
+		compile_byte(CALL);
+		push_system_fn_call("grug_set_time_limit", codes_size);
+		compile_unpadded(PLACEHOLDER_32);
 	}
 
 	compile_clear_has_runtime_error_happened();
@@ -7215,8 +7096,8 @@ static size_t entities_offset;
 static size_t entity_types_offset;
 
 static thread_local u64 grug_max_rsp;
-USED_BY_MODS struct timespec grug_current_time;
-USED_BY_MODS struct timespec grug_max_time;
+static thread_local struct timespec grug_current_time;
+static thread_local struct timespec grug_max_time;
 
 static void reset_generate_shared_object(void) {
 	symbols_size = 0;
@@ -7226,6 +7107,35 @@ static void reset_generate_shared_object(void) {
 	bytes_size = 0;
 	game_fn_offsets_size = 0;
 	global_variable_offsets_size = 0;
+}
+
+USED_BY_MODS bool grug_is_time_limit_exceeded(void);
+USED_BY_MODS bool grug_is_time_limit_exceeded(void) {
+	clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &grug_current_time);
+
+	if (grug_current_time.tv_sec < grug_max_time.tv_sec) {
+		return false;
+	}
+
+	if (grug_current_time.tv_sec > grug_max_time.tv_sec) {
+		return true;
+	}
+
+	return grug_current_time.tv_nsec > grug_max_time.tv_nsec;
+}
+
+USED_BY_MODS void grug_set_time_limit(void);
+USED_BY_MODS void grug_set_time_limit(void) {
+	clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &grug_max_time);
+
+	grug_max_time.tv_sec += on_fn_time_limit_sec;
+
+	grug_max_time.tv_nsec += on_fn_time_limit_ns;
+
+	if (grug_max_time.tv_nsec >= NS_PER_SEC) {
+		grug_max_time.tv_nsec -= NS_PER_SEC;
+		grug_max_time.tv_sec++;
+	}
 }
 
 USED_BY_MODS u64* grug_get_max_rsp_addr(void);
@@ -7987,12 +7897,6 @@ static void push_got(void) {
 
 	size_t offset = 0;
 
-	if (is_max_time_used) {
-		push_global_variable_offset("grug_current_time", offset);
-		offset += sizeof(u64);
-		push_zeros(sizeof(u64));
-	}
-
 	push_global_variable_offset("grug_on_fns_in_safe_mode", offset);
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
@@ -8008,12 +7912,6 @@ static void push_got(void) {
 	push_global_variable_offset("grug_fn_path", offset);
 	offset += sizeof(u64);
 	push_zeros(sizeof(u64));
-
-	if (is_max_time_used) {
-		push_global_variable_offset("grug_max_time", offset);
-		offset += sizeof(u64);
-		push_zeros(sizeof(u64));
-	}
 
 	if (is_runtime_error_handler_used) {
 		push_global_variable_offset("grug_runtime_error_handler", offset);
@@ -8053,16 +7951,10 @@ static void push_dynamic(void) {
 		if (is_runtime_error_handler_used) {
 			dynamic_offset -= sizeof(u64); // grug_runtime_error_handler
 		}
-		if (is_max_time_used) {
-			dynamic_offset -= sizeof(u64); // grug_max_time
-		}
 		dynamic_offset -= sizeof(u64); // grug_fn_path
 		dynamic_offset -= sizeof(u64); // grug_fn_name
 		dynamic_offset -= sizeof(u64); // grug_has_runtime_error_happened
 		dynamic_offset -= sizeof(u64); // grug_on_fns_in_safe_mode
-		if (is_max_time_used) {
-			dynamic_offset -= sizeof(u64); // grug_current_time
-		}
 	}
 
 #ifndef OLD_LD
@@ -8827,11 +8719,6 @@ static void generate_shared_object(char *dll_path) {
 			extern_data_symbols_size++;
 		}
 
-		if (is_max_time_used) {
-			push_symbol("grug_max_time");
-			extern_data_symbols_size++;
-		}
-
 		push_symbol("grug_fn_path");
 		extern_data_symbols_size++;
 
@@ -8843,11 +8730,6 @@ static void generate_shared_object(char *dll_path) {
 
 		push_symbol("grug_on_fns_in_safe_mode");
 		extern_data_symbols_size++;
-
-		if (is_max_time_used) {
-			push_symbol("grug_current_time");
-			extern_data_symbols_size++;
-		}
 	}
 
 	first_used_extern_fn_symbol_index = first_extern_data_symbol_index + extern_data_symbols_size;
