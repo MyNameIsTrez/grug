@@ -72,7 +72,7 @@
 // https://eklitzke.org/path-max-is-tricky
 #define STUPID_MAX_PATH 4096
 
-static bool streq(char *a, char *b);
+static bool streq(const char *a, const char *b);
 
 #define grug_error(...) {\
 	if (snprintf(grug_error.msg, sizeof(grug_error.msg), __VA_ARGS__) < 0) {\
@@ -144,15 +144,15 @@ static jmp_buf error_jmp_buffer;
 static char mods_root_dir_path[STUPID_MAX_PATH];
 static char dll_root_dir_path[STUPID_MAX_PATH];
 
-static bool streq(char *a, char *b) {
+static bool streq(const char *a, const char *b) {
 	return strcmp(a, b) == 0;
 }
 
-static bool starts_with(char *haystack, char *needle) {
+static bool starts_with(const char *haystack, const char *needle) {
 	return strncmp(haystack, needle, strlen(needle)) == 0;
 }
 
-static bool ends_with(char *haystack, char *needle) {
+static bool ends_with(const char *haystack, const char *needle) {
 	size_t len_haystack = strlen(haystack);
 	size_t len_needle = strlen(needle);
 	if (len_haystack < len_needle) {
@@ -161,7 +161,7 @@ static bool ends_with(char *haystack, char *needle) {
 	return strncmp(haystack + len_haystack - len_needle, needle, len_needle) == 0;
 }
 
-static bool is_lowercase(char *str) {
+static bool is_lowercase(const char *str) {
 	for (; *str; str++) {
 		// `!islower()` doesn't work, since '-' isn't considered lowercase
 		if (isupper(*str)) {
@@ -203,21 +203,21 @@ static unsigned long bfd_hash(const char *string) {
 	return hash;
 }
 
-static char *get_file_extension(char *filename) {
-	char *ext = strrchr(filename, '.');
+static const char *get_file_extension(const char *filename) {
+	const char *ext = strrchr(filename, '.');
 	if (ext) {
 		return ext;
 	}
 	return "";
 }
 
-static void print_dlerror(char *function_name) {
-	char *err = dlerror();
+static void print_dlerror(const char *function_name) {
+	const char *err = dlerror();
 	grug_assert(err, "dlerror() was asked to find an error string, but it couldn't find one");
 	grug_error("%s: %s", function_name, err);
 }
 
-static void *get_dll_symbol(void *dll, char *symbol_name) {
+static void *get_dll_symbol(void *dll, const char *symbol_name) {
 	return dlsym(dll, symbol_name);
 }
 
@@ -231,7 +231,7 @@ static size_t on_fn_time_limit_ns;
 
 USED_BY_MODS grug_runtime_error_handler_t grug_runtime_error_handler = NULL;
 
-static char *grug_get_runtime_error_reason(enum grug_runtime_error_type type) {
+static const char *grug_get_runtime_error_reason(enum grug_runtime_error_type type) {
 	switch (type) {
 		case GRUG_ON_FN_DIVISION_BY_ZERO:
 			return "Division of an i32 by 0";
@@ -251,7 +251,7 @@ static char *grug_get_runtime_error_reason(enum grug_runtime_error_type type) {
 
 USED_BY_MODS void grug_call_runtime_error_handler(enum grug_runtime_error_type type);
 void grug_call_runtime_error_handler(enum grug_runtime_error_type type) {
-	char *reason = grug_get_runtime_error_reason(type);
+	const char *reason = grug_get_runtime_error_reason(type);
 
 	grug_runtime_error_handler(reason, type, grug_fn_name, grug_fn_path);
 }
@@ -287,7 +287,7 @@ struct json_object {
 };
 
 struct json_field {
-	char *key;
+	const char *key;
 	struct json_node *value;
 };
 
@@ -298,7 +298,7 @@ struct json_node {
 		JSON_NODE_OBJECT,
 	} type;
 	union {
-		char *string;
+		const char *string;
 		struct json_array array;
 		struct json_object object;
 	};
@@ -334,7 +334,7 @@ enum json_error {
 	JSON_ERROR_UNEXPECTED_EXTRA_CHARACTER,
 };
 
-static char *json_error_messages[] = {
+static const char *json_error_messages[] = {
 	[JSON_NO_ERROR] = "No error",
 	[JSON_ERROR_FAILED_TO_OPEN_FILE] = "Failed to open file",
 	[JSON_ERROR_FAILED_TO_CLOSE_FILE] = "Failed to close file",
@@ -364,7 +364,7 @@ static char *json_error_messages[] = {
 	[JSON_ERROR_UNEXPECTED_EXTRA_CHARACTER] = "Unexpected extra character",
 };
 
-static char *json_file_path;
+static const char *json_file_path;
 
 static size_t json_recursion_depth;
 
@@ -383,7 +383,7 @@ enum json_token_type {
 
 struct json_token {
 	enum json_token_type type;
-	char *str;
+	const char *str;
 };
 static struct json_token json_tokens[JSON_MAX_TOKENS];
 static size_t json_tokens_size;
@@ -413,7 +413,7 @@ static void json_push_field(struct json_field field) {
 	json_fields[json_fields_size++] = field;
 }
 
-static bool is_duplicate_key(struct json_field *child_fields, size_t field_count, char *key) {
+static bool is_duplicate_key(struct json_field *child_fields, size_t field_count, const char *key) {
 	u32 i = json_buckets[elf_hash(key) % field_count];
 
 	while (true) {
@@ -435,7 +435,7 @@ static void check_duplicate_keys(struct json_field *child_fields, size_t field_c
 	memset(json_buckets, 0xff, field_count * sizeof(u32));
 
 	for (size_t i = 0; i < field_count; i++) {
-		char *key = child_fields[i].key;
+		const char *key = child_fields[i].key;
 
 		json_assert(!is_duplicate_key(child_fields, field_count, key), JSON_ERROR_DUPLICATE_KEY);
 
@@ -663,10 +663,10 @@ static struct json_node json_parse(size_t *i) {
 	return node;
 }
 
-static char *json_push_string(char *slice_start, size_t length) {
+static const char *json_push_string(const char *slice_start, size_t length) {
 	grug_assert(json_strings_size + length < JSON_MAX_STRINGS_CHARACTERS, "There are more than %d characters in the json_strings array, exceeding JSON_MAX_STRINGS_CHARACTERS", JSON_MAX_STRINGS_CHARACTERS);
 
-	char *new_str = json_strings + json_strings_size;
+	const char *new_str = json_strings + json_strings_size;
 
 	for (size_t i = 0; i < length; i++) {
 		json_strings[json_strings_size++] = slice_start[i];
@@ -719,7 +719,7 @@ static void json_tokenize(void) {
 	}
 }
 
-static void json_read_text(char *file_path) {
+static void json_read_text(const char *file_path) {
 	FILE *f = fopen(file_path, "r");
 	if (!f) {
 		grug_error("JSON error: %s '%s'", json_error_messages[JSON_ERROR_FAILED_TO_OPEN_FILE], file_path);
@@ -754,7 +754,7 @@ static void json_reset(void) {
 	json_fields_size = 0;
 }
 
-static void json(char *file_path, struct json_node *returned) {
+static void json(const char *file_path, struct json_node *returned) {
 	json_reset();
 
 	json_file_path = file_path;
@@ -784,7 +784,7 @@ enum type {
 	type_resource,
 	type_entity,
 };
-static char *type_names[] = {
+static const char *type_names[] = {
 	[type_bool] = "bool",
 	[type_i32] = "i32",
 	[type_f32] = "f32",
@@ -797,37 +797,37 @@ static size_t type_sizes[] = {
 	[type_bool] = sizeof(bool),
 	[type_i32] = sizeof(i32),
 	[type_f32] = sizeof(float),
-	[type_string] = sizeof(char *),
+	[type_string] = sizeof(const char *),
 	[type_id] = sizeof(u64),
-	[type_resource] = sizeof(char *),
-	[type_entity] = sizeof(char *),
+	[type_resource] = sizeof(const char *),
+	[type_entity] = sizeof(const char *),
 };
 
 struct grug_on_function {
-	char *name;
+	const char *name;
 	struct argument *arguments;
 	size_t argument_count;
 };
 
 struct grug_entity {
-	char *name;
+	const char *name;
 	struct grug_on_function *on_functions;
 	size_t on_function_count;
 };
 
 struct grug_game_function {
-	char *name;
+	const char *name;
 	enum type return_type;
 	struct argument *arguments;
 	size_t argument_count;
 };
 
 struct argument {
-	char *name;
+	const char *name;
 	enum type type;
 	union {
-		char *resource_extension; // This is optional
-		char *entity_type; // This is optional
+		const char *resource_extension; // This is optional
+		const char *entity_type; // This is optional
 	};
 };
 
@@ -858,7 +858,7 @@ static void push_grug_on_function(struct grug_on_function fn) {
 	grug_on_functions[grug_on_functions_size++] = fn;
 }
 
-static struct grug_game_function *get_grug_game_fn(char *name) {
+static struct grug_game_function *get_grug_game_fn(const char *name) {
 	if (grug_game_functions_size == 0) {
 		return NULL;
 	}
@@ -884,7 +884,7 @@ static void hash_game_fns(void) {
 	memset(buckets_game_fns, 0xff, grug_game_functions_size * sizeof(u32));
 
 	for (size_t i = 0; i < grug_game_functions_size; i++) {
-		char *name = grug_game_functions[i].name;
+		const char *name = grug_game_functions[i].name;
 
 		u32 bucket_index = elf_hash(name) % grug_game_functions_size;
 
@@ -904,12 +904,12 @@ static void push_grug_argument(struct argument argument) {
 	grug_arguments[grug_arguments_size++] = argument;
 }
 
-static char *push_mod_api_string(char *old_str) {
+static const char *push_mod_api_string(const char *old_str) {
 	size_t length = strlen(old_str);
 
 	grug_assert(mod_api_strings_size + length < JSON_MAX_STRINGS_CHARACTERS, "There are more than %d characters in the mod_api_strings array, exceeding JSON_MAX_STRINGS_CHARACTERS", JSON_MAX_STRINGS_CHARACTERS);
 
-	char *new_str = mod_api_strings + mod_api_strings_size;
+	const char *new_str = mod_api_strings + mod_api_strings_size;
 
 	memcpy(mod_api_strings + mod_api_strings_size, old_str, length + 1);
 	mod_api_strings_size += length + 1;
@@ -917,7 +917,7 @@ static char *push_mod_api_string(char *old_str) {
 	return new_str;
 }
 
-static enum type parse_type(char *type) {
+static enum type parse_type(const char *type) {
 	if (streq(type, "bool")) {
 		return type_bool;
 	}
@@ -961,7 +961,7 @@ static void init_game_fns(struct json_object fns) {
 
 		grug_assert(streq(field->key, "description"), "\"game_functions\" its functions must have \"description\" as the first field");
 		grug_assert(field->value->type == JSON_NODE_STRING, "\"game_functions\" its function descriptions must be strings");
-		char *description = push_mod_api_string(field->value->string);
+		const char *description = push_mod_api_string(field->value->string);
 		grug_assert(!streq(description, ""), "\"game_functions\" its function descriptions must not be an empty string");
 
 		bool seen_return_type = false;
@@ -1051,7 +1051,7 @@ static void init_on_fns(struct json_object fns) {
 
 		grug_assert(streq(field->key, "description"), "\"on_functions\" its functions must have \"description\" as the first field");
 		grug_assert(field->value->type == JSON_NODE_STRING, "\"on_functions\" its function descriptions must be strings");
-		char *description = push_mod_api_string(field->value->string);
+		const char *description = push_mod_api_string(field->value->string);
 		grug_assert(!streq(description, ""), "\"on_functions\" its function descriptions must not be an empty string");
 
 		if (fn.field_count > 1) {
@@ -1108,7 +1108,7 @@ static void init_entities(struct json_object entities) {
 
 		grug_assert(streq(field->key, "description"), "\"entities\" must have \"description\" as the first field");
 		grug_assert(field->value->type == JSON_NODE_STRING, "\"entities\" its descriptions must be strings");
-		char *description = push_mod_api_string(field->value->string);
+		const char *description = push_mod_api_string(field->value->string);
 		grug_assert(!streq(description, ""), "\"entities\" its descriptions must not be an empty string");
 
 		if (fn.field_count > 1) {
@@ -1124,7 +1124,7 @@ static void init_entities(struct json_object entities) {
 	}
 }
 
-static void parse_mod_api_json(char *mod_api_json_path) {
+static void parse_mod_api_json(const char *mod_api_json_path) {
 	struct json_node node;
 	json(mod_api_json_path, &node);
 
@@ -1151,7 +1151,7 @@ static void parse_mod_api_json(char *mod_api_json_path) {
 
 static char grug_text[MAX_CHARACTERS];
 
-static void read_file(char *path) {
+static void read_file(const char *path) {
 	FILE *f = fopen(path, "rb");
 	grug_assert(f, "fopen: %s", strerror(errno));
 
@@ -1219,9 +1219,9 @@ enum token_type {
 
 struct token {
 	enum token_type type;
-	char *str;
+	const char *str;
 };
-static char *get_token_type_str[] = {
+static const char *get_token_type_str[] = {
 	[OPEN_PARENTHESIS_TOKEN] = "OPEN_PARENTHESIS_TOKEN",
 	[CLOSE_PARENTHESIS_TOKEN] = "CLOSE_PARENTHESIS_TOKEN",
 	[OPEN_BRACE_TOKEN] = "OPEN_BRACE_TOKEN",
@@ -1291,7 +1291,7 @@ static void print_tokens(void) {
 	size_t longest_token_type_len = 0;
 	for (size_t i = 0; i < tokens_size; i++) {
 		struct token token = peek_token(i);
-		char *token_type_str = get_token_type_str[token.type];
+		const char *token_type_str = get_token_type_str[token.type];
 		longest_token_type_len = max_size_t(strlen(token_type_str), longest_token_type_len);
 	}
 
@@ -1315,7 +1315,7 @@ static void print_tokens(void) {
 
 		grug_log("| %*zu ", (int)longest_index, i);
 
-		char *token_type_str = get_token_type_str[token.type];
+		const char *token_type_str = get_token_type_str[token.type];
 		grug_log("| %*s ", (int)longest_token_type_len, token_type_str);
 
 		grug_log("| '%s'\n", token.type == NEWLINE_TOKEN ? "\\n" : token.str);
@@ -1341,7 +1341,7 @@ static size_t get_character_line_number(size_t character_index) {
 	return line_number;
 }
 
-static char *get_escaped_char(char *str) {
+static const char *get_escaped_char(const char *str) {
 	switch (*str) {
 	case '\f':
 		return "\\f";
@@ -1365,10 +1365,10 @@ static bool is_end_of_word(char c) {
 	return !isalnum(c) && c != '_';
 }
 
-static char *push_token_string(char *slice_start, size_t length) {
+static const char *push_token_string(const char *slice_start, size_t length) {
 	grug_assert(token_strings_size + length < MAX_TOKEN_STRINGS_CHARACTERS, "There are more than %d characters in the token_strings array, exceeding MAX_TOKEN_STRINGS_CHARACTERS", MAX_TOKEN_STRINGS_CHARACTERS);
 
-	char *new_str = token_strings + token_strings_size;
+	const char *new_str = token_strings + token_strings_size;
 
 	for (size_t i = 0; i < length; i++) {
 		token_strings[token_strings_size++] = slice_start[i];
@@ -1378,7 +1378,7 @@ static char *push_token_string(char *slice_start, size_t length) {
 	return new_str;
 }
 
-static void push_token(enum token_type type, char *str, size_t len) {
+static void push_token(enum token_type type, const char *str, size_t len) {
 	grug_assert(tokens_size < MAX_TOKENS, "There are more than %d tokens in the grug file, exceeding MAX_TOKENS", MAX_TOKENS);
 	tokens[tokens_size++] = (struct token){
 		.type = type,
@@ -1488,7 +1488,7 @@ static void tokenize(void) {
 				continue;
 			}
 
-			char *str = grug_text+i;
+			const char *str = grug_text+i;
 			size_t old_i = i;
 
 			do {
@@ -1501,7 +1501,7 @@ static void tokenize(void) {
 
 			push_token(INDENTATION_TOKEN, str, spaces);
 		} else if (grug_text[i] == '\"') {
-			char *str = grug_text+i + 1;
+			const char *str = grug_text+i + 1;
 			size_t old_i = i + 1;
 
 			size_t open_double_quote_index = i;
@@ -1514,7 +1514,7 @@ static void tokenize(void) {
 
 			push_token(STRING_TOKEN, str, i - old_i - 1);
 		} else if (isalpha(grug_text[i]) || grug_text[i] == '_') {
-			char *str = grug_text+i;
+			const char *str = grug_text+i;
 			size_t old_i = i;
 
 			do {
@@ -1523,7 +1523,7 @@ static void tokenize(void) {
 
 			push_token(WORD_TOKEN, str, i - old_i);
 		} else if (isdigit(grug_text[i])) {
-			char *str = grug_text+i;
+			const char *str = grug_text+i;
 			size_t old_i = i;
 
 			bool seen_period = false;
@@ -1549,7 +1549,7 @@ static void tokenize(void) {
 			grug_assert(grug_text[i] == ' ', "Expected a single space after the '#' on line %zu", get_character_line_number(i));
 			i++;
 
-			char *str = grug_text+i;
+			const char *str = grug_text+i;
 			size_t old_i = i;
 
 			while (true) {
@@ -1595,11 +1595,11 @@ static void tokenize(void) {
 
 struct literal_expr {
 	union {
-		char *string;
+		const char *string;
 		i32 i32;
 		struct {
 			f32 value;
-			char *string;
+			const char *string;
 		} f32;
 	};
 };
@@ -1616,7 +1616,7 @@ struct binary_expr {
 };
 
 struct call_expr {
-	char *fn_name;
+	const char *fn_name;
 	struct expr *arguments;
 	size_t argument_count;
 };
@@ -1647,7 +1647,7 @@ struct expr {
 		struct expr *parenthesized;
 	};
 };
-static char *get_expr_type_str[] = {
+static const char *get_expr_type_str[] = {
 	[TRUE_EXPR] = "TRUE_EXPR",
 	[FALSE_EXPR] = "FALSE_EXPR",
 	[STRING_EXPR] = "STRING_EXPR",
@@ -1666,7 +1666,7 @@ static struct expr exprs[MAX_EXPRS];
 static size_t exprs_size;
 
 struct variable_statement {
-	char *name;
+	const char *name;
 	enum type type;
 	bool has_type;
 	struct expr *assignment_expr;
@@ -1714,10 +1714,10 @@ struct statement {
 		struct if_statement if_statement;
 		struct return_statement return_statement;
 		struct while_statement while_statement;
-		char *comment;
+		const char *comment;
 	};
 };
-static char *get_statement_type_str[] = {
+static const char *get_statement_type_str[] = {
 	[VARIABLE_STATEMENT] = "VARIABLE_STATEMENT",
 	[CALL_STATEMENT] = "CALL_STATEMENT",
 	[IF_STATEMENT] = "IF_STATEMENT",
@@ -1744,10 +1744,10 @@ struct global_statement {
 		struct global_variable_statement *global_variable;
 		struct on_fn *on_fn;
 		struct helper_fn *helper_fn;
-		char *comment;
+		const char *comment;
 	};
 };
-static char *get_global_statement_type_str[] = {
+static const char *get_global_statement_type_str[] = {
 	[GLOBAL_VARIABLE] = "GLOBAL_VARIABLE",
 	[GLOBAL_ON_FN] = "GLOBAL_ON_FN",
 	[GLOBAL_HELPER_FN] = "GLOBAL_HELPER_FN",
@@ -1761,7 +1761,7 @@ static struct argument arguments[MAX_ARGUMENTS];
 static size_t arguments_size;
 
 struct on_fn {
-	char *fn_name;
+	const char *fn_name;
 	struct argument *arguments;
 	size_t argument_count;
 	struct statement *body_statements;
@@ -1773,7 +1773,7 @@ static struct on_fn on_fns[MAX_ON_FNS];
 static size_t on_fns_size;
 
 struct helper_fn {
-	char *fn_name;
+	const char *fn_name;
 	struct argument *arguments;
 	size_t argument_count;
 	enum type return_type;
@@ -1786,7 +1786,7 @@ static u32 buckets_helper_fns[MAX_HELPER_FNS];
 static u32 chains_helper_fns[MAX_HELPER_FNS];
 
 struct global_variable_statement {
-	char *name;
+	const char *name;
 	enum type type;
 	struct expr assignment_expr;
 };
@@ -1795,7 +1795,7 @@ static size_t global_variable_statements_size;
 
 static size_t indentation;
 
-static char *called_helper_fn_names[MAX_CALLED_HELPER_FN_NAMES];
+static const char *called_helper_fn_names[MAX_CALLED_HELPER_FN_NAMES];
 static size_t called_helper_fn_names_size;
 
 static u32 buckets_called_helper_fn_names[MAX_CALLED_HELPER_FN_NAMES];
@@ -1816,7 +1816,7 @@ static void reset_parsing(void) {
 	parsing_depth = 0;
 }
 
-static struct helper_fn *get_helper_fn(char *name) {
+static struct helper_fn *get_helper_fn(const char *name) {
 	if (helper_fns_size == 0) {
 		return NULL;
 	}
@@ -1842,7 +1842,7 @@ static void hash_helper_fns(void) {
 	memset(buckets_helper_fns, 0xff, helper_fns_size * sizeof(u32));
 
 	for (size_t i = 0; i < helper_fns_size; i++) {
-		char *name = helper_fns[i].fn_name;
+		const char *name = helper_fns[i].fn_name;
 
 		grug_assert(!get_helper_fn(name), "The function '%s' was defined several times in the same file", name);
 
@@ -1944,7 +1944,7 @@ static bool is_end_of_block(size_t *token_index_ptr) {
 	return spaces == (indentation - 1) * SPACES_PER_INDENT;
 }
 
-static f32 str_to_f32(char *str) {
+static f32 str_to_f32(const char *str) {
 	char *end;
 	errno = 0;
 	float f = strtof(str, &end);
@@ -1972,7 +1972,7 @@ static f32 str_to_f32(char *str) {
 }
 
 // Inspiration: https://stackoverflow.com/a/12923949/13279557
-static i32 str_to_i32(char *str) {
+static i32 str_to_i32(const char *str) {
 	char *end;
 	errno = 0;
 	long n = strtol(str, &end, 10);
@@ -2043,13 +2043,13 @@ static struct expr parse_primary(size_t *i) {
 	return expr;
 }
 
-static void push_called_helper_fn_name(char *name) {
+static void push_called_helper_fn_name(const char *name) {
 	grug_assert(called_helper_fn_names_size < MAX_CALLED_HELPER_FN_NAMES, "There are more than %d called helper function names, exceeding MAX_CALLED_HELPER_FN_NAMES", MAX_CALLED_HELPER_FN_NAMES);
 
 	called_helper_fn_names[called_helper_fn_names_size++] = name;
 }
 
-static bool seen_called_helper_fn_name(char *name) {
+static bool seen_called_helper_fn_name(const char *name) {
 	if (called_helper_fn_names_size == 0) {
 		return false;
 	}
@@ -2071,7 +2071,7 @@ static bool seen_called_helper_fn_name(char *name) {
 	return true;
 }
 
-static void add_called_helper_fn_name(char *name) {
+static void add_called_helper_fn_name(const char *name) {
 	if (!seen_called_helper_fn_name(name)) {
 		u32 bucket_index = elf_hash(name) % MAX_CALLED_HELPER_FN_NAMES;
 
@@ -3027,7 +3027,7 @@ static void dump_global_statement(struct global_statement global) {
 	dump("}");
 }
 
-static void dump_file_to_opened_json(char *input_grug_path) {
+static void dump_file_to_opened_json(const char *input_grug_path) {
 	read_file(input_grug_path);
 
 	tokenize();
@@ -3047,7 +3047,7 @@ static void dump_file_to_opened_json(char *input_grug_path) {
 	dump("]\n");
 }
 
-bool grug_dump_file_to_json(char *input_grug_path, char *output_json_path) {
+bool grug_dump_file_to_json(const char *input_grug_path, const char *output_json_path) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
@@ -3062,7 +3062,7 @@ bool grug_dump_file_to_json(char *input_grug_path, char *output_json_path) {
 	return false;
 }
 
-static void dump_mods_to_opened_json(char *dir_path) {
+static void dump_mods_to_opened_json(const char *dir_path) {
 	DIR *dirp = opendir(dir_path);
 	grug_assert(dirp, "opendir(\"%s\"): %s", dir_path, strerror(errno));
 
@@ -3071,7 +3071,7 @@ static void dump_mods_to_opened_json(char *dir_path) {
 	size_t seen_dir_count = 0;
 	errno = 0;
 	while ((dp = readdir(dirp))) {
-		char *name = dp->d_name;
+		const char *name = dp->d_name;
 
 		if (streq(name, ".") || streq(name, "..")) {
 			continue;
@@ -3108,7 +3108,7 @@ static void dump_mods_to_opened_json(char *dir_path) {
 	rewinddir(dirp);
 	errno = 0;
 	while ((dp = readdir(dirp))) {
-		char *name = dp->d_name;
+		const char *name = dp->d_name;
 
 		if (streq(name, ".") || streq(name, "..")) {
 			continue;
@@ -3147,7 +3147,7 @@ static void dump_mods_to_opened_json(char *dir_path) {
 	closedir(dirp);
 }
 
-bool grug_dump_mods_to_json(char *input_mods_path, char *output_json_path) {
+bool grug_dump_mods_to_json(const char *input_mods_path, const char *output_json_path) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
@@ -3176,7 +3176,7 @@ bool grug_dump_mods_to_json(char *input_mods_path, char *output_json_path) {
 
 static FILE *applied_stream;
 
-static enum statement_type get_statement_type_from_str(char *str) {
+static enum statement_type get_statement_type_from_str(const char *str) {
 	if (streq(str, "VARIABLE_STATEMENT")) {
 		return VARIABLE_STATEMENT;
 	} else if (streq(str, "CALL_STATEMENT")) {
@@ -3199,7 +3199,7 @@ static enum statement_type get_statement_type_from_str(char *str) {
 	grug_unreachable();
 }
 
-static enum token_type get_unary_token_type_from_str(char *str) {
+static enum token_type get_unary_token_type_from_str(const char *str) {
 	if (streq(str, "MINUS_TOKEN")) {
 		return MINUS_TOKEN;
 	} else if (streq(str, "NOT_TOKEN")) {
@@ -3208,7 +3208,7 @@ static enum token_type get_unary_token_type_from_str(char *str) {
 	grug_unreachable();
 }
 
-static char *get_logical_operator_from_token(char *str) {
+static const char *get_logical_operator_from_token(const char *str) {
 	if (streq(str, "AND_TOKEN")) {
 		return "and";
 	} else if (streq(str, "OR_TOKEN")) {
@@ -3217,7 +3217,7 @@ static char *get_logical_operator_from_token(char *str) {
 	grug_unreachable();
 }
 
-static char *get_binary_operator_from_token(char *str) {
+static const char *get_binary_operator_from_token(const char *str) {
 	if (streq(str, "PLUS_TOKEN")) {
 		return "+";
 	} else if (streq(str, "MINUS_TOKEN")) {
@@ -3244,7 +3244,7 @@ static char *get_binary_operator_from_token(char *str) {
 	grug_unreachable();
 }
 
-static enum expr_type get_expr_type_from_str(char *str) {
+static enum expr_type get_expr_type_from_str(const char *str) {
 	if (streq(str, "TRUE_EXPR")) {
 		return TRUE_EXPR;
 	} else if (streq(str, "FALSE_EXPR")) {
@@ -3283,7 +3283,7 @@ static void apply_expr(struct json_node expr) {
 
 	grug_assert(expr.object.fields[0].value->type == JSON_NODE_STRING, "input_json_path its exprs are supposed to have a \"type\" with type string");
 
-	char *type = expr.object.fields[0].value->string;
+	const char *type = expr.object.fields[0].value->string;
 
 	switch (get_expr_type_from_str(type)) {
 		case TRUE_EXPR:
@@ -3311,7 +3311,7 @@ static void apply_expr(struct json_node expr) {
 
 			grug_assert(expr.object.fields[1].value->type == JSON_NODE_STRING, "input_json_path its IDENTIFIER_EXPRs are supposed to have a \"str\" with type string");
 
-			char *identifier = expr.object.fields[1].value->string;
+			const char *identifier = expr.object.fields[1].value->string;
 			grug_assert(strlen(identifier) > 0, "input_json_path its IDENTIFIER_EXPRs are not supposed to have an empty \"str\" string");
 
 			apply("%s", identifier);
@@ -3324,7 +3324,7 @@ static void apply_expr(struct json_node expr) {
 
 			grug_assert(expr.object.fields[1].value->type == JSON_NODE_STRING, "input_json_path its I32_EXPRs are supposed to have a \"value\" with type string");
 
-			char *i32_string = expr.object.fields[1].value->string;
+			const char *i32_string = expr.object.fields[1].value->string;
 			grug_assert(strlen(i32_string) > 0, "input_json_path its I32_EXPRs are not supposed to have an empty \"value\" string");
 
 			apply("%s", i32_string);
@@ -3338,7 +3338,7 @@ static void apply_expr(struct json_node expr) {
 
 			grug_assert(expr.object.fields[1].value->type == JSON_NODE_STRING, "input_json_path its F32_EXPRs are supposed to have a \"value\" with type string");
 
-			char *f32_string = expr.object.fields[1].value->string;
+			const char *f32_string = expr.object.fields[1].value->string;
 			grug_assert(strlen(f32_string) > 0, "input_json_path its F32_EXPRs are not supposed to have an empty \"value\" string");
 
 			apply("%s", f32_string);
@@ -3407,7 +3407,7 @@ static void apply_expr(struct json_node expr) {
 
 			grug_assert(expr.object.fields[1].value->type == JSON_NODE_STRING, "input_json_path its CALL_EXPRs are supposed to have a \"name\" with type string");
 
-			char *name = expr.object.fields[1].value->string;
+			const char *name = expr.object.fields[1].value->string;
 
 			apply("%s(", name);
 
@@ -3486,7 +3486,7 @@ static void apply_comment(struct json_field *statement, size_t field_count) {
 
 	grug_assert(statement[1].value->type == JSON_NODE_STRING, "input_json_path its \"comments\" values are supposed to be strings");
 
-	char *comment = statement[1].value->string;
+	const char *comment = statement[1].value->string;
 
 	apply("# %s\n", comment);
 }
@@ -3559,7 +3559,7 @@ static void apply_statement(enum statement_type type, size_t field_count, struct
 
 			grug_assert(statement[1].value->type == JSON_NODE_STRING, "input_json_path its VARIABLE_STATEMENTs its \"name\" fields are supposed to be a string");
 
-			char *name = statement[1].value->string;
+			const char *name = statement[1].value->string;
 			grug_assert(strlen(name) > 0, "input_json_path its VARIABLE_STATEMENTs its \"name\" fields are not supposed to be an empty string");
 
 			apply("%s", name);
@@ -3597,7 +3597,7 @@ static void apply_statement(enum statement_type type, size_t field_count, struct
 
 			grug_assert(statement[1].value->type == JSON_NODE_STRING, "input_json_path its CALL_STATEMENTs are supposed to have a \"name\" with type string");
 
-			char *name = statement[1].value->string;
+			const char *name = statement[1].value->string;
 
 			apply("%s(", name);
 
@@ -3729,7 +3729,7 @@ static void apply_arguments(struct json_node node) {
 
 		grug_assert(arg.fields[0].value->type == JSON_NODE_STRING, "input_json_path its \"arguments\" its \"name\" must be a string");
 
-		char *name = arg.fields[0].value->string;
+		const char *name = arg.fields[0].value->string;
 		grug_assert(strlen(name) > 0, "input_json_path its \"arguments\" its \"name\" is not supposed to be an empty string");
 
 		apply("%s", name);
@@ -3738,7 +3738,7 @@ static void apply_arguments(struct json_node node) {
 
 		grug_assert(arg.fields[1].value->type == JSON_NODE_STRING, "input_json_path its \"arguments\" its type must be a string");
 
-		char *type = arg.fields[1].value->string;
+		const char *type = arg.fields[1].value->string;
 		grug_assert(strlen(type) > 0, "input_json_path its \"arguments\" its type is not supposed to be an empty string");
 
 		apply(": %s", type);
@@ -3750,7 +3750,7 @@ static void apply_helper_fn(struct json_field *statement, size_t field_count) {
 
 	grug_assert(streq(statement[1].key, "name"), "input_json_path its GLOBAL_HELPER_FN its second field must be \"name\", but got \"%s\"", statement[1].key);
 	grug_assert(statement[1].value->type == JSON_NODE_STRING, "input_json_path its GLOBAL_HELPER_FN its \"name\" must be a string");
-	char *name = statement[1].value->string;
+	const char *name = statement[1].value->string;
 	grug_assert(strlen(name) > 0, "input_json_path its GLOBAL_HELPER_FN its \"name\" is not supposed to be an empty string");
 	apply("%s(", name);
 
@@ -3825,7 +3825,7 @@ static void apply_on_fn(struct json_field *statement, size_t field_count) {
 
 	grug_assert(streq(statement[1].key, "name"), "input_json_path its GLOBAL_ON_FN its second field must be \"name\"");
 	grug_assert(statement[1].value->type == JSON_NODE_STRING, "input_json_path its GLOBAL_ON_FN its \"name\" must be a string");
-	char *name = statement[1].value->string;
+	const char *name = statement[1].value->string;
 	grug_assert(strlen(name) > 0, "input_json_path its GLOBAL_ON_FN its \"name\" is not supposed to be an empty string");
 	apply("%s(", name);
 
@@ -3872,7 +3872,7 @@ static void apply_global_variable(struct json_field *statement, size_t field_cou
 
 	grug_assert(statement[1].value->type == JSON_NODE_STRING, "input_json_path its GLOBAL_VARIABLE its \"name\" must be a string");
 
-	char *name = statement[1].value->string;
+	const char *name = statement[1].value->string;
 	grug_assert(strlen(name) > 0, "input_json_path its GLOBAL_VARIABLE its \"name\" is not supposed to be an empty string");
 
 	apply("%s", name);
@@ -3893,7 +3893,7 @@ static void apply_global_variable(struct json_field *statement, size_t field_cou
 	apply("\n");
 }
 
-static enum global_statement_type get_global_statement_type_from_str(char *str) {
+static enum global_statement_type get_global_statement_type_from_str(const char *str) {
 	if (streq(str, "GLOBAL_VARIABLE")) {
 		return GLOBAL_VARIABLE;
 	} else if (streq(str, "GLOBAL_ON_FN")) {
@@ -3950,7 +3950,7 @@ static void apply_root(struct json_node node) {
 	assert(indentation == 0);
 }
 
-static void generate_file_from_opened_json(char *output_grug_path, struct json_node node) {
+static void generate_file_from_opened_json(const char *output_grug_path, struct json_node node) {
 	applied_stream = fopen(output_grug_path, "w");
 	grug_assert(applied_stream, "fopen: %s", strerror(errno));
 
@@ -3959,7 +3959,7 @@ static void generate_file_from_opened_json(char *output_grug_path, struct json_n
 	grug_assert(fclose(applied_stream) == 0, "fclose: %s", strerror(errno));
 }
 
-bool grug_generate_file_from_json(char *input_json_path, char *output_grug_path) {
+bool grug_generate_file_from_json(const char *input_json_path, const char *output_grug_path) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
@@ -3972,7 +3972,7 @@ bool grug_generate_file_from_json(char *input_json_path, char *output_grug_path)
 	return false;
 }
 
-static void generate_mods_from_opened_json(char *mods_dir_path, struct json_node node) {
+static void generate_mods_from_opened_json(const char *mods_dir_path, struct json_node node) {
 	grug_assert(node.type == JSON_NODE_OBJECT, "input_json_path contained %s, while a directory object was expected", node.type == JSON_NODE_ARRAY ? "an array" : "a string");
 
 	grug_assert(mkdir(mods_dir_path, 0775) != -1 || errno == EEXIST, "mkdir: %s", strerror(errno));
@@ -4031,7 +4031,7 @@ static void generate_mods_from_opened_json(char *mods_dir_path, struct json_node
 	}
 }
 
-bool grug_generate_mods_from_json(char *input_json_path, char *output_mods_path) {
+bool grug_generate_mods_from_json(const char *input_json_path, const char *output_mods_path) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
@@ -4055,7 +4055,7 @@ bool grug_generate_mods_from_json(char *input_json_path, char *output_mods_path)
 #define GLOBAL_VARIABLES_POINTER_SIZE sizeof(void *)
 
 struct variable {
-	char *name;
+	const char *name;
 	enum type type;
 	size_t offset;
 };
@@ -4074,20 +4074,20 @@ static size_t stack_frame_bytes;
 static size_t max_stack_frame_bytes;
 
 static enum type fn_return_type;
-static char *filled_fn_name;
+static const char *filled_fn_name;
 
 static struct grug_entity *grug_entity;
 
 static u32 buckets_entity_on_fns[MAX_ON_FNS];
 static u32 chains_entity_on_fns[MAX_ON_FNS];
 
-static char *mod;
+static const char *mod;
 static char file_entity_type[MAX_FILE_ENTITY_TYPE_LENGTH];
 
 static u32 entity_types[MAX_ENTITY_DEPENDENCIES];
 static size_t entity_types_size;
 
-static char *data_strings[MAX_DATA_STRINGS];
+static const char *data_strings[MAX_DATA_STRINGS];
 static size_t data_strings_size;
 
 static u32 buckets_data_strings[MAX_DATA_STRINGS];
@@ -4105,13 +4105,13 @@ static void reset_filling(void) {
 	memset(buckets_data_strings, 0xff, sizeof(buckets_data_strings));
 }
 
-static void push_data_string(char *string) {
+static void push_data_string(const char *string) {
 	grug_assert(data_strings_size < MAX_DATA_STRINGS, "There are more than %d data strings, exceeding MAX_DATA_STRINGS", MAX_DATA_STRINGS);
 
 	data_strings[data_strings_size++] = string;
 }
 
-static u32 get_data_string_index(char *string) {
+static u32 get_data_string_index(const char *string) {
 	if (data_strings_size == 0) {
 		return UINT32_MAX;
 	}
@@ -4133,7 +4133,7 @@ static u32 get_data_string_index(char *string) {
 	return i;
 }
 
-static void add_data_string(char *string) {
+static void add_data_string(const char *string) {
 	if (get_data_string_index(string) == UINT32_MAX) {
 		u32 bucket_index = elf_hash(string) % MAX_DATA_STRINGS;
 
@@ -4145,7 +4145,7 @@ static void add_data_string(char *string) {
 	}
 }
 
-static void push_entity_type(char *entity_type) {
+static void push_entity_type(const char *entity_type) {
 	add_data_string(entity_type);
 
 	grug_assert(entity_types_size < MAX_ENTITY_DEPENDENCIES, "There are more than %d entity types, exceeding MAX_ENTITY_DEPENDENCIES", MAX_ENTITY_DEPENDENCIES);
@@ -4155,13 +4155,13 @@ static void push_entity_type(char *entity_type) {
 
 static void fill_expr(struct expr *expr);
 
-static void validate_entity_string(char *string) {
+static void validate_entity_string(const char *string) {
 	grug_assert(string[0] != '\0', "Entities can't be empty strings");
 
-	char *mod_name = mod;
-	char *entity_name = string;
+	const char *mod_name = mod;
+	const char *entity_name = string;
 
-	char *colon = strchr(string, ':');
+	const char *colon = strchr(string, ':');
 	if (colon) {
 		static char temp_mod_name[MAX_ENTITY_DEPENDENCY_NAME_LENGTH];
 
@@ -4196,7 +4196,7 @@ static void validate_entity_string(char *string) {
 	}
 }
 
-static void validate_resource_string(char *string, char *resource_extension) {
+static void validate_resource_string(const char *string, const char *resource_extension) {
 	grug_assert(string[0] != '\0', "Resources can't be empty strings");
 
 	grug_assert(string[0] != '/', "Remove the leading slash from the resource \"%s\"", string);
@@ -4209,7 +4209,7 @@ static void validate_resource_string(char *string, char *resource_extension) {
 
 	grug_assert(!strstr(string, "//"), "Replace the '//' with '/' in the resource \"%s\"", string);
 
-	char *dot = strchr(string, '.');
+	const char *dot = strchr(string, '.');
 	if (dot) {
 		if (dot == string) {
 			grug_assert(string_len != 1 && string[1] != '/', "Remove the '.' from the resource \"%s\"", string);
@@ -4218,7 +4218,7 @@ static void validate_resource_string(char *string, char *resource_extension) {
 		}
 	}
 
-	char *dotdot = strstr(string, "..");
+	const char *dotdot = strstr(string, "..");
 	if (dotdot) {
 		if (dotdot == string) {
 			grug_assert(string_len != 2 && string[2] != '/', "Remove the '..' from the resource \"%s\"", string);
@@ -4231,7 +4231,7 @@ static void validate_resource_string(char *string, char *resource_extension) {
 }
 
 static void check_arguments(struct argument *params, size_t param_count, struct call_expr call_expr) {
-	char *name = call_expr.fn_name;
+	const char *name = call_expr.fn_name;
 
 	grug_assert(call_expr.argument_count >= param_count, "Function call '%s' expected the argument '%s' with type %s", name, params[call_expr.argument_count].name, type_names[params[call_expr.argument_count].type]);
 
@@ -4265,7 +4265,7 @@ static void fill_call_expr(struct expr *expr) {
 		fill_expr(&call_expr.arguments[argument_index]);
 	}
 
-	char *name = call_expr.fn_name;
+	const char *name = call_expr.fn_name;
 
 	if (starts_with(name, "helper_")) {
 		*parsed_fn_calls_helper_fn_ptr = true;
@@ -4369,7 +4369,7 @@ static void fill_binary_expr(struct expr *expr) {
 	}
 }
 
-static struct variable *get_global_variable(char *name) {
+static struct variable *get_global_variable(const char *name) {
 	u32 i = buckets_global_variables[elf_hash(name) % MAX_GLOBAL_VARIABLES];
 
 	while (true) {
@@ -4387,7 +4387,7 @@ static struct variable *get_global_variable(char *name) {
 	return global_variables + i;
 }
 
-static void add_global_variable(char *name, enum type type) {
+static void add_global_variable(const char *name, enum type type) {
 	// TODO: Print the exact grug file path, function and line number
 	grug_assert(global_variables_size < MAX_GLOBAL_VARIABLES, "There are more than %d global variables in a grug file, exceeding MAX_GLOBAL_VARIABLES", MAX_GLOBAL_VARIABLES);
 
@@ -4408,7 +4408,7 @@ static void add_global_variable(char *name, enum type type) {
 	buckets_global_variables[bucket_index] = global_variables_size++;
 }
 
-static struct variable *get_local_variable(char *name) {
+static struct variable *get_local_variable(const char *name) {
 	if (variables_size == 0) {
 		return NULL;
 	}
@@ -4434,7 +4434,7 @@ static struct variable *get_local_variable(char *name) {
 	return variables + i;
 }
 
-static struct variable *get_variable(char *name) {
+static struct variable *get_variable(const char *name) {
 	struct variable *var = get_local_variable(name);
 	if (!var) {
 		var = get_global_variable(name);
@@ -4505,7 +4505,7 @@ static void fill_expr(struct expr *expr) {
 	}
 }
 
-static void add_local_variable(char *name, enum type type) {
+static void add_local_variable(const char *name, enum type type) {
 	// TODO: Print the exact grug file path, function and line number
 	grug_assert(variables_size < MAX_VARIABLES_PER_FUNCTION, "There are more than %d variables in a function, exceeding MAX_VARIABLES_PER_FUNCTION", MAX_VARIABLES_PER_FUNCTION);
 
@@ -4660,7 +4660,7 @@ static void fill_helper_fns(void) {
 	}
 }
 
-static struct grug_on_function *get_entity_on_fn(char *name) {
+static struct grug_on_function *get_entity_on_fn(const char *name) {
 	if (grug_entity->on_function_count == 0) {
 		return NULL;
 	}
@@ -4686,7 +4686,7 @@ static void hash_entity_on_fns(void) {
 	memset(buckets_entity_on_fns, 0xff, grug_entity->on_function_count * sizeof(u32));
 
 	for (size_t i = 0; i < grug_entity->on_function_count; i++) {
-		char *name = grug_entity->on_functions[i].name;
+		const char *name = grug_entity->on_functions[i].name;
 
 		u32 bucket_index = elf_hash(name) % grug_entity->on_function_count;
 
@@ -4702,7 +4702,7 @@ static void fill_on_fns(void) {
 	for (size_t fn_index = 0; fn_index < on_fns_size; fn_index++) {
 		struct on_fn *fn = &on_fns[fn_index];
 
-		char *name = fn->fn_name;
+		const char *name = fn->fn_name;
 		filled_fn_name = name;
 
 		struct grug_on_function *entity_on_fn = get_entity_on_fn(on_fns[fn_index].fn_name);
@@ -4722,7 +4722,7 @@ static void fill_on_fns(void) {
 		for (size_t argument_index = 0; argument_index < arg_count; argument_index++) {
 			struct argument param = params[argument_index];
 
-			char *arg_name = args[argument_index].name;
+			const char *arg_name = args[argument_index].name;
 			grug_assert(streq(arg_name, param.name), "Function '%s' its '%s' parameter was supposed to be named '%s'", name, arg_name, param.name);
 
 			enum type arg_type = args[argument_index].type;
@@ -4739,7 +4739,7 @@ static void fill_on_fns(void) {
 }
 
 // Check that the global variable's assigned value doesn't contain a call nor identifier
-static void check_global_expr(struct expr *expr, char *name) {
+static void check_global_expr(struct expr *expr, const char *name) {
 	switch (expr->type) {
 		case TRUE_EXPR:
 		case FALSE_EXPR:
@@ -4801,7 +4801,7 @@ static void fill_global_variables(void) {
 }
 
 // TODO: This could be turned O(1) with a hash map
-static struct grug_entity *get_grug_entity(char *entity_type) {
+static struct grug_entity *get_grug_entity(const char *entity_type) {
 	for (size_t i = 0; i < grug_entities_size; i++) {
 		if (streq(entity_type, grug_entities[i].name)) {
 			return grug_entities + i;
@@ -5072,7 +5072,7 @@ static void fill_result_types(void) {
 // End of code enums
 
 struct data_string_code {
-	char *string;
+	const char *string;
 	size_t code_offset;
 };
 
@@ -5091,7 +5091,7 @@ static struct data_string_code data_string_codes[MAX_DATA_STRING_CODES];
 static size_t data_string_codes_size;
 
 struct offset {
-	char *name;
+	const char *name;
 	size_t offset;
 };
 static struct offset extern_fn_calls[MAX_GAME_FN_CALLS];
@@ -5100,13 +5100,13 @@ static struct offset helper_fn_calls[MAX_HELPER_FN_CALLS];
 static size_t helper_fn_calls_size;
 
 struct used_extern_global_variable {
-	char *variable_name;
+	const char *variable_name;
 	size_t codes_offset;
 };
 static struct used_extern_global_variable used_extern_global_variables[MAX_USED_EXTERN_GLOBAL_VARIABLES];
 static size_t used_extern_global_variables_size;
 
-static char *used_extern_fns[MAX_USED_GAME_FNS];
+static const char *used_extern_fns[MAX_USED_GAME_FNS];
 static size_t extern_fns_size;
 static u32 buckets_used_extern_fns[BFD_HASH_BUCKET_SIZE];
 static u32 chains_used_extern_fns[MAX_USED_GAME_FNS];
@@ -5144,8 +5144,8 @@ static bool is_runtime_error_handler_used;
 static char helper_fn_mode_names[MAX_HELPER_FN_MODE_NAMES_CHARACTERS];
 static size_t helper_fn_mode_names_size;
 
-static char *current_grug_path;
-static char *current_fn_name;
+static const char *current_grug_path;
+static const char *current_fn_name;
 
 static void reset_compiling(void) {
 	codes_size = 0;
@@ -5167,12 +5167,12 @@ static void reset_compiling(void) {
 	helper_fn_mode_names_size = 0;
 }
 
-static char *get_helper_fn_mode_name(char *name, bool safe) {
+static const char *get_helper_fn_mode_name(const char *name, bool safe) {
 	size_t length = strlen(name);
 
 	grug_assert(helper_fn_mode_names_size + length + (sizeof("_safe") - 1) < MAX_HELPER_FN_MODE_NAMES_CHARACTERS, "There are more than %d characters in the helper_fn_mode_names array, exceeding MAX_HELPER_FN_MODE_NAMES_CHARACTERS", MAX_HELPER_FN_MODE_NAMES_CHARACTERS);
 
-	char *mode_name = helper_fn_mode_names + helper_fn_mode_names_size;
+	const char *mode_name = helper_fn_mode_names + helper_fn_mode_names_size;
 
 	memcpy(helper_fn_mode_names + helper_fn_mode_names_size, name, length);
 	helper_fn_mode_names_size += length;
@@ -5183,15 +5183,15 @@ static char *get_helper_fn_mode_name(char *name, bool safe) {
 	return mode_name;
 }
 
-static char *get_fast_helper_fn_name(char *name) {
+static const char *get_fast_helper_fn_name(const char *name) {
 	return get_helper_fn_mode_name(name, false);
 }
 
-static char *get_safe_helper_fn_name(char *name) {
+static const char *get_safe_helper_fn_name(const char *name) {
 	return get_helper_fn_mode_name(name, true);
 }
 
-static size_t get_helper_fn_offset(char *name) {
+static size_t get_helper_fn_offset(const char *name) {
 	assert(helper_fn_offsets_size > 0);
 
 	u32 i = buckets_helper_fn_offsets[elf_hash(name) % helper_fn_offsets_size];
@@ -5213,7 +5213,7 @@ static void hash_helper_fn_offsets(void) {
 	memset(buckets_helper_fn_offsets, 0xff, helper_fn_offsets_size * sizeof(u32));
 
 	for (size_t i = 0; i < helper_fn_offsets_size; i++) {
-		char *name = helper_fn_offsets[i].name;
+		const char *name = helper_fn_offsets[i].name;
 
 		u32 bucket_index = elf_hash(name) % helper_fn_offsets_size;
 
@@ -5223,7 +5223,7 @@ static void hash_helper_fn_offsets(void) {
 	}
 }
 
-static void push_helper_fn_offset(char *fn_name, size_t offset) {
+static void push_helper_fn_offset(const char *fn_name, size_t offset) {
 	grug_assert(helper_fn_offsets_size < MAX_HELPER_FN_OFFSETS, "There are more than %d helper functions, exceeding MAX_HELPER_FN_OFFSETS", MAX_HELPER_FN_OFFSETS);
 
 	helper_fn_offsets[helper_fn_offsets_size++] = (struct offset){
@@ -5232,7 +5232,7 @@ static void push_helper_fn_offset(char *fn_name, size_t offset) {
 	};
 }
 
-static bool has_used_extern_fn(char *name) {
+static bool has_used_extern_fn(const char *name) {
 	u32 i = buckets_used_extern_fns[bfd_hash(name) % BFD_HASH_BUCKET_SIZE];
 
 	while (true) {
@@ -5254,7 +5254,7 @@ static void hash_used_extern_fns(void) {
 	memset(buckets_used_extern_fns, 0xff, sizeof(buckets_used_extern_fns));
 
 	for (size_t i = 0; i < extern_fn_calls_size; i++) {
-		char *name = extern_fn_calls[i].name;
+		const char *name = extern_fn_calls[i].name;
 
 		if (has_used_extern_fn(name)) {
 			continue;
@@ -5270,7 +5270,7 @@ static void hash_used_extern_fns(void) {
 	}
 }
 
-static void push_helper_fn_call(char *fn_name, size_t codes_offset) {
+static void push_helper_fn_call(const char *fn_name, size_t codes_offset) {
 	grug_assert(helper_fn_calls_size < MAX_HELPER_FN_CALLS, "There are more than %d helper function calls, exceeding MAX_HELPER_FN_CALLS", MAX_HELPER_FN_CALLS);
 
 	helper_fn_calls[helper_fn_calls_size++] = (struct offset){
@@ -5279,7 +5279,7 @@ static void push_helper_fn_call(char *fn_name, size_t codes_offset) {
 	};
 }
 
-static char *push_used_extern_fn_symbol(char *name, bool is_game_fn) {
+static const char *push_used_extern_fn_symbol(const char *name, bool is_game_fn) {
 	size_t length = strlen(name);
 	size_t fn_prefix_length = is_game_fn ? sizeof(GAME_FN_PREFIX) - 1 : 0;
 
@@ -5300,7 +5300,7 @@ static char *push_used_extern_fn_symbol(char *name, bool is_game_fn) {
 	return symbol;
 }
 
-static void push_extern_fn_call(char *fn_name, size_t codes_offset, bool is_game_fn) {
+static void push_extern_fn_call(const char *fn_name, size_t codes_offset, bool is_game_fn) {
 	grug_assert(extern_fn_calls_size < MAX_GAME_FN_CALLS, "There are more than %d game function calls, exceeding MAX_GAME_FN_CALLS", MAX_GAME_FN_CALLS);
 
 	extern_fn_calls[extern_fn_calls_size++] = (struct offset){
@@ -5309,15 +5309,15 @@ static void push_extern_fn_call(char *fn_name, size_t codes_offset, bool is_game
 	};
 }
 
-static void push_game_fn_call(char *fn_name, size_t codes_offset) {
+static void push_game_fn_call(const char *fn_name, size_t codes_offset) {
 	push_extern_fn_call(fn_name, codes_offset, true);
 }
 
-static void push_system_fn_call(char *fn_name, size_t codes_offset) {
+static void push_system_fn_call(const char *fn_name, size_t codes_offset) {
 	push_extern_fn_call(fn_name, codes_offset, false);
 }
 
-static void push_data_string_code(char *string, size_t code_offset) {
+static void push_data_string_code(const char *string, size_t code_offset) {
 	grug_assert(data_string_codes_size < MAX_DATA_STRING_CODES, "There are more than %d data string code bytes, exceeding MAX_DATA_STRING_CODES", MAX_DATA_STRING_CODES);
 
 	data_string_codes[data_string_codes_size++] = (struct data_string_code){
@@ -5537,7 +5537,7 @@ static void compile_function_epilogue(void) {
 	compile_byte(RET);
 }
 
-static void push_used_extern_global_variable(char *variable_name, size_t codes_offset) {
+static void push_used_extern_global_variable(const char *variable_name, size_t codes_offset) {
 	grug_assert(used_extern_global_variables_size < MAX_USED_EXTERN_GLOBAL_VARIABLES, "There are more than %d usages of game global variables, exceeding MAX_USED_EXTERN_GLOBAL_VARIABLES", MAX_USED_EXTERN_GLOBAL_VARIABLES);
 
 	used_extern_global_variables[used_extern_global_variables_size++] = (struct used_extern_global_variable){
@@ -5708,7 +5708,7 @@ static void compile_clear_has_runtime_error_happened(void) {
 	compile_byte(0);
 }
 
-static void compile_save_fn_name_and_path(char *grug_path, char *fn_name) {
+static void compile_save_fn_name_and_path(const char *grug_path, const char *fn_name) {
 	// mov rax, [rel grug_fn_path wrt ..got]:
 	compile_unpadded(MOV_GLOBAL_VARIABLE_TO_RAX);
 	push_used_extern_global_variable("grug_fn_path", codes_size);
@@ -5817,7 +5817,7 @@ static void compile_check_stack_overflow(void) {
 }
 
 static void compile_call_expr(struct call_expr call_expr) {
-	char *fn_name = call_expr.fn_name;
+	const char *fn_name = call_expr.fn_name;
 
 	bool calls_helper_fn = get_helper_fn(fn_name) != NULL;
 
@@ -6290,7 +6290,7 @@ static void push_resource(u32 string_index) {
 	resources[resources_size++] = string_index;
 }
 
-static char *push_entity_dependency_string(char *string) {
+static const char *push_entity_dependency_string(const char *string) {
 	static char entity[MAX_ENTITY_DEPENDENCY_NAME_LENGTH];
 
 	if (strchr(string, ':')) {
@@ -6305,7 +6305,7 @@ static char *push_entity_dependency_string(char *string) {
 
 	grug_assert(entity_dependency_strings_size + length < MAX_ENTITY_DEPENDENCIES_STRINGS_CHARACTERS, "There are more than %d characters in the entity_dependency_strings array, exceeding MAX_ENTITY_DEPENDENCIES_STRINGS_CHARACTERS", MAX_ENTITY_DEPENDENCIES_STRINGS_CHARACTERS);
 
-	char *entity_str = entity_dependency_strings + entity_dependency_strings_size;
+	const char *entity_str = entity_dependency_strings + entity_dependency_strings_size;
 
 	for (size_t i = 0; i < length; i++) {
 		entity_dependency_strings[entity_dependency_strings_size++] = entity[i];
@@ -6315,7 +6315,7 @@ static char *push_entity_dependency_string(char *string) {
 	return entity_str;
 }
 
-static char *push_resource_string(char *string) {
+static const char *push_resource_string(const char *string) {
 	static char resource[STUPID_MAX_PATH];
 	grug_assert(snprintf(resource, sizeof(resource), "%s/%s/%s", mods_root_dir_path, mod, string) >= 0, "Filling the variable 'resource' failed");
 
@@ -6323,7 +6323,7 @@ static char *push_resource_string(char *string) {
 
 	grug_assert(resource_strings_size + length < MAX_RESOURCE_STRINGS_CHARACTERS, "There are more than %d characters in the resource_strings array, exceeding MAX_RESOURCE_STRINGS_CHARACTERS", MAX_RESOURCE_STRINGS_CHARACTERS);
 
-	char *resource_str = resource_strings + resource_strings_size;
+	const char *resource_str = resource_strings + resource_strings_size;
 
 	for (size_t i = 0; i < length; i++) {
 		resource_strings[resource_strings_size++] = resource[i];
@@ -6343,7 +6343,7 @@ static void compile_expr(struct expr expr) {
 			compile_unpadded(XOR_CLEAR_EAX);
 			break;
 		case STRING_EXPR: {
-			char *string = expr.literal.string;
+			const char *string = expr.literal.string;
 
 			add_data_string(string);
 
@@ -6356,7 +6356,7 @@ static void compile_expr(struct expr expr) {
 			break;
 		}
 		case RESOURCE_EXPR: {
-			char *string = expr.literal.string;
+			const char *string = expr.literal.string;
 
 			string = push_resource_string(string);
 
@@ -6377,7 +6377,7 @@ static void compile_expr(struct expr expr) {
 			break;
 		}
 		case ENTITY_EXPR: {
-			char *string = expr.literal.string;
+			const char *string = expr.literal.string;
 
 			string = push_entity_dependency_string(string);
 
@@ -6504,7 +6504,7 @@ static void compile_expr(struct expr expr) {
 		}
 		case F32_EXPR:
 			compile_unpadded(MOV_TO_EAX);
-			unsigned char *bytes = (unsigned char *)&expr.literal.f32.value;
+			unsigned const char *bytes = (unsigned const char *)&expr.literal.f32.value;
 			for (size_t i = 0; i < sizeof(float); i++) {
 				compile_byte(*bytes); // Little-endian
 				bytes++;
@@ -6528,7 +6528,7 @@ static void compile_expr(struct expr expr) {
 	}
 }
 
-static void compile_global_variable_statement(char *name) {
+static void compile_global_variable_statement(const char *name) {
 	compile_unpadded(MOV_DEREF_RBP_TO_R11_8_BIT_OFFSET);
 	compile_byte(-(u8)GLOBAL_VARIABLES_POINTER_SIZE);
 
@@ -6767,7 +6767,7 @@ static void compile_function_prologue(void) {
 	}
 }
 
-static void compile_on_fn_impl(char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, char *grug_path, bool on_fn_calls_helper_fn, bool on_fn_contains_while_loop) {
+static void compile_on_fn_impl(const char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, const char *grug_path, bool on_fn_calls_helper_fn, bool on_fn_contains_while_loop) {
 	add_argument_variables(fn_arguments, argument_count);
 
 	calc_max_local_variable_stack_usage(body_statements, body_statement_count);
@@ -6823,7 +6823,7 @@ static void compile_on_fn_impl(char *fn_name, struct argument *fn_arguments, siz
 	compile_function_epilogue();
 }
 
-static void compile_on_fn(struct on_fn fn, char *grug_path) {
+static void compile_on_fn(struct on_fn fn, const char *grug_path) {
 	compile_on_fn_impl(fn.fn_name, fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count, grug_path, fn.calls_helper_fn, fn.contains_while_loop);
 }
 
@@ -6853,7 +6853,7 @@ static void compile_helper_fn(struct helper_fn fn) {
 	compile_helper_fn_impl(fn.arguments, fn.argument_count, fn.body_statements, fn.body_statement_count);
 }
 
-static void compile_init_globals_fn(char *grug_path) {
+static void compile_init_globals_fn(const char *grug_path) {
 	// The "me" global variable is always present
 	// If there are no other global variables, take a shortcut
 	if (global_variables_size == 1) {
@@ -6913,7 +6913,7 @@ static void compile_init_globals_fn(char *grug_path) {
 	compiled_init_globals_fn = true;
 }
 
-static void compile(char *grug_path) {
+static void compile(const char *grug_path) {
 	reset_compiling();
 
 	size_t text_offset_index = 0;
@@ -6999,7 +6999,7 @@ static size_t shindex_symtab;
 static size_t shindex_strtab;
 static size_t shindex_shstrtab;
 
-static char *symbols[MAX_SYMBOLS];
+static const char *symbols[MAX_SYMBOLS];
 static size_t symbols_size;
 
 static size_t on_fns_symbol_offset;
@@ -7013,7 +7013,7 @@ static size_t symbol_name_strtab_offsets[MAX_SYMBOLS];
 static u32 buckets_on_fns[MAX_ON_FNS];
 static u32 chains_on_fns[MAX_ON_FNS];
 
-static char *shuffled_symbols[MAX_SYMBOLS];
+static const char *shuffled_symbols[MAX_SYMBOLS];
 static size_t shuffled_symbols_size;
 
 static size_t shuffled_symbol_index_to_symbol_index[MAX_SYMBOLS];
@@ -7167,7 +7167,7 @@ static void overwrite_64(u64 n, size_t bytes_offset) {
 	overwrite(n, bytes_offset, sizeof(u64));
 }
 
-static struct on_fn *get_on_fn(char *name) {
+static struct on_fn *get_on_fn(const char *name) {
 	if (on_fns_size == 0) {
 		return NULL;
 	}
@@ -7193,7 +7193,7 @@ static void hash_on_fns(void) {
 	memset(buckets_on_fns, 0xff, on_fns_size * sizeof(u32));
 
 	for (size_t i = 0; i < on_fns_size; i++) {
-		char *name = on_fns[i].fn_name;
+		const char *name = on_fns[i].fn_name;
 
 		grug_assert(!get_on_fn(name), "The function '%s' was defined several times in the same file", name);
 
@@ -7371,7 +7371,7 @@ static void patch_dynsym(void) {
 	}
 }
 
-static size_t get_game_fn_offset(char *name) {
+static size_t get_game_fn_offset(const char *name) {
 	assert(game_fn_offsets_size > 0);
 
 	u32 i = buckets_game_fn_offsets[elf_hash(name) % game_fn_offsets_size];
@@ -7393,7 +7393,7 @@ static void hash_game_fn_offsets(void) {
 	memset(buckets_game_fn_offsets, 0xff, game_fn_offsets_size * sizeof(u32));
 
 	for (size_t i = 0; i < game_fn_offsets_size; i++) {
-		char *name = game_fn_offsets[i].name;
+		const char *name = game_fn_offsets[i].name;
 
 		u32 bucket_index = elf_hash(name) % game_fn_offsets_size;
 
@@ -7403,7 +7403,7 @@ static void hash_game_fn_offsets(void) {
 	}
 }
 
-static void push_game_fn_offset(char *fn_name, size_t offset) {
+static void push_game_fn_offset(const char *fn_name, size_t offset) {
 	grug_assert(game_fn_offsets_size < MAX_GAME_FN_OFFSETS, "There are more than %d game functions, exceeding MAX_GAME_FN_OFFSETS", MAX_GAME_FN_OFFSETS);
 
 	game_fn_offsets[game_fn_offsets_size++] = (struct offset){
@@ -7431,7 +7431,7 @@ static void patch_dynamic(void) {
 	}
 }
 
-static size_t get_global_variable_offset(char *name) {
+static size_t get_global_variable_offset(const char *name) {
 	// push_got() guarantees we always have 4
 	assert(global_variable_offsets_size > 0);
 
@@ -7454,7 +7454,7 @@ static void hash_global_variable_offsets(void) {
 	memset(buckets_global_variable_offsets, 0xff, global_variable_offsets_size * sizeof(u32));
 
 	for (size_t i = 0; i < global_variable_offsets_size; i++) {
-		char *name = global_variable_offsets[i].name;
+		const char *name = global_variable_offsets[i].name;
 
 		u32 bucket_index = elf_hash(name) % global_variable_offsets_size;
 
@@ -7464,7 +7464,7 @@ static void hash_global_variable_offsets(void) {
 	}
 }
 
-static void push_global_variable_offset(char *name, size_t offset) {
+static void push_global_variable_offset(const char *name, size_t offset) {
 	grug_assert(global_variable_offsets_size < MAX_GLOBAL_VARIABLE_OFFSETS, "There are more than %d game functions, exceeding MAX_GLOBAL_VARIABLE_OFFSETS", MAX_GLOBAL_VARIABLE_OFFSETS);
 
 	global_variable_offsets[global_variable_offsets_size++] = (struct offset){
@@ -7489,7 +7489,7 @@ static void patch_global_variables(void) {
 static void patch_strings(void) {
 	for (size_t i = 0; i < data_string_codes_size; i++) {
 		struct data_string_code dsc = data_string_codes[i];
-		char *string = dsc.string;
+		const char *string = dsc.string;
 		size_t code_offset = dsc.code_offset;
 
 		size_t string_index = get_data_string_index(string);
@@ -7638,7 +7638,7 @@ static void push_alignment(size_t alignment) {
 	}
 }
 
-static void push_string_bytes(char *str) {
+static void push_string_bytes(const char *str) {
 	while (*str) {
 		push_byte(*str);
 		str++;
@@ -8046,7 +8046,7 @@ static void push_plt(void) {
 		}
 
 		while (true) {
-			char *name = used_extern_fns[chain_index];
+			const char *name = used_extern_fns[chain_index];
 
 			push_16(JMP_REL);
 			push_32(PLACEHOLDER_32);
@@ -8145,7 +8145,7 @@ static void push_dynstr(void) {
 
 	push_byte(0);
 	for (size_t i = 0; i < symbols_size; i++) {
-		char *symbol = symbols[i];
+		const char *symbol = symbols[i];
 
 		push_string_bytes(symbol);
 		dynstr_size += strlen(symbol) + 1;
@@ -8532,7 +8532,7 @@ static void init_data_offsets(void) {
 	// data strings
 	for (size_t string_index = 0; string_index < data_strings_size; string_index++) {
 		data_string_offsets[string_index] = offset;
-		char *string = data_strings[string_index];
+		const char *string = data_strings[string_index];
 		offset += strlen(string) + 1;
 	}
 
@@ -8576,14 +8576,14 @@ static void init_data_offsets(void) {
 static void init_symbol_name_strtab_offsets(void) {
 	for (size_t i = 0, offset = 0; i < symbols_size; i++) {
 		size_t symbol_index = shuffled_symbol_index_to_symbol_index[i];
-		char *symbol = symbols[symbol_index];
+		const char *symbol = symbols[symbol_index];
 
 		symbol_name_strtab_offsets[symbol_index] = offset;
 		offset += strlen(symbol) + 1;
 	}
 }
 
-static void push_shuffled_symbol(char *shuffled_symbol) {
+static void push_shuffled_symbol(const char *shuffled_symbol) {
 	grug_assert(shuffled_symbols_size < MAX_SYMBOLS, "There are more than %d symbols, exceeding MAX_SYMBOLS", MAX_SYMBOLS);
 
 	shuffled_symbols[shuffled_symbols_size++] = shuffled_symbol;
@@ -8618,7 +8618,7 @@ static void generate_shuffled_symbols(void) {
 		}
 
 		while (true) {
-			char *symbol = symbols[chain_index - 1];
+			const char *symbol = symbols[chain_index - 1];
 
 			shuffled_symbol_index_to_symbol_index[shuffled_symbols_size] = chain_index - 1;
 			symbol_index_to_shuffled_symbol_index[chain_index - 1] = shuffled_symbols_size;
@@ -8635,14 +8635,14 @@ static void generate_shuffled_symbols(void) {
 
 static void init_symbol_name_dynstr_offsets(void) {
 	for (size_t i = 0, offset = 1; i < symbols_size; i++) {
-		char *symbol = symbols[i];
+		const char *symbol = symbols[i];
 
 		symbol_name_dynstr_offsets[i] = offset;
 		offset += strlen(symbol) + 1;
 	}
 }
 
-static void push_symbol(char *symbol) {
+static void push_symbol(const char *symbol) {
 	grug_assert(symbols_size < MAX_SYMBOLS, "There are more than %d symbols, exceeding MAX_SYMBOLS", MAX_SYMBOLS);
 
 	symbols[symbols_size++] = symbol;
@@ -8674,7 +8674,7 @@ static void init_section_header_indices(void) {
 	shindex_shstrtab = shindex++;
 }
 
-static void generate_shared_object(char *dll_path) {
+static void generate_shared_object(const char *dll_path) {
 	text_size = codes_size;
 
 	reset_generate_shared_object();
@@ -8781,7 +8781,7 @@ USED_BY_PROGRAMS struct grug_mod_dir grug_mods;
 USED_BY_PROGRAMS struct grug_modified grug_reloads[MAX_RELOADS];
 USED_BY_PROGRAMS size_t grug_reloads_size;
 
-static char *entities[MAX_ENTITIES];
+static const char *entities[MAX_ENTITIES];
 static char entity_strings[MAX_ENTITY_STRINGS_CHARACTERS];
 static size_t entity_strings_size;
 static u32 buckets_entities[MAX_ENTITIES];
@@ -8792,8 +8792,8 @@ static size_t entities_size;
 USED_BY_PROGRAMS struct grug_modified_resource grug_resource_reloads[MAX_RESOURCE_RELOADS];
 USED_BY_PROGRAMS size_t grug_resource_reloads_size;
 
-USED_BY_MODS char *grug_fn_name;
-USED_BY_MODS char *grug_fn_path;
+USED_BY_MODS const char *grug_fn_name;
+USED_BY_MODS const char *grug_fn_path;
 
 static bool is_grug_initialized = false;
 
@@ -8810,7 +8810,7 @@ static void reset_regenerate_modified_mods(void) {
 	directory_depth = 0;
 }
 
-static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes, size_t dll_resources_size) {
+static void reload_resources_from_dll(const char *dll_path, i64 *resource_mtimes, size_t dll_resources_size) {
 	void *dll = dlopen(dll_path, RTLD_NOW);
 	if (!dll) {
 		print_dlerror("dlopen");
@@ -8821,7 +8821,7 @@ static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes, size
 		return;
 	}
 
-	char **dll_resources = get_dll_symbol(dll, "resources");
+	const char **dll_resources = get_dll_symbol(dll, "resources");
 	if (!dll_resources) {
 		if (dlclose(dll)) {
 			print_dlerror("dlclose");
@@ -8830,7 +8830,7 @@ static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes, size
 	}
 
 	for (size_t i = 0; i < dll_resources_size; i++) {
-		char *resource = dll_resources[i];
+		const char *resource = dll_resources[i];
 
 		struct stat resource_stat;
 		if (stat(resource, &resource_stat) == -1) {
@@ -8864,7 +8864,7 @@ static void reload_resources_from_dll(char *dll_path, i64 *resource_mtimes, size
 	}
 }
 
-static void regenerate_dll(char *grug_path, char *dll_path) {
+static void regenerate_dll(const char *grug_path, const char *dll_path) {
 	grug_log("# Regenerating %s\n", dll_path);
 
 	grug_loading_error_in_grug_file = true;
@@ -8901,12 +8901,12 @@ static void reset_previous_grug_error(void) {
 	previous_grug_error.grug_c_line_number = 0;
 }
 
-static void initialize_file_entity_type(char *grug_filename) {
-	char *dash = strchr(grug_filename, '-');
+static void initialize_file_entity_type(const char *grug_filename) {
+	const char *dash = strchr(grug_filename, '-');
 
 	grug_assert(dash && dash[1] != '\0', "'%s' is missing an entity type in its name; use a dash to specify it, like 'ak47-gun.grug'", grug_filename);
 
-	char *period = strchr(dash + 1, '.');
+	const char *period = strchr(dash + 1, '.');
 	grug_assert(period, "'%s' is missing a period in its filename", grug_filename);
 
 	// "foo-.grug" has an entity_type_len of 0
@@ -8918,7 +8918,7 @@ static void initialize_file_entity_type(char *grug_filename) {
 	file_entity_type[entity_type_len] = '\0';
 }
 
-static void set_grug_error_path(char *grug_path) {
+static void set_grug_error_path(const char *grug_path) {
 	// Since grug_error.path is the maximum path length of operating systems,
 	// it shouldn't be possible for grug_path to exceed it
 	assert(strlen(grug_path) + 1 <= sizeof(grug_error.path));
@@ -8928,8 +8928,8 @@ static void set_grug_error_path(char *grug_path) {
 
 // This function just exists for the grug-tests repository
 // It returns whether an error occurred
-USED_BY_PROGRAMS bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name);
-bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name) {
+USED_BY_PROGRAMS bool grug_test_regenerate_dll(const char *grug_path, const char *dll_path, const char *mod_name);
+bool grug_test_regenerate_dll(const char *grug_path, const char *dll_path, const char *mod_name) {
 	assert(is_grug_initialized && "You forgot to call grug_init() once at program startup!");
 
 	if (setjmp(error_jmp_buffer)) {
@@ -8942,7 +8942,7 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name) {
 
 	set_grug_error_path(grug_path);
 
-	char *grug_filename = strrchr(grug_path, '/');
+	const char *grug_filename = strrchr(grug_path, '/');
 	grug_assert(grug_filename, "The grug file path '%s' does not contain a '/' character", grug_path);
 	initialize_file_entity_type(grug_filename + 1);
 
@@ -8953,7 +8953,7 @@ bool grug_test_regenerate_dll(char *grug_path, char *dll_path, char *mod_name) {
 	return false;
 }
 
-static void try_create_parent_dirs(char *file_path) {
+static void try_create_parent_dirs(const char *file_path) {
 	char parent_dir_path[STUPID_MAX_PATH];
 	size_t i = 0;
 
@@ -8972,9 +8972,9 @@ static void try_create_parent_dirs(char *file_path) {
 }
 
 static void free_file(struct grug_file file) {
-	free(file.name);
-	free(file.entity);
-	free(file.entity_type);
+	free((void *)file.name);
+	free((void *)file.entity);
+	free((void *)file.entity_type);
 
 	if (file.dll && dlclose(file.dll)) {
 		print_dlerror("dlclose");
@@ -8984,7 +8984,7 @@ static void free_file(struct grug_file file) {
 }
 
 static void free_dir(struct grug_mod_dir dir) {
-	free(dir.name);
+	free((void *)dir.name);
 
 	for (size_t i = 0; i < dir.dirs_size; i++) {
 		free_dir(dir.dirs[i]);
@@ -8997,7 +8997,7 @@ static void free_dir(struct grug_mod_dir dir) {
 	free(dir.files);
 }
 
-static u32 get_entity_index(char *entity) {
+static u32 get_entity_index(const char *entity) {
 	if (entities_size == 0) {
 		return UINT32_MAX;
 	}
@@ -9019,7 +9019,7 @@ static u32 get_entity_index(char *entity) {
 	return i;
 }
 
-struct grug_file *grug_get_entity_file(char *entity) {
+struct grug_file *grug_get_entity_file(const char *entity) {
 	u32 index = get_entity_index(entity);
 	if (index == UINT32_MAX) {
 		return NULL;
@@ -9035,20 +9035,20 @@ static void check_that_every_entity_exists(struct grug_mod_dir dir) {
 		grug_assert(entities_size_ptr, "Retrieving the entities_size variable with get_dll_symbol() failed for '%s'", file.name);
 
 		if (*entities_size_ptr > 0) {
-			char **dll_entities = get_dll_symbol(file.dll, "entities");
+			const char **dll_entities = get_dll_symbol(file.dll, "entities");
 			grug_assert(entities_size_ptr, "Retrieving the dll_entities variable with get_dll_symbol() failed for '%s'", file.name);
 
-			char **dll_entity_types = get_dll_symbol(file.dll, "entity_types");
+			const char **dll_entity_types = get_dll_symbol(file.dll, "entity_types");
 			grug_assert(entities_size_ptr, "Retrieving the dll_entity_types variable with get_dll_symbol() failed for '%s'", file.name);
 
 			for (size_t dll_entity_index = 0; dll_entity_index < *entities_size_ptr; dll_entity_index++) {
-				char *entity = dll_entities[dll_entity_index];
+				const char *entity = dll_entities[dll_entity_index];
 
 				u32 entity_index = get_entity_index(entity);
 
 				grug_assert(entity_index != UINT32_MAX, "The entity '%s' does not exist", entity);
 
-				char *json_entity_type = dll_entity_types[dll_entity_index];
+				const char *json_entity_type = dll_entity_types[dll_entity_index];
 
 				struct grug_file other_file = entity_files[entity_index];
 
@@ -9068,10 +9068,10 @@ static void push_reload(struct grug_modified modified) {
 }
 
 // Returns `mod + ':' + grug_filename - "-<entity type>.grug"`
-static char *form_entity(char *grug_filename) {
+static const char *form_entity(const char *grug_filename) {
 	static char entity_name[MAX_ENTITY_NAME_LENGTH];
 
-	char *dash = strrchr(grug_filename, '-');
+	const char *dash = strrchr(grug_filename, '-');
 	if (dash == NULL) {
 		// The function initialize_file_entity_type() already checked for a missing dash
 		grug_unreachable();
@@ -9099,10 +9099,10 @@ static char *form_entity(char *grug_filename) {
 	return entity_str;
 }
 
-static void add_entity(char *grug_filename, struct grug_file *file) {
+static void add_entity(const char *grug_filename, struct grug_file *file) {
 	grug_assert(entities_size < MAX_ENTITIES, "There are more than %d entities, exceeding MAX_ENTITIES", MAX_ENTITIES);
 
-	char *entity = form_entity(grug_filename);
+	const char *entity = form_entity(grug_filename);
 
 	grug_assert(get_entity_index(entity) == UINT32_MAX, "The entity '%s' already exists, because there are two grug files called '%s' in the mod '%s'", entity, grug_filename, mod);
 
@@ -9140,7 +9140,7 @@ static struct grug_mod_dir *push_subdir(struct grug_mod_dir *dir, struct grug_mo
 }
 
 // Profiling may indicate that rewriting this to use an O(1) technique like a hash table is worth it
-static struct grug_file *get_file(struct grug_mod_dir *dir, char *name) {
+static struct grug_file *get_file(struct grug_mod_dir *dir, const char *name) {
 	for (size_t i = 0; i < dir->files_size; i++) {
 		if (streq(dir->files[i].name, name)) {
 			return dir->files + i;
@@ -9150,7 +9150,7 @@ static struct grug_file *get_file(struct grug_mod_dir *dir, char *name) {
 }
 
 // Profiling may indicate that rewriting this to use an O(1) technique like a hash table is worth it
-static struct grug_mod_dir *get_subdir(struct grug_mod_dir *dir, char *name) {
+static struct grug_mod_dir *get_subdir(struct grug_mod_dir *dir, const char *name) {
 	for (size_t i = 0; i < dir->dirs_size; i++) {
 		if (streq(dir->dirs[i].name, name)) {
 			return dir->dirs + i;
@@ -9159,7 +9159,7 @@ static struct grug_mod_dir *get_subdir(struct grug_mod_dir *dir, char *name) {
 	return NULL;
 }
 
-static struct grug_file *regenerate_file(struct grug_file *file, char *dll_path, char *grug_filename, struct grug_mod_dir *dir) {
+static struct grug_file *regenerate_file(struct grug_file *file, const char *dll_path, const char *grug_filename, struct grug_mod_dir *dir) {
 	struct grug_file new_file = {0};
 
 	new_file.dll = dlopen(dll_path, RTLD_NOW);
@@ -9221,7 +9221,7 @@ static struct grug_file *regenerate_file(struct grug_file *file, char *dll_path,
 	}
 
 	if (dll_resources_size > 0) {
-		char **dll_resources = get_dll_symbol(file->dll, "resources");
+		const char **dll_resources = get_dll_symbol(file->dll, "resources");
 
 		// Initialize file->_resource_mtimes
 		for (size_t i = 0; i < dll_resources_size; i++) {
@@ -9235,7 +9235,7 @@ static struct grug_file *regenerate_file(struct grug_file *file, char *dll_path,
 	return file;
 }
 
-static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *grug_filename, struct grug_mod_dir *dir, char *grug_path) {
+static void reload_grug_file(const char *dll_entry_path, i64 grug_file_mtime, const char *grug_filename, struct grug_mod_dir *dir, const char *grug_path) {
 	initialize_file_entity_type(grug_filename);
 
 	// Fill dll_path
@@ -9243,7 +9243,8 @@ static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *gr
 	grug_assert(strlen(dll_entry_path) + 1 <= STUPID_MAX_PATH, "There are more than %d characters in the dll_entry_path '%s', exceeding STUPID_MAX_PATH", STUPID_MAX_PATH, dll_entry_path);
 	memcpy(dll_path, dll_entry_path, strlen(dll_entry_path) + 1);
 
-	char *extension = get_file_extension(dll_path);
+	// Cast is safe because it indexes into stack-allocated memory
+	char *extension = (char *)get_file_extension(dll_path);
 
 	// The code that called this reload_grug_file() function has already checked
 	// that the file ends with ".grug", so '.' will always be found here
@@ -9322,9 +9323,9 @@ static void reload_grug_file(char *dll_entry_path, i64 grug_file_mtime, char *gr
 	}
 }
 
-static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct grug_mod_dir *dir);
+static void reload_modified_mod(const char *mods_dir_path, const char *dll_dir_path, struct grug_mod_dir *dir);
 
-static void reload_entry(char *name, char *mods_dir_path, char *dll_dir_path, struct grug_mod_dir *dir) {
+static void reload_entry(const char *name, const char *mods_dir_path, const char *dll_dir_path, struct grug_mod_dir *dir) {
 	if (streq(name, ".") || streq(name, "..")) {
 		return;
 	}
@@ -9357,7 +9358,7 @@ static void reload_entry(char *name, char *mods_dir_path, char *dll_dir_path, st
 	}
 }
 
-static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct grug_mod_dir *dir) {
+static void reload_modified_mod(const char *mods_dir_path, const char *dll_dir_path, struct grug_mod_dir *dir) {
 	directory_depth++;
 	grug_assert(directory_depth < MAX_DIRECTORY_DEPTH, "There is a mod that contains more than %d levels of nested directories", MAX_DIRECTORY_DEPTH);
 
@@ -9401,7 +9402,7 @@ static void reload_modified_mod(char *mods_dir_path, char *dll_dir_path, struct 
 	directory_depth--;
 }
 
-static void validate_about_file(char *about_json_path) {
+static void validate_about_file(const char *about_json_path) {
 	grug_assert(access(about_json_path, F_OK) == 0, "Every mod requires an 'about.json' file, but the mod '%s' doesn't have one", mod);
 
 	struct json_node node;
@@ -9446,8 +9447,8 @@ static void validate_about_file(char *about_json_path) {
 // 3. "/a" => "a"
 // 4. "/a/" => ""
 // 5. "/a/b" => "b"
-static char *get_basename(char *path) {
-	char *base = strrchr(path, '/');
+static const char *get_basename(const char *path) {
+	const char *base = strrchr(path, '/');
 	return base ? base + 1 : path;
 }
 
@@ -9464,7 +9465,7 @@ static void reload_modified_mods(void) {
 	errno = 0;
 	struct dirent *dp;
 	while ((dp = readdir(dirp))) {
-		char *name = dp->d_name;
+		const char *name = dp->d_name;
 
 		if (streq(name, ".") || streq(name, "..")) {
 			continue;
@@ -9518,7 +9519,7 @@ static void reload_modified_mods(void) {
 	}
 }
 
-bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, char *mods_dir_path, char *dll_dir_path, uint64_t on_fn_time_limit_ms_) {
+bool grug_init(grug_runtime_error_handler_t handler, const char *mod_api_json_path, const char *mods_dir_path, const char *dll_dir_path, uint64_t on_fn_time_limit_ms_) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
@@ -9577,7 +9578,7 @@ bool grug_regenerate_modified_mods(void) {
 }
 
 USED_BY_MODS bool grug_has_runtime_error_happened = false;
-void grug_game_function_error_happened(char *message) {
+void grug_game_function_error_happened(const char *message) {
 	grug_has_runtime_error_happened = true;
 	snprintf(runtime_error_reason, sizeof(runtime_error_reason), "%s", message);
 }
