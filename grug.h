@@ -20,25 +20,25 @@ enum grug_runtime_error_type {
 
 //// Function typedefs
 
-typedef void (*grug_runtime_error_handler_t)(char *reason, enum grug_runtime_error_type type, char *on_fn_name, char *on_fn_path);
+typedef void (*grug_runtime_error_handler_t)(const char *reason, enum grug_runtime_error_type type, const char *on_fn_name, const char *on_fn_path);
 
 typedef void (*grug_init_globals_fn_t)(void *globals, uint64_t id);
 
 //// Functions
 
 // Returns whether an error occurred
-bool grug_init(grug_runtime_error_handler_t handler, char *mod_api_json_path, char *mods_dir_path, char *dll_dir_path, uint64_t on_fn_time_limit_ms) __attribute__((warn_unused_result));
+bool grug_init(grug_runtime_error_handler_t handler, const char *mod_api_json_path, const char *mods_dir_path, const char *dll_dir_path, uint64_t on_fn_time_limit_ms) __attribute__((warn_unused_result));
 
 // Returns whether an error occurred
 bool grug_regenerate_modified_mods(void) __attribute__((warn_unused_result));
 
 // Do NOT store the returned pointer, as it has a chance to dangle
 // after the next grug_regenerate_modified_mods() call!
-struct grug_file *grug_get_entity_file(char *entity);
+struct grug_file *grug_get_entity_file(const char *entity);
 
 // Calling this during a game function will cause grug
 // to immediately return a runtime error, from the current on_ function call
-void grug_game_function_error_happened(char *message);
+void grug_game_function_error_happened(const char *message);
 
 // These functions are meant to be used together, to write and read the AST of the mods/ directory
 // One use case is that this allows you to for example write a Python program that reads the mods/ AST,
@@ -49,10 +49,10 @@ void grug_game_function_error_happened(char *message);
 // but an external tool has the advantage that it isn't tied to the game's release cycle
 //
 // Returns whether an error occurred
-bool grug_dump_file_to_json(char *input_grug_path, char *output_json_path) __attribute__((warn_unused_result));
-bool grug_dump_mods_to_json(char *input_mods_path, char *output_json_path) __attribute__((warn_unused_result));
-bool grug_generate_file_from_json(char *input_json_path, char *output_grug_path) __attribute__((warn_unused_result));
-bool grug_generate_mods_from_json(char *input_json_path, char *output_mods_path) __attribute__((warn_unused_result));
+bool grug_dump_file_to_json(const char *input_grug_path, const char *output_json_path) __attribute__((warn_unused_result));
+bool grug_dump_mods_to_json(const char *input_mods_path, const char *output_json_path) __attribute__((warn_unused_result));
+bool grug_generate_file_from_json(const char *input_json_path, const char *output_grug_path) __attribute__((warn_unused_result));
+bool grug_generate_mods_from_json(const char *input_json_path, const char *output_mods_path) __attribute__((warn_unused_result));
 
 // Safe mode is the default
 // Safe mode is significantly slower than fast mode, but guarantees the program can't crash
@@ -70,9 +70,9 @@ void grug_toggle_on_fns_mode(void);
 //// Structs
 
 struct grug_file {
-	char *name;
-	char *entity;
-	char *entity_type;
+	const char *name;
+	const char *entity;
+	const char *entity_type;
 
 	void *dll;
 
@@ -88,7 +88,7 @@ struct grug_file {
 };
 
 struct grug_mod_dir {
-	char *name;
+	const char *name;
 
 	struct grug_mod_dir *dirs;
 	size_t dirs_size;
@@ -132,5 +132,5 @@ extern struct grug_error grug_error;
 extern bool grug_loading_error_in_grug_file;
 
 // These help game functions print helpful errors
-extern char *grug_fn_name;
-extern char *grug_fn_path;
+extern const char *grug_fn_name;
+extern const char *grug_fn_path;
