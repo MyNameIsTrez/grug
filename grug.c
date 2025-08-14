@@ -6,6 +6,8 @@
 //
 // You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
 //
+// In VS Code, you can install the extension simply called `grug` to get syntax highlighting and a grug file icon.
+//
 // ## Contributing
 //
 // Create an issue in [grug's GitHub repository](https://github.com/MyNameIsTrez/grug), before you make any pull request.

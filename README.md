@@ -6,6 +6,8 @@ See [my blog post](https://mynameistrez.github.io/2024/02/29/creating-the-perfec
 
 You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
 
+In VS Code, you can install the extension simply called `grug` to get syntax highlighting and a grug file icon.
+
 `grug.c` contains documentation at the top of the file, and the MIT license at the very bottom. `grug.h` refers to the MIT license in `grug.c`.
 
 ## Contributing
