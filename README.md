@@ -8,6 +8,12 @@ You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
 
 `grug.c` contains documentation at the top of the file, and the MIT license at the very bottom. `grug.h` refers to the MIT license in `grug.c`.
 
+## Contributing
+
+Create an issue in [grug's GitHub repository](https://github.com/MyNameIsTrez/grug), before you make any pull request.
+
+This gives everyone the chance to discuss it, and prevents your hard work from being rejected.
+
 ## Sections
 
 `grug.c` is composed of sections, which you can jump between by searching for `////` in the file:
