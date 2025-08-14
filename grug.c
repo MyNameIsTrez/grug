@@ -792,15 +792,6 @@ enum type {
 	type_resource,
 	type_entity,
 };
-static const char *type_names[] = {
-	[type_bool] = "bool",
-	[type_i32] = "i32",
-	[type_f32] = "f32",
-	[type_string] = "string",
-	[type_id] = "id",
-	[type_resource] = "resource",
-	[type_entity] = "entity",
-};
 static size_t type_sizes[] = {
 	[type_bool] = sizeof(bool),
 	[type_i32] = sizeof(i32),
@@ -826,6 +817,7 @@ struct grug_entity {
 struct grug_game_function {
 	const char *name;
 	enum type return_type;
+	const char *return_type_name;
 	struct argument *arguments;
 	size_t argument_count;
 };
@@ -833,6 +825,7 @@ struct grug_game_function {
 struct argument {
 	const char *name;
 	enum type type;
+	const char *type_name;
 	union {
 		const char *resource_extension; // This is optional
 		const char *entity_type; // This is optional
@@ -938,18 +931,13 @@ static enum type parse_type(const char *type) {
 	if (streq(type, "string")) {
 		return type_string;
 	}
-	if (streq(type, "id")) {
-		return type_id;
-	}
 	if (streq(type, "resource")) {
 		return type_resource;
 	}
 	if (streq(type, "entity")) {
 		return type_entity;
 	}
-
-	// Make sure to add any new types to this error message
-	grug_error("The type '%s' must be changed to one of bool/i32/f32/string/id/resource/entity", type);
+	return type_id;
 }
 
 static void init_game_fns(struct json_object fns) {
@@ -980,6 +968,7 @@ static void init_game_fns(struct json_object fns) {
 			if (streq(field->key, "return_type")) {
 				grug_assert(field->value->type == JSON_NODE_STRING, "\"game_functions\" its function return types must be strings");
 				grug_fn.return_type = parse_type(field->value->string);
+				grug_fn.return_type_name = field->value->string;
 				grug_assert(grug_fn.return_type != type_resource, "\"game_functions\" its function return types must not be 'resource'");
 				grug_assert(grug_fn.return_type != type_entity, "\"game_functions\" its function return types must not be 'entity'");
 				seen_return_type = true;
@@ -1017,6 +1006,7 @@ static void init_game_fns(struct json_object fns) {
 				grug_assert(streq(argument_field->key, "type"), "\"game_functions\" its function arguments must always have \"type\" as their second field");
 				grug_assert(argument_field->value->type == JSON_NODE_STRING, "\"game_functions\" its function arguments must always have string values");
 				grug_arg.type = parse_type(argument_field->value->string);
+				grug_arg.type_name = argument_field->value->string;
 				argument_field++;
 
 				if (grug_arg.type == type_resource) {
@@ -1087,6 +1077,7 @@ static void init_on_fns(struct json_object fns) {
 				grug_assert(streq(argument_field->key, "type"), "\"on_functions\" its function arguments must always have \"type\" as their second field");
 				grug_assert(argument_field->value->type == JSON_NODE_STRING, "\"on_functions\" its function arguments must always have string values");
 				grug_arg.type = parse_type(argument_field->value->string);
+				grug_arg.type_name = argument_field->value->string;
 				grug_assert(grug_arg.type != type_resource, "\"on_functions\" its function argument types must not be 'resource'");
 				grug_assert(grug_arg.type != type_entity, "\"on_functions\" its function argument types must not be 'entity'");
 				argument_field++;
@@ -1647,6 +1638,7 @@ enum expr_type {
 struct expr {
 	enum expr_type type;
 	enum type result_type;
+	const char *result_type_name;
 	union {
 		struct literal_expr literal;
 		struct unary_expr unary;
@@ -1676,6 +1668,7 @@ static size_t exprs_size;
 struct variable_statement {
 	const char *name;
 	enum type type;
+	const char *type_name;
 	bool has_type;
 	struct expr *assignment_expr;
 };
@@ -1785,6 +1778,7 @@ struct helper_fn {
 	struct argument *arguments;
 	size_t argument_count;
 	enum type return_type;
+	const char *return_type_name;
 	struct statement *body_statements;
 	size_t body_statement_count;
 };
@@ -1796,6 +1790,7 @@ static u32 chains_helper_fns[MAX_HELPER_FNS];
 struct global_variable_statement {
 	const char *name;
 	enum type type;
+	const char *type_name;
 	struct expr assignment_expr;
 };
 static struct global_variable_statement global_variable_statements[MAX_GLOBAL_VARIABLES];
@@ -1907,12 +1902,12 @@ static size_t get_token_line_number(size_t token_index) {
 	return line_number;
 }
 
-static void assert_token_type(size_t token_index, unsigned int expected_type) {
+static void assert_token_type(size_t token_index, enum token_type expected_type) {
 	struct token token = peek_token(token_index);
 	grug_assert(token.type == expected_type, "Expected token type %s, but got %s on line %zu", get_token_type_str[expected_type], get_token_type_str[token.type], get_token_line_number(token_index));
 }
 
-static void consume_token_type(size_t *token_index_ptr, unsigned int expected_type) {
+static void consume_token_type(size_t *token_index_ptr, enum token_type expected_type) {
 	assert_token_type((*token_index_ptr)++, expected_type);
 }
 
@@ -2357,6 +2352,7 @@ static struct variable_statement parse_local_variable(size_t *i) {
 
 		local.has_type = true;
 		local.type = parse_type(type_token.str);
+		local.type_name = type_token.str;
 		grug_assert(local.type != type_resource, "The variable '%s' can't have 'resource' as its type", local.name);
 		grug_assert(local.type != type_entity, "The variable '%s' can't have 'entity' as its type", local.name);
 	}
@@ -2395,6 +2391,7 @@ static struct global_variable_statement parse_global_variable(size_t *i) {
 	assert_token_type(*i, WORD_TOKEN);
 	struct token type_token = consume_token(i);
 	global.type = parse_type(type_token.str);
+	global.type_name = type_token.str;
 
 	grug_assert(global.type != type_resource, "The global variable '%s' can't have 'resource' as its type", global.name);
 	grug_assert(global.type != type_entity, "The global variable '%s' can't have 'entity' as its type", global.name);
@@ -2563,7 +2560,9 @@ static struct argument *parse_arguments(size_t *i, size_t *argument_count) {
 	consume_space(i);
 	assert_token_type(*i, WORD_TOKEN);
 
-	argument.type = parse_type(consume_token(i).str);
+	const char *type_name = consume_token(i).str;
+	argument.type = parse_type(type_name);
+	argument.type_name = type_name;
 	grug_assert(argument.type != type_resource, "The argument '%s' can't have 'resource' as its type", argument.name);
 	grug_assert(argument.type != type_entity, "The argument '%s' can't have 'entity' as its type", argument.name);
 	struct argument *first_argument = push_argument(argument);
@@ -2584,7 +2583,9 @@ static struct argument *parse_arguments(size_t *i, size_t *argument_count) {
 
 		consume_space(i);
 		assert_token_type(*i, WORD_TOKEN);
-		argument.type = parse_type(consume_token(i).str);
+		type_name = consume_token(i).str;
+		argument.type = parse_type(type_name);
+		argument.type_name = type_name;
 
 		grug_assert(argument.type != type_resource, "The argument '%s' can't have 'resource' as its type", argument.name);
 		grug_assert(argument.type != type_entity, "The argument '%s' can't have 'entity' as its type", argument.name);
@@ -2632,6 +2633,7 @@ static struct helper_fn parse_helper_fn(size_t *i) {
 	if (token.type == WORD_TOKEN) {
 		(*i) += 2;
 		fn.return_type = parse_type(token.str);
+		fn.return_type_name = token.str;
 		grug_assert(fn.return_type != type_resource, "The function '%s' can't have 'resource' as its return type", fn.fn_name);
 		grug_assert(fn.return_type != type_entity, "The function '%s' can't have 'entity' as its return type", fn.fn_name);
 	}
@@ -2686,7 +2688,7 @@ static void parse(void) {
 	size_t i = 0;
 	while (i < tokens_size) {
 		struct token token = peek_token(i);
-		int type = token.type;
+		enum token_type type = token.type;
 
 		if (type == WORD_TOKEN && i + 1 < tokens_size && peek_token(i + 1).type == COLON_TOKEN) {
 			grug_assert(!seen_on_fn, "Move the global variable '%s' so it is above the on_ functions", token.str);
@@ -2890,7 +2892,7 @@ static void dump_statements(struct statement *body_statements, size_t statement_
 				dump(",\"name\":\"%s\"", statement.variable_statement.name);
 
 				if (statement.variable_statement.has_type) {
-					dump(",\"variable_type\":\"%s\"", type_names[statement.variable_statement.type]);
+					dump(",\"variable_type\":\"%s\"", statement.variable_statement.type_name);
 				}
 
 				dump(",\"assignment\":{");
@@ -2967,7 +2969,7 @@ static void dump_arguments(struct argument *arguments_offset, size_t argument_co
 		struct argument arg = arguments_offset[i];
 
 		dump("\"name\":\"%s\",", arg.name);
-		dump("\"type\":\"%s\"", type_names[arg.type]);
+		dump("\"type\":\"%s\"", arg.type_name);
 
 		dump("}");
 	}
@@ -2986,7 +2988,7 @@ static void dump_global_statement(struct global_statement global) {
 
 			dump(",\"name\":\"%s\",", global_variable.name);
 
-			dump("\"variable_type\":\"%s\",", type_names[global_variable.type]);
+			dump("\"variable_type\":\"%s\",", global_variable.type_name);
 
 			dump("\"assignment\":{");
 			dump_expr(global_variable.assignment_expr);
@@ -3016,7 +3018,7 @@ static void dump_global_statement(struct global_statement global) {
 
 			dump(",");
 			if (fn.return_type) {
-				dump("\"return_type\":\"%s\",", type_names[fn.return_type]);
+				dump("\"return_type\":\"%s\",", fn.return_type_name);
 			}
 
 			dump("\"statements\":[");
@@ -4065,6 +4067,7 @@ bool grug_generate_mods_from_json(const char *input_json_path, const char *outpu
 struct variable {
 	const char *name;
 	enum type type;
+	const char *type_name;
 	size_t offset;
 };
 static struct variable variables[MAX_VARIABLES_PER_FUNCTION];
@@ -4082,6 +4085,7 @@ static size_t stack_frame_bytes;
 static size_t max_stack_frame_bytes;
 
 static enum type fn_return_type;
+static const char *fn_return_type_name;
 static const char *filled_fn_name;
 
 static struct grug_entity *grug_entity;
@@ -4241,9 +4245,9 @@ static void validate_resource_string(const char *string, const char *resource_ex
 static void check_arguments(struct argument *params, size_t param_count, struct call_expr call_expr) {
 	const char *name = call_expr.fn_name;
 
-	grug_assert(call_expr.argument_count >= param_count, "Function call '%s' expected the argument '%s' with type %s", name, params[call_expr.argument_count].name, type_names[params[call_expr.argument_count].type]);
+	grug_assert(call_expr.argument_count >= param_count, "Function call '%s' expected the argument '%s' with type %s", name, params[call_expr.argument_count].name, params[call_expr.argument_count].type_name);
 
-	grug_assert(call_expr.argument_count <= param_count, "Function call '%s' got an unexpected extra argument with type %s", name, type_names[call_expr.arguments[param_count].result_type]);
+	grug_assert(call_expr.argument_count <= param_count, "Function call '%s' got an unexpected extra argument with type %s", name, call_expr.arguments[param_count].result_type_name);
 
 	for (size_t argument_index = 0; argument_index < call_expr.argument_count; argument_index++) {
 		struct expr *arg = &call_expr.arguments[argument_index];
@@ -4251,18 +4255,20 @@ static void check_arguments(struct argument *params, size_t param_count, struct 
 
 		if (arg->type == STRING_EXPR && param.type == type_resource) {
 			arg->result_type = type_resource;
+			arg->result_type_name = "resource";
 			arg->type = RESOURCE_EXPR;
 			validate_resource_string(arg->literal.string, param.resource_extension);
 		} else if (arg->type == STRING_EXPR && param.type == type_entity) {
 			arg->result_type = type_entity;
+			arg->result_type_name = "entity";
 			arg->type = ENTITY_EXPR;
 			validate_entity_string(arg->literal.string);
 			push_entity_type(param.entity_type);
 		}
 
-		grug_assert(arg->result_type != type_void, "Function call '%s' expected the type %s for argument '%s', but got a function call that doesn't return anything", name, type_names[param.type], param.name);
+		grug_assert(arg->result_type != type_void, "Function call '%s' expected the type %s for argument '%s', but got a function call that doesn't return anything", name, param.type_name, param.name);
 
-		grug_assert(arg->result_type == param.type, "Function call '%s' expected the type %s for argument '%s', but got %s", name, type_names[param.type], param.name, type_names[arg->result_type]);
+		grug_assert(arg->result_type == param.type, "Function call '%s' expected the type %s for argument '%s', but got %s", name, param.type_name, param.name, arg->result_type_name);
 	}
 }
 
@@ -4282,6 +4288,7 @@ static void fill_call_expr(struct expr *expr) {
 	struct helper_fn *helper_fn = get_helper_fn(name);
 	if (helper_fn) {
 		expr->result_type = helper_fn->return_type;
+		expr->result_type_name = helper_fn->return_type_name;
 
 		check_arguments(helper_fn->arguments, helper_fn->argument_count, call_expr);
 
@@ -4291,6 +4298,7 @@ static void fill_call_expr(struct expr *expr) {
 	struct grug_game_function *game_fn = get_grug_game_fn(name);
 	if (game_fn) {
 		expr->result_type = game_fn->return_type;
+		expr->result_type_name = game_fn->return_type_name;
 
 		check_arguments(game_fn->arguments, game_fn->argument_count, call_expr);
 
@@ -4316,12 +4324,13 @@ static void fill_binary_expr(struct expr *expr) {
 		grug_assert(binary_expr.operator == EQUALS_TOKEN || binary_expr.operator == NOT_EQUALS_TOKEN, "You can't use the %s operator on a string", get_token_type_str[binary_expr.operator]);
 	}
 
-	grug_assert(binary_expr.left_expr->result_type == binary_expr.right_expr->result_type, "The left and right operand of a binary expression ('%s') must have the same type, but got %s and %s", get_token_type_str[binary_expr.operator], type_names[binary_expr.left_expr->result_type], type_names[binary_expr.right_expr->result_type]);
+	grug_assert(binary_expr.left_expr->result_type == binary_expr.right_expr->result_type, "The left and right operand of a binary expression ('%s') must have the same type, but got %s and %s", get_token_type_str[binary_expr.operator], binary_expr.left_expr->result_type_name, binary_expr.right_expr->result_type_name);
 
 	switch (binary_expr.operator) {
 		case EQUALS_TOKEN:
 		case NOT_EQUALS_TOKEN:
 			expr->result_type = type_bool;
+			expr->result_type_name = "bool";
 			break;
 
 		case GREATER_OR_EQUAL_TOKEN:
@@ -4330,12 +4339,14 @@ static void fill_binary_expr(struct expr *expr) {
 		case LESS_TOKEN:
 			grug_assert(binary_expr.left_expr->result_type == type_i32 || binary_expr.left_expr->result_type == type_f32, "'%s' operator expects i32 or f32", get_token_type_str[binary_expr.operator]);
 			expr->result_type = type_bool;
+			expr->result_type_name = "bool";
 			break;
 
 		case AND_TOKEN:
 		case OR_TOKEN:
 			grug_assert(binary_expr.left_expr->result_type == type_bool, "'%s' operator expects bool", get_token_type_str[binary_expr.operator]);
 			expr->result_type = type_bool;
+			expr->result_type_name = "bool";
 			break;
 
 		case PLUS_TOKEN:
@@ -4344,10 +4355,12 @@ static void fill_binary_expr(struct expr *expr) {
 		case DIVISION_TOKEN:
 			grug_assert(binary_expr.left_expr->result_type == type_i32 || binary_expr.left_expr->result_type == type_f32, "'%s' operator expects i32 or f32", get_token_type_str[binary_expr.operator]);
 			expr->result_type = binary_expr.left_expr->result_type;
+			expr->result_type_name = binary_expr.left_expr->result_type_name;
 			break;
 		case REMAINDER_TOKEN:
 			grug_assert(binary_expr.left_expr->result_type == type_i32, "'%%' operator expects i32");
 			expr->result_type = type_i32;
+			expr->result_type_name = "i32";
 			break;
 		case OPEN_PARENTHESIS_TOKEN:
 		case CLOSE_PARENTHESIS_TOKEN:
@@ -4395,7 +4408,7 @@ static struct variable *get_global_variable(const char *name) {
 	return global_variables + i;
 }
 
-static void add_global_variable(const char *name, enum type type) {
+static void add_global_variable(const char *name, enum type type, const char *type_name) {
 	// TODO: Print the exact grug file path, function and line number
 	grug_assert(global_variables_size < MAX_GLOBAL_VARIABLES, "There are more than %d global variables in a grug file, exceeding MAX_GLOBAL_VARIABLES", MAX_GLOBAL_VARIABLES);
 
@@ -4404,6 +4417,7 @@ static void add_global_variable(const char *name, enum type type) {
 	global_variables[global_variables_size] = (struct variable){
 		.name = name,
 		.type = type,
+		.type_name = type_name,
 		.offset = globals_bytes,
 	};
 
@@ -4455,9 +4469,11 @@ static void fill_expr(struct expr *expr) {
 		case TRUE_EXPR:
 		case FALSE_EXPR:
 			expr->result_type = type_bool;
+			expr->result_type_name = "bool";
 			break;
 		case STRING_EXPR:
 			expr->result_type = type_string;
+			expr->result_type_name = "string";
 			break;
 		case RESOURCE_EXPR:
 		case ENTITY_EXPR:
@@ -4466,9 +4482,11 @@ static void fill_expr(struct expr *expr) {
 			struct variable *var = get_variable(expr->literal.string);
 			if (var) {
 				expr->result_type = var->type;
+				expr->result_type_name = var->type_name;
 				return;
 			} else if (streq(expr->literal.string, "null_id")) {
 				expr->result_type = type_id;
+				expr->result_type_name = "id";
 				return;
 			}
 
@@ -4478,9 +4496,11 @@ static void fill_expr(struct expr *expr) {
 		}
 		case I32_EXPR:
 			expr->result_type = type_i32;
+			expr->result_type_name = "i32";
 			break;
 		case F32_EXPR:
 			expr->result_type = type_f32;
+			expr->result_type_name = "f32";
 			break;
 		case UNARY_EXPR:
 			if (expr->unary.expr->type == UNARY_EXPR) {
@@ -4489,11 +4509,12 @@ static void fill_expr(struct expr *expr) {
 
 			fill_expr(expr->unary.expr);
 			expr->result_type = expr->unary.expr->result_type;
+			expr->result_type_name = expr->unary.expr->result_type_name;
 
 			if (expr->unary.operator == NOT_TOKEN) {
-				grug_assert(expr->result_type == type_bool, "Found 'not' before %s, but it can only be put before a bool", type_names[expr->result_type]);
+				grug_assert(expr->result_type == type_bool, "Found 'not' before %s, but it can only be put before a bool", expr->result_type_name);
 			} else if (expr->unary.operator == MINUS_TOKEN) {
-				grug_assert(expr->result_type == type_i32 || expr->result_type == type_f32, "Found '-' before %s, but it can only be put before an i32 or f32", type_names[expr->result_type]);
+				grug_assert(expr->result_type == type_i32 || expr->result_type == type_f32, "Found '-' before %s, but it can only be put before an i32 or f32", expr->result_type_name);
 			} else {
 				grug_unreachable();
 			}
@@ -4509,11 +4530,12 @@ static void fill_expr(struct expr *expr) {
 		case PARENTHESIZED_EXPR:
 			fill_expr(expr->parenthesized);
 			expr->result_type = expr->parenthesized->result_type;
+			expr->result_type_name = expr->parenthesized->result_type_name;
 			break;
 	}
 }
 
-static void add_local_variable(const char *name, enum type type) {
+static void add_local_variable(const char *name, enum type type, const char *type_name) {
 	// TODO: Print the exact grug file path, function and line number
 	grug_assert(variables_size < MAX_VARIABLES_PER_FUNCTION, "There are more than %d variables in a function, exceeding MAX_VARIABLES_PER_FUNCTION", MAX_VARIABLES_PER_FUNCTION);
 
@@ -4525,6 +4547,7 @@ static void add_local_variable(const char *name, enum type type) {
 	variables[variables_size] = (struct variable){
 		.name = name,
 		.type = type,
+		.type_name = type_name,
 
 		// This field is used by the "COMPILING" section to track the stack location of a local variable.
 		// The "TYPE PROPAGATION" section only checks whether it is SIZE_MAX,
@@ -4549,13 +4572,13 @@ static void fill_variable_statement(struct variable_statement variable_statement
 	if (variable_statement.has_type) {
 		grug_assert(!var, "The variable '%s' already exists", variable_statement.name);
 
-		grug_assert(variable_statement.type == variable_statement.assignment_expr->result_type, "Can't assign %s to '%s', which has type %s", type_names[variable_statement.assignment_expr->result_type], variable_statement.name, type_names[variable_statement.type]);
+		grug_assert(variable_statement.type == variable_statement.assignment_expr->result_type, "Can't assign %s to '%s', which has type %s", variable_statement.assignment_expr->result_type_name, variable_statement.name, variable_statement.type_name);
 
-		add_local_variable(variable_statement.name, variable_statement.type);
+		add_local_variable(variable_statement.name, variable_statement.type, variable_statement.type_name);
 	} else {
 		grug_assert(var, "Can't assign to the variable '%s', since it does not exist", variable_statement.name);
 
-		grug_assert(var->type == variable_statement.assignment_expr->result_type, "Can't assign %s to '%s', which has type %s", type_names[variable_statement.assignment_expr->result_type], var->name, type_names[var->type]);
+		grug_assert(var->type == variable_statement.assignment_expr->result_type, "Can't assign %s to '%s', which has type %s", variable_statement.assignment_expr->result_type_name, var->name, var->type_name);
 	}
 }
 
@@ -4602,12 +4625,14 @@ static void fill_statements(struct statement *body_statements, size_t statement_
 				break;
 			case RETURN_STATEMENT:
 				if (statement.return_statement.has_value) {
+					// Entered for statement `return 42`
 					fill_expr(statement.return_statement.value);
 
 					grug_assert(fn_return_type != type_void, "Function '%s' wasn't supposed to return any value", filled_fn_name);
-					grug_assert(statement.return_statement.value->result_type == fn_return_type, "Function '%s' is supposed to return %s, not %s", filled_fn_name, type_names[fn_return_type], type_names[statement.return_statement.value->result_type]);
+					grug_assert(statement.return_statement.value->result_type == fn_return_type, "Function '%s' is supposed to return %s, not %s", filled_fn_name, fn_return_type_name, statement.return_statement.value->result_type_name);
 				} else {
-					grug_assert(fn_return_type == type_void, "Function '%s' is supposed to return a value of type %s", filled_fn_name, type_names[fn_return_type]);
+					// Entered for statement `return`
+					grug_assert(fn_return_type == type_void, "Function '%s' is supposed to return a value of type %s", filled_fn_name, fn_return_type_name);
 				}
 				break;
 			case WHILE_STATEMENT:
@@ -4638,7 +4663,7 @@ static void add_argument_variables(struct argument *fn_arguments, size_t argumen
 
 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
 		struct argument arg = fn_arguments[argument_index];
-		add_local_variable(arg.name, arg.type);
+		add_local_variable(arg.name, arg.type, arg.type_name);
 
 		max_stack_frame_bytes += type_sizes[arg.type];
 	}
@@ -4649,6 +4674,7 @@ static void fill_helper_fns(void) {
 		struct helper_fn fn = helper_fns[fn_index];
 
 		fn_return_type = fn.return_type;
+		fn_return_type_name = fn.return_type_name;
 
 		filled_fn_name = fn.fn_name;
 
@@ -4659,11 +4685,11 @@ static void fill_helper_fns(void) {
 		// Unlike fill_statements() its RETURN_STATEMENT case,
 		// this checks whether a return statement *is missing* at the end of the function
 		if (fn.return_type != type_void) {
-			grug_assert(fn.body_statement_count > 0, "Function '%s' is supposed to return %s as its last line", filled_fn_name, type_names[fn_return_type]);
+			grug_assert(fn.body_statement_count > 0, "Function '%s' is supposed to return %s as its last line", filled_fn_name, fn_return_type_name);
 
 			struct statement last_statement = fn.body_statements[fn.body_statement_count - 1];
 
-			grug_assert(last_statement.type == RETURN_STATEMENT, "Function '%s' is supposed to return %s as its last line", filled_fn_name, type_names[fn_return_type]);
+			grug_assert(last_statement.type == RETURN_STATEMENT, "Function '%s' is supposed to return %s as its last line", filled_fn_name, fn_return_type_name);
 		}
 	}
 }
@@ -4723,9 +4749,9 @@ static void fill_on_fns(void) {
 		struct argument *params = entity_on_fn->arguments;
 		size_t param_count = entity_on_fn->argument_count;
 
-		grug_assert(arg_count >= param_count, "Function '%s' expected the parameter '%s' with type %s", name, params[arg_count].name, type_names[params[arg_count].type]);
+		grug_assert(arg_count >= param_count, "Function '%s' expected the parameter '%s' with type %s", name, params[arg_count].name, params[arg_count].type_name);
 
-		grug_assert(arg_count <= param_count, "Function '%s' got an unexpected extra parameter '%s' with type %s", name, args[param_count].name, type_names[args[param_count].type]);
+		grug_assert(arg_count <= param_count, "Function '%s' got an unexpected extra parameter '%s' with type %s", name, args[param_count].name, args[param_count].type_name);
 
 		for (size_t argument_index = 0; argument_index < arg_count; argument_index++) {
 			struct argument param = params[argument_index];
@@ -4734,7 +4760,8 @@ static void fill_on_fns(void) {
 			grug_assert(streq(arg_name, param.name), "Function '%s' its '%s' parameter was supposed to be named '%s'", name, arg_name, param.name);
 
 			enum type arg_type = args[argument_index].type;
-			grug_assert(arg_type == param.type, "Function '%s' its '%s' parameter was supposed to have the type %s, but got %s", name, param.name, type_names[param.type], type_names[arg_type]);
+			const char *arg_type_name = args[argument_index].type_name;
+			grug_assert(arg_type == param.type, "Function '%s' its '%s' parameter was supposed to have the type %s, but got %s", name, param.name, param.type_name, arg_type_name);
 		}
 
 		add_argument_variables(args, arg_count);
@@ -4783,7 +4810,7 @@ static void check_global_expr(struct expr *expr, const char *name) {
 }
 
 static void fill_global_variables(void) {
-	add_global_variable("me", type_id);
+	add_global_variable("me", type_id, file_entity_type);
 
 	for (size_t i = 0; i < global_variable_statements_size; i++) {
 		struct global_variable_statement *global = &global_variable_statements[i];
@@ -4792,7 +4819,7 @@ static void fill_global_variables(void) {
 
 		fill_expr(&global->assignment_expr);
 
-		grug_assert(global->type == global->assignment_expr.result_type, "Can't assign %s to '%s', which has type %s", type_names[global->assignment_expr.result_type], global->name, type_names[global->type]);
+		grug_assert(global->type == global->assignment_expr.result_type, "Can't assign %s to '%s', which has type %s", global->assignment_expr.result_type_name, global->name, global->type_name);
 
 		// This won't be entered by a global `foo: id = get_opponent()`
 		// See tests/ok/global_id_cant_be_reassigned
@@ -4804,7 +4831,7 @@ static void fill_global_variables(void) {
 			grug_assert(!streq(global->assignment_expr.literal.string, "null_id"), "Global variables can't be assigned null_id");
 		}
 
-		add_global_variable(global->name, global->type);
+		add_global_variable(global->name, global->type, global->type_name);
 	}
 }
 
@@ -6586,7 +6613,7 @@ static void compile_variable_statement(struct variable_statement variable_statem
 
 	// The "TYPE PROPAGATION" section already checked for any possible errors.
 	if (variable_statement.has_type) {
-		add_local_variable(variable_statement.name, variable_statement.type);
+		add_local_variable(variable_statement.name, variable_statement.type, variable_statement.type_name);
 	}
 
 	struct variable *var = get_local_variable(variable_statement.name);
