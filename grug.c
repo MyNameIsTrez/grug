@@ -6,6 +6,12 @@
 //
 // You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
 //
+// ## Contributing
+//
+// Create an issue in [grug's GitHub repository](https://github.com/MyNameIsTrez/grug), before you make any pull request.
+//
+// This gives everyone the chance to discuss it, and prevents your hard work from being rejected.
+//
 // ## Sections
 //
 // This file is composed of sections, which you can jump between by searching for `////` in the file:
