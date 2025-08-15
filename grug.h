@@ -34,7 +34,7 @@ bool grug_regenerate_modified_mods(void) __attribute__((warn_unused_result));
 
 // Do NOT store the returned pointer, as it has a chance to dangle
 // after the next grug_regenerate_modified_mods() call!
-struct grug_file *grug_get_entity_file(const char *entity);
+struct grug_file *grug_get_entity_file(const char *entity) __attribute__((warn_unused_result));
 
 // Calling this during a game function will cause grug
 // to immediately return a runtime error, from the current on_ function call
@@ -59,7 +59,7 @@ bool grug_generate_mods_from_json(const char *input_json_path, const char *outpu
 // from grug mod runtime errors (division by 0/stack overflow/functions taking too long)
 void grug_set_on_fns_to_safe_mode(void);
 void grug_set_on_fns_to_fast_mode(void);
-bool grug_are_on_fns_in_safe_mode(void);
+bool grug_are_on_fns_in_safe_mode(void) __attribute__((warn_unused_result));
 void grug_toggle_on_fns_mode(void);
 
 //// Defines
