@@ -6263,7 +6263,7 @@ static void compile_binary_expr(struct expr expr) {
 				compile_unpadded(CMP_RAX_WITH_R11);
 				compile_unpadded(MOV_TO_EAX);
 				compile_32(0);
-				compile_unpadded(SETE_AL);
+				compile_unpadded(SETNE_AL);
 			} else {
 				compile_unpadded(MOV_R11_TO_RSI);
 				compile_unpadded(MOV_RAX_TO_RDI);
