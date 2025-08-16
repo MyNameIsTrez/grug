@@ -4259,7 +4259,8 @@ static bool is_wrong_type(enum type a, enum type b, const char *a_name, const ch
 	}
 
 	// If a custom id is null_id, then it is never the wrong type.
-	return !(streq(a_name, "null_id") || streq(b_name, "null_id"));
+	bool null = streq(a_name, "null_id") || streq(b_name, "null_id");
+	return !null;
 }
 
 static void check_arguments(struct argument *params, size_t param_count, struct call_expr call_expr) {
@@ -4288,7 +4289,7 @@ static void check_arguments(struct argument *params, size_t param_count, struct 
 
 		grug_assert(arg->result_type != type_void, "Function call '%s' expected the type %s for argument '%s', but got a function call that doesn't return anything", name, param.type_name, param.name);
 
-		if (is_wrong_type(arg->result_type, param.type, arg->result_type_name, param.type_name)) {
+		if (!streq(param.type_name, "any") && is_wrong_type(arg->result_type, param.type, arg->result_type_name, param.type_name)) {
 			grug_error("Function call '%s' expected the type %s for argument '%s', but got %s", name, param.type_name, param.name, arg->result_type_name);
 		}
 	}
@@ -4346,7 +4347,8 @@ static void fill_binary_expr(struct expr *expr) {
 		grug_assert(binary_expr.operator == EQUALS_TOKEN || binary_expr.operator == NOT_EQUALS_TOKEN, "You can't use the %s operator on a string", get_token_type_str[binary_expr.operator]);
 	}
 
-	if (is_wrong_type(binary_expr.left_expr->result_type, binary_expr.right_expr->result_type, binary_expr.left_expr->result_type_name, binary_expr.right_expr->result_type_name)) {
+	bool any = streq(binary_expr.left_expr->result_type_name, "any") || streq(binary_expr.right_expr->result_type_name, "any");
+	if (!any && is_wrong_type(binary_expr.left_expr->result_type, binary_expr.right_expr->result_type, binary_expr.left_expr->result_type_name, binary_expr.right_expr->result_type_name)) {
 		grug_error("The left and right operand of a binary expression ('%s') must have the same type, but got %s and %s", get_token_type_str[binary_expr.operator], binary_expr.left_expr->result_type_name, binary_expr.right_expr->result_type_name);
 	}
 
