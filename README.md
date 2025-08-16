@@ -44,9 +44,3 @@ This gives everyone the chance to discuss it, and prevents your hard work from b
 - [terminal game: Python](https://github.com/MyNameIsTrez/grug-terminal-game-python)
 - [terminal game: Java](https://github.com/MyNameIsTrez/grug-terminal-game-java)
 - [grug benchmarks](https://github.com/MyNameIsTrez/grug-benchmarks)
-
-## Settings
-
-Search for `#define` in `grug.c` (with Ctrl+F). All the defines are configurable.
-
-If you want to allow your compiler to optimize `grug.c` extra hard, add the compiler flag `-DCRASH_ON_UNREACHABLE`.

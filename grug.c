@@ -42,12 +42,6 @@
 // - [terminal game: Python](https://github.com/MyNameIsTrez/grug-terminal-game-python)
 // - [terminal game: Java](https://github.com/MyNameIsTrez/grug-terminal-game-java)
 // - [grug benchmarks](https://github.com/MyNameIsTrez/grug-benchmarks)
-//
-// ## Settings
-//
-// Search for `#define` in this file (with Ctrl+F). All the defines are configurable.
-//
-// If you want to allow your compiler to optimize this file extra hard, add the compiler flag `-DCRASH_ON_UNREACHABLE`.
 
 //// INCLUDES AND DEFINES
 
