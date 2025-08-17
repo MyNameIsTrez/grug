@@ -1,5 +1,7 @@
 # grug
 
+[![](https://dcbadge.limes.pink/api/server/https://discord.com/invite/ufeJ6MBXJG)](https://discord.gg/https://discord.com/invite/ufeJ6MBXJG)
+
 See my YouTube video explaining and showcasing grug:
 
 [<img src="https://img.youtube.com/vi/4oUToVXR2Vo/maxresdefault.jpg" height="200">](https://youtu.be/4oUToVXR2Vo)
