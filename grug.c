@@ -4622,7 +4622,7 @@ static void fill_variable_statement(struct variable_statement variable_statement
 	if (variable_statement.has_type) {
 		grug_assert(!var, "The variable '%s' already exists", variable_statement.name);
 
-		if (is_wrong_type(variable_statement.type, variable_statement.assignment_expr->result_type, variable_statement.type_name, variable_statement.assignment_expr->result_type_name)) {
+		if (!streq(variable_statement.type_name, "any") && is_wrong_type(variable_statement.type, variable_statement.assignment_expr->result_type, variable_statement.type_name, variable_statement.assignment_expr->result_type_name)) {
 			grug_error("Can't assign %s to '%s', which has type %s", variable_statement.assignment_expr->result_type_name, variable_statement.name, variable_statement.type_name);
 		}
 
@@ -4630,7 +4630,7 @@ static void fill_variable_statement(struct variable_statement variable_statement
 	} else {
 		grug_assert(var, "Can't assign to the variable '%s', since it does not exist", variable_statement.name);
 
-		if (is_wrong_type(var->type, variable_statement.assignment_expr->result_type, var->type_name, variable_statement.assignment_expr->result_type_name)) {
+		if (!streq(var->type_name, "any") && is_wrong_type(var->type, variable_statement.assignment_expr->result_type, var->type_name, variable_statement.assignment_expr->result_type_name)) {
 			grug_error("Can't assign %s to '%s', which has type %s", variable_statement.assignment_expr->result_type_name, var->name, var->type_name);
 		}
 	}
@@ -4684,7 +4684,7 @@ static void fill_statements(struct statement *body_statements, size_t statement_
 
 					grug_assert(fn_return_type != type_void, "Function '%s' wasn't supposed to return any value", filled_fn_name);
 
-					if (is_wrong_type(statement.return_statement.value->result_type, fn_return_type, statement.return_statement.value->result_type_name, fn_return_type_name)) {
+					if (!streq(fn_return_type_name, "any") && is_wrong_type(statement.return_statement.value->result_type, fn_return_type, statement.return_statement.value->result_type_name, fn_return_type_name)) {
 						grug_error("Function '%s' is supposed to return %s, not %s", filled_fn_name, fn_return_type_name, statement.return_statement.value->result_type_name);
 					}
 				} else {
@@ -4889,7 +4889,7 @@ static void fill_global_variables(void) {
 			grug_assert(!streq(global->assignment_expr.literal.string, "null_id"), "Global variables can't be assigned null_id");
 		}
 
-		if (is_wrong_type(global->type, global->assignment_expr.result_type, global->type_name, global->assignment_expr.result_type_name)) {
+		if (!streq(global->type_name, "any") && is_wrong_type(global->type, global->assignment_expr.result_type, global->type_name, global->assignment_expr.result_type_name)) {
 			grug_error("Can't assign %s to '%s', which has type %s", global->assignment_expr.result_type_name, global->name, global->type_name);
 		}
 
