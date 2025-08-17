@@ -2,6 +2,8 @@
 //
 // See the bottom of this file for the MIT license
 //
+// See my YouTube video explaining and showcasing grug: https://youtu.be/4oUToVXR2Vo
+//
 // See [my blog post](https://mynameistrez.github.io/2024/02/29/creating-the-perfect-modding-language.html) for an introduction to the grug modding language.
 //
 // You can find its test suite [here](https://github.com/MyNameIsTrez/grug-tests).
