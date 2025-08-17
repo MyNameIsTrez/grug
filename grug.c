@@ -899,6 +899,32 @@ static void push_grug_argument(struct argument argument) {
 	grug_arguments[grug_arguments_size++] = argument;
 }
 
+static void check_custom_id_is_pascal(const char *type_name) {
+	// The first character must always be uppercase.
+	grug_assert(isupper(type_name[0]), "'%s' seems like a custom ID type, but isn't in PascalCase", type_name);
+
+	// Custom IDs only consist of uppercase and lowercase characters.
+	for (const char *p = type_name; *p; p++) {
+		char c = *p;
+		grug_assert(isupper(c) || islower(c), "'%s' seems like a custom ID type, but it contains '%c', which isn't an uppercase nor lowercase letter", type_name, c);
+	}
+}
+
+static void check_custom_id_type_capitalization(const char *type_name) {
+	// If it is not a custom ID, return.
+	if (streq(type_name, "bool")
+	 || streq(type_name, "i32")
+	 || streq(type_name, "f32")
+	 || streq(type_name, "string")
+	 || streq(type_name, "resource")
+	 || streq(type_name, "entity")
+	 || streq(type_name, "any")) {
+		return;
+	}
+
+	check_custom_id_is_pascal(type_name);
+}
+
 static const char *push_mod_api_string(const char *old_str) {
 	size_t length = strlen(old_str);
 
@@ -963,6 +989,7 @@ static void init_game_fns(struct json_object fns) {
 				grug_assert(field->value->type == JSON_NODE_STRING, "\"game_functions\" its function return types must be strings");
 				grug_fn.return_type = parse_type(field->value->string);
 				grug_fn.return_type_name = push_mod_api_string(field->value->string);
+				check_custom_id_type_capitalization(grug_fn.return_type_name);
 				grug_assert(grug_fn.return_type != type_resource, "\"game_functions\" its function return types must not be 'resource'");
 				grug_assert(grug_fn.return_type != type_entity, "\"game_functions\" its function return types must not be 'entity'");
 				seen_return_type = true;
@@ -1001,6 +1028,7 @@ static void init_game_fns(struct json_object fns) {
 				grug_assert(argument_field->value->type == JSON_NODE_STRING, "\"game_functions\" its function arguments must always have string values");
 				grug_arg.type = parse_type(argument_field->value->string);
 				grug_arg.type_name = push_mod_api_string(argument_field->value->string);
+				check_custom_id_type_capitalization(grug_arg.type_name);
 				argument_field++;
 
 				if (grug_arg.type == type_resource) {
@@ -1072,6 +1100,7 @@ static void init_on_fns(struct json_object fns) {
 				grug_assert(argument_field->value->type == JSON_NODE_STRING, "\"on_functions\" its function arguments must always have string values");
 				grug_arg.type = parse_type(argument_field->value->string);
 				grug_arg.type_name = push_mod_api_string(argument_field->value->string);
+				check_custom_id_type_capitalization(grug_arg.type_name);
 				grug_assert(grug_arg.type != type_resource, "\"on_functions\" its function argument types must not be 'resource'");
 				grug_assert(grug_arg.type != type_entity, "\"on_functions\" its function argument types must not be 'entity'");
 				argument_field++;
@@ -1091,6 +1120,7 @@ static void init_entities(struct json_object entities) {
 
 		entity.name = push_mod_api_string(entities.fields[entity_field_index].key);
 		grug_assert(!streq(entity.name, ""), "\"entities\" its names must not be an empty string");
+		check_custom_id_type_capitalization(entity.name);
 
 		grug_assert(entities.fields[entity_field_index].value->type == JSON_NODE_OBJECT, "\"entities\" must only contain object values");
 		struct json_object fn = entities.fields[entity_field_index].value->object;
@@ -8994,6 +9024,8 @@ static void initialize_file_entity_type(const char *grug_filename) {
 	grug_assert(entity_type_len < MAX_FILE_ENTITY_TYPE_LENGTH, "There are more than %d characters in the entity type of '%s', exceeding MAX_FILE_ENTITY_TYPE_LENGTH", MAX_FILE_ENTITY_TYPE_LENGTH, grug_filename);
 	memcpy(file_entity_type, dash + 1, entity_type_len);
 	file_entity_type[entity_type_len] = '\0';
+
+	check_custom_id_is_pascal(file_entity_type);
 }
 
 static void set_grug_error_path(const char *grug_path) {
