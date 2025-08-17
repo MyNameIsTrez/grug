@@ -920,7 +920,7 @@ static void check_custom_id_type_capitalization(const char *type_name) {
 	 || streq(type_name, "string")
 	 || streq(type_name, "resource")
 	 || streq(type_name, "entity")
-	 || streq(type_name, "any")) {
+	 || streq(type_name, "id")) {
 		return;
 	}
 
@@ -4309,7 +4309,7 @@ static void check_arguments(struct argument *params, size_t param_count, struct 
 
 		grug_assert(arg->result_type != type_void, "Function call '%s' expected the type %s for argument '%s', but got a function call that doesn't return anything", name, param.type_name, param.name);
 
-		if (!streq(param.type_name, "any") && is_wrong_type(arg->result_type, param.type, arg->result_type_name, param.type_name)) {
+		if (!streq(param.type_name, "id") && is_wrong_type(arg->result_type, param.type, arg->result_type_name, param.type_name)) {
 			grug_error("Function call '%s' expected the type %s for argument '%s', but got %s", name, param.type_name, param.name, arg->result_type_name);
 		}
 	}
@@ -4367,8 +4367,8 @@ static void fill_binary_expr(struct expr *expr) {
 		grug_assert(binary_expr.operator == EQUALS_TOKEN || binary_expr.operator == NOT_EQUALS_TOKEN, "You can't use the %s operator on a string", get_token_type_str[binary_expr.operator]);
 	}
 
-	bool any = streq(binary_expr.left_expr->result_type_name, "any") || streq(binary_expr.right_expr->result_type_name, "any");
-	if (!any && is_wrong_type(binary_expr.left_expr->result_type, binary_expr.right_expr->result_type, binary_expr.left_expr->result_type_name, binary_expr.right_expr->result_type_name)) {
+	bool id = streq(binary_expr.left_expr->result_type_name, "id") || streq(binary_expr.right_expr->result_type_name, "id");
+	if (!id && is_wrong_type(binary_expr.left_expr->result_type, binary_expr.right_expr->result_type, binary_expr.left_expr->result_type_name, binary_expr.right_expr->result_type_name)) {
 		grug_error("The left and right operand of a binary expression ('%s') must have the same type, but got %s and %s", get_token_type_str[binary_expr.operator], binary_expr.left_expr->result_type_name, binary_expr.right_expr->result_type_name);
 	}
 
@@ -4609,7 +4609,7 @@ static void fill_variable_statement(struct variable_statement variable_statement
 	if (variable_statement.has_type) {
 		grug_assert(!var, "The variable '%s' already exists", variable_statement.name);
 
-		if (!streq(variable_statement.type_name, "any") && is_wrong_type(variable_statement.type, variable_statement.assignment_expr->result_type, variable_statement.type_name, variable_statement.assignment_expr->result_type_name)) {
+		if (!streq(variable_statement.type_name, "id") && is_wrong_type(variable_statement.type, variable_statement.assignment_expr->result_type, variable_statement.type_name, variable_statement.assignment_expr->result_type_name)) {
 			grug_error("Can't assign %s to '%s', which has type %s", variable_statement.assignment_expr->result_type_name, variable_statement.name, variable_statement.type_name);
 		}
 
@@ -4617,7 +4617,7 @@ static void fill_variable_statement(struct variable_statement variable_statement
 	} else {
 		grug_assert(var, "Can't assign to the variable '%s', since it does not exist", variable_statement.name);
 
-		if (!streq(var->type_name, "any") && is_wrong_type(var->type, variable_statement.assignment_expr->result_type, var->type_name, variable_statement.assignment_expr->result_type_name)) {
+		if (!streq(var->type_name, "id") && is_wrong_type(var->type, variable_statement.assignment_expr->result_type, var->type_name, variable_statement.assignment_expr->result_type_name)) {
 			grug_error("Can't assign %s to '%s', which has type %s", variable_statement.assignment_expr->result_type_name, var->name, var->type_name);
 		}
 	}
@@ -4671,7 +4671,7 @@ static void fill_statements(struct statement *body_statements, size_t statement_
 
 					grug_assert(fn_return_type != type_void, "Function '%s' wasn't supposed to return any value", filled_fn_name);
 
-					if (!streq(fn_return_type_name, "any") && is_wrong_type(statement.return_statement.value->result_type, fn_return_type, statement.return_statement.value->result_type_name, fn_return_type_name)) {
+					if (!streq(fn_return_type_name, "id") && is_wrong_type(statement.return_statement.value->result_type, fn_return_type, statement.return_statement.value->result_type_name, fn_return_type_name)) {
 						grug_error("Function '%s' is supposed to return %s, not %s", filled_fn_name, fn_return_type_name, statement.return_statement.value->result_type_name);
 					}
 				} else {
@@ -4871,7 +4871,7 @@ static void fill_global_variables(void) {
 			grug_assert(!streq(global->assignment_expr.literal.string, "me"), "Global variables can't be assigned 'me'");
 		}
 
-		if (!streq(global->type_name, "any") && is_wrong_type(global->type, global->assignment_expr.result_type, global->type_name, global->assignment_expr.result_type_name)) {
+		if (!streq(global->type_name, "id") && is_wrong_type(global->type, global->assignment_expr.result_type, global->type_name, global->assignment_expr.result_type_name)) {
 			grug_error("Can't assign %s to '%s', which has type %s", global->assignment_expr.result_type_name, global->name, global->type_name);
 		}
 
