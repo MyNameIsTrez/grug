@@ -1,6 +1,8 @@
 # grug
 
-<img src="https://github.com/user-attachments/assets/030798b8-88bb-4c45-ba42-b79bb1b1e12c" width=200 />
+grug has an official YouTube video:
+
+[<img src="https://img.youtube.com/vi/4oUToVXR2Vo/maxresdefault.jpg" height="200">](https://youtu.be/4oUToVXR2Vo)
 
 See [my blog post](https://mynameistrez.github.io/2024/02/29/creating-the-perfect-modding-language.html) for an introduction to the grug modding language.
 
