@@ -1,6 +1,6 @@
 # grug
 
-grug has an official YouTube video:
+See my YouTube video explaining and showcasing grug:
 
 [<img src="https://img.youtube.com/vi/4oUToVXR2Vo/maxresdefault.jpg" height="200">](https://youtu.be/4oUToVXR2Vo)
 
