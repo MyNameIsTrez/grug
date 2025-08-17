@@ -908,7 +908,7 @@ static void check_custom_id_is_pascal(const char *type_name) {
 	// Custom IDs only consist of uppercase and lowercase characters.
 	for (const char *p = type_name; *p; p++) {
 		char c = *p;
-		grug_assert(isupper(c) || islower(c), "'%s' seems like a custom ID type, but it contains '%c', which isn't an uppercase nor lowercase letter", type_name, c);
+		grug_assert(isupper(c) || islower(c) || isdigit(c), "'%s' seems like a custom ID type, but it contains '%c', which isn't uppercase/lowercase/a digit", type_name, c);
 	}
 }
 
