@@ -165,16 +165,6 @@ static bool ends_with(const char *haystack, const char *needle) {
 	return strncmp(haystack + len_haystack - len_needle, needle, len_needle) == 0;
 }
 
-static bool is_lowercase(const char *str) {
-	for (; *str; str++) {
-		// `!islower()` doesn't work, since '-' isn't considered lowercase
-		if (isupper(*str)) {
-			return false;
-		}
-	}
-	return true;
-}
-
 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/elf.c#l193
 static u32 elf_hash(const char *namearg) {
 	u32 h = 0;
@@ -3116,8 +3106,6 @@ static void dump_mods_to_opened_json(const char *dir_path) {
 		char entry_path[STUPID_MAX_PATH];
 		snprintf(entry_path, sizeof(entry_path), "%s/%s", dir_path, name);
 
-		grug_assert(is_lowercase(name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", name, entry_path);
-
 		struct stat entry_stat;
 		grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
 
@@ -3152,8 +3140,6 @@ static void dump_mods_to_opened_json(const char *dir_path) {
 
 		char entry_path[STUPID_MAX_PATH];
 		snprintf(entry_path, sizeof(entry_path), "%s/%s", dir_path, name);
-
-		grug_assert(is_lowercase(name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", name, entry_path);
 
 		struct stat entry_stat;
 		grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
@@ -9416,8 +9402,6 @@ static void reload_entry(const char *name, const char *mods_dir_path, const char
 	char entry_path[STUPID_MAX_PATH];
 	snprintf(entry_path, sizeof(entry_path), "%s/%s", mods_dir_path, name);
 
-	grug_assert(is_lowercase(name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", name, entry_path);
-
 	char dll_entry_path[STUPID_MAX_PATH];
 	snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_dir_path, name);
 
@@ -9556,8 +9540,6 @@ static void reload_modified_mods(void) {
 
 		static char entry_path[STUPID_MAX_PATH];
 		grug_assert(snprintf(entry_path, sizeof(entry_path), "%s/%s", mods_root_dir_path, name) >= 0, "Filling the variable 'entry_path' failed");
-
-		grug_assert(is_lowercase(name), "Mod file and directory names must be lowercase, but \"%s\" in \"%s\" isn't", name, entry_path);
 
 		struct stat entry_stat;
 		grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
