@@ -4277,14 +4277,8 @@ static bool is_wrong_type(enum type a, enum type b, const char *a_name, const ch
 		return false;
 	}
 
-	// gun == gun means we know for certain it is the right custom id.
-	if (streq(a_name, b_name)) {
-		return false;
-	}
-
-	// If a custom id is null_id, then it is never the wrong type.
-	bool null = streq(a_name, "null_id") || streq(b_name, "null_id");
-	return !null;
+	// gun != car means we know for certain there is a mismatch.
+	return (!streq(a_name, b_name));
 }
 
 static void check_arguments(struct argument *params, size_t param_count, struct call_expr call_expr) {
@@ -4530,18 +4524,9 @@ static void fill_expr(struct expr *expr) {
 			grug_unreachable();
 		case IDENTIFIER_EXPR: {
 			struct variable *var = get_variable(expr->literal.string);
-			if (var) {
-				expr->result_type = var->type;
-				expr->result_type_name = var->type_name;
-				return;
-			} else if (streq(expr->literal.string, "null_id")) {
-				expr->result_type = type_id;
-				expr->result_type_name = "null_id";
-				return;
-			}
-
-			grug_error("The variable '%s' does not exist", expr->literal.string);
-
+			grug_assert(var, "The variable '%s' does not exist", expr->literal.string);
+			expr->result_type = var->type;
+			expr->result_type_name = var->type_name;
 			break;
 		}
 		case I32_EXPR:
@@ -4841,13 +4826,11 @@ static void check_global_expr(struct expr *expr, const char *name) {
 		case STRING_EXPR:
 		case I32_EXPR:
 		case F32_EXPR:
+		case IDENTIFIER_EXPR:
 			break;
 		case RESOURCE_EXPR:
 		case ENTITY_EXPR:
 			grug_unreachable();
-		case IDENTIFIER_EXPR:
-			// See tests/ok/global_containing_null_id
-			break;
 		case UNARY_EXPR:
 			check_global_expr(expr->unary.expr, name);
 			break;
@@ -4884,9 +4867,6 @@ static void fill_global_variables(void) {
 		if (global->assignment_expr.type == IDENTIFIER_EXPR) {
 			// See tests/err/global_cant_be_me
 			grug_assert(!streq(global->assignment_expr.literal.string, "me"), "Global variables can't be assigned 'me'");
-
-			// See tests/err/global_cant_be_null_id
-			grug_assert(!streq(global->assignment_expr.literal.string, "null_id"), "Global variables can't be assigned null_id");
 		}
 
 		if (!streq(global->type_name, "any") && is_wrong_type(global->type, global->assignment_expr.result_type, global->type_name, global->assignment_expr.result_type_name)) {
@@ -4958,8 +4938,6 @@ static void fill_result_types(void) {
 #define MS_PER_SEC 1000
 #define NS_PER_SEC 1000000000
 
-#define NULL_ID 0xffffffffffffffff
-
 // Start of code enums
 
 #define XOR_EAX_BY_N 0x35 // xor eax, n
@@ -5025,7 +5003,6 @@ static void fill_result_types(void) {
 #define MOV_ECX_TO_DEREF_RBP_32_BIT_OFFSET 0x8d89 // mov rbp[n], ecx
 #define MOV_EDX_TO_DEREF_RBP_32_BIT_OFFSET 0x9589 // mov rbp[n], edx
 #define MOV_ESI_TO_DEREF_RBP_32_BIT_OFFSET 0xb589 // mov rbp[n], esi
-#define MOVABS_TO_RAX 0xb848 // mov rax, n
 #define XOR_CLEAR_EAX 0xc031 // xor eax, eax
 
 #define TEST_AL_IS_ZERO 0xc084 // test al, al
@@ -6510,12 +6487,6 @@ static void compile_expr(struct expr expr) {
 			break;
 		}
 		case IDENTIFIER_EXPR: {
-			if (streq(expr.literal.string, "null_id")) {
-				compile_unpadded(MOVABS_TO_RAX);
-				compile_unpadded(NULL_ID);
-				return;
-			}
-
 			struct variable *var = get_local_variable(expr.literal.string);
 			if (var) {
 				switch (var->type) {
