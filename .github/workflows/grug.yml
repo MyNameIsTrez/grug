@@ -1,0 +1,85 @@
+name: Build grug.c
+
+on: [push, pull_request]
+
+jobs:
+  regenerate:
+    if: github.event_name == 'push' || (github.event.pull_request.merged == true)
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      checks: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Concatenate files into grug.c
+        run: |
+          TMPBODY=$(mktemp)
+          TMPFILE=$(mktemp)
+
+          # Concatenate all sources into TMPBODY with an extra newline between each
+          for f in src/1_grug_documentation.c \
+                   src/2_includes_and_defines.c \
+                   src/3_utils.c \
+                   src/4_runtime_error_handling.c \
+                   src/5_json.c \
+                   src/6_parsing_mod_api_json.c \
+                   src/7_reading.c \
+                   src/8_tokenization.c \
+                   src/9_parsing.c \
+                   src/10_dumping_ast.c \
+                   src/11_applying_ast.c \
+                   src/12_type_propagation.c \
+                   src/13_compiling.c \
+                   src/14_linking.c \
+                   src/15_hot_reloading.c \
+                   src/LICENSE
+          do
+            cat "$f" >> "$TMPBODY"
+            echo >> "$TMPBODY"   # extra newline between files
+          done
+
+          # Extract body of existing grug.c (skip header + timestamp)
+          if [ -f grug.c ]; then
+              EXISTING_BODY=$(sed '1,3d' grug.c)
+          else
+              EXISTING_BODY=""
+          fi
+
+          NEW_BODY=$(cat "$TMPBODY")
+
+          # Compare and update only if source content differs
+          if [ "$EXISTING_BODY" != "$NEW_BODY" ]; then
+              echo "Source files changed; regenerating grug.c"
+
+              echo "=== Diff of source content ==="
+              diff <(echo "$EXISTING_BODY") <(echo "$NEW_BODY") || true
+
+              {
+                echo "// NOTE: DON'T EDIT THIS FILE! IT IS AUTOMATICALLY REGENERATED BASED ON THE FILES IN src/"
+                echo "// Regenerated on $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+                echo
+                cat "$TMPBODY"
+              } > "$TMPFILE"
+              mv "$TMPFILE" grug.c
+          else
+              echo "No content changes; grug.c unchanged"
+          fi
+
+      - name: Commit and push if changed
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! git diff --quiet grug.c; then
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add grug.c
+            git commit -m "chore: regenerate grug.c"
+            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}" HEAD:${{ github.ref }}
+          fi
