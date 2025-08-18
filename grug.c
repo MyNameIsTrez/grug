@@ -50,7 +50,6 @@
 
 //// INCLUDES AND DEFINES
 
-#include <complex.h>
 #define _XOPEN_SOURCE 700 // This is just so VS Code can find CLOCK_PROCESS_CPUTIME_ID
 
 #include "grug.h"
