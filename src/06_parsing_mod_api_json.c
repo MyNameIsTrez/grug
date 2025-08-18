@@ -1,3 +1,5 @@
+#include "05_json.c"
+
 //// PARSING MOD API JSON
 
 #define MAX_GRUG_ENTITIES 420420

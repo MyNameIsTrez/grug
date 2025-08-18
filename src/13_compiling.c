@@ -1,3 +1,5 @@
+#include "12_type_propagation.c"
+
 //// COMPILING
 
 #define GAME_FN_PREFIX "game_fn_"

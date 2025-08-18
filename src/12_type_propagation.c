@@ -1,3 +1,5 @@
+#include "11_applying_ast.c"
+
 //// TYPE PROPAGATION
 
 #define MAX_VARIABLES_PER_FUNCTION 420420

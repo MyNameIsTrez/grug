@@ -1,3 +1,5 @@
+#include "03_utils.c"
+
 //// RUNTIME ERROR HANDLING
 
 static char runtime_error_reason[420];

@@ -24,15 +24,15 @@ jobs:
           TMPFILE=$(mktemp)
 
           # Concatenate all sources into TMPBODY with an extra newline between each
-          for f in src/1_grug_documentation.c \
-                   src/2_includes_and_defines.c \
-                   src/3_utils.c \
-                   src/4_runtime_error_handling.c \
-                   src/5_json.c \
-                   src/6_parsing_mod_api_json.c \
-                   src/7_reading.c \
-                   src/8_tokenization.c \
-                   src/9_parsing.c \
+          for f in src/01_grug_documentation.c \
+                   src/02_includes_and_defines.c \
+                   src/03_utils.c \
+                   src/04_runtime_error_handling.c \
+                   src/05_json.c \
+                   src/06_parsing_mod_api_json.c \
+                   src/07_reading.c \
+                   src/08_tokenization.c \
+                   src/09_parsing.c \
                    src/10_dumping_ast.c \
                    src/11_applying_ast.c \
                    src/12_type_propagation.c \
@@ -41,11 +41,13 @@ jobs:
                    src/15_hot_reloading.c \
                    src/LICENSE
           do
-            cat "$f" >> "$TMPBODY"
-            echo >> "$TMPBODY"   # extra newline between files
+            # Strip `#include "2_includes_and_defines.c"` line if present
+            # Delete the include line plus the next line (newline)
+            sed '/^#include "[0-9][0-9]_.*\.c"$/{N;d}' "$f" >> "$TMPBODY"
+            echo >> "$TMPBODY"  # extra newline between files
           done
 
-          # Extract body of existing grug.c (skip header + timestamp)
+          # Extract existing body of grug.c (skip include + timestamp)
           if [ -f grug.c ]; then
               EXISTING_BODY=$(sed '1,3d' grug.c)
           else
