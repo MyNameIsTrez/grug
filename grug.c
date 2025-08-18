@@ -1,5 +1,5 @@
 // NOTE: DON'T EDIT THIS FILE! IT IS AUTOMATICALLY REGENERATED BASED ON THE FILES IN src/
-// Regenerated on 2025-08-18T02:41:27Z
+// Regenerated on 2025-08-18T15:29:06Z
 
 //// GRUG DOCUMENTATION
 //
@@ -9472,12 +9472,8 @@ static void reload_modified_mod(const char *mods_dir_path, const char *dll_dir_p
 	directory_depth--;
 }
 
-static bool validate_about_file(const char *about_json_path) {
-  // returns false if the about file dosent exist, raises a grug error if the about.json is invalid
-	if (access(about_json_path, F_OK)) {
-  	errno = 0;
-  	return false;
-	}
+static void validate_about_file(const char *about_json_path) {
+	grug_assert(access(about_json_path, F_OK) == 0, "Every mod requires an 'about.json' file, but the mod '%s' doesn't have one", mod);
 
 	struct json_node node;
 	json(about_json_path, &node);
@@ -9513,8 +9509,6 @@ static bool validate_about_file(const char *about_json_path) {
 		grug_assert(!streq(field->key, ""), "%s its %zuth field key must not be an empty string", about_json_path, i + 1);
 		field++;
 	}
-
-	return true;
 }
 
 // Cases:
@@ -9528,20 +9522,11 @@ static const char *get_basename(const char *path) {
 	return base ? base + 1 : path;
 }
 
-static char entry_path[STUPID_MAX_PATH];
-static char dll_entry_path[STUPID_MAX_PATH];
+static void reload_modified_mods(void) {
+	struct grug_mod_dir *dir = &grug_mods;
 
-static void reload_modified_mods_dir(char *mods_root_path, char *dll_root_path, struct grug_mod_dir *dir) {
-  if (mods_root_path != entry_path) { // this is a pointer comparison, sets up entry_path if needed
-    grug_assert(snprintf(entry_path, sizeof(entry_path), "%s", mods_root_path) >= 0, "Filling the variable 'entry_path' failed");
-  }
-
-  if (dll_root_path != dll_entry_path) { // this is a pointer comparison, sets up entry_path if needed
-    grug_assert(snprintf(dll_entry_path, sizeof(dll_entry_path), "%s", dll_root_path) >= 0, "Filling the variable 'entry_path' failed");
-  }
-
-	DIR *dirp = opendir(mods_root_path);
-	grug_assert(dirp, "opendir(\"%s\"): %s", mods_root_path, strerror(errno));
+	DIR *dirp = opendir(mods_root_dir_path);
+	grug_assert(dirp, "opendir(\"%s\"): %s", mods_root_dir_path, strerror(errno));
 
 	for (size_t i = 0; i < dir->dirs_size; i++) {
 		dir->dirs[i]._seen = false;
@@ -9556,54 +9541,38 @@ static void reload_modified_mods_dir(char *mods_root_path, char *dll_root_path, 
 			continue;
 		}
 
-		// static char entry_path[STUPID_MAX_PATH];
-		// grug_assert(snprintf(entry_path, sizeof(entry_path), "%s/%s", mods_root_path, name) >= 0, "Filling the variable 'entry_path' failed");
-
-		int entry_start = strlen(entry_path);
-		grug_assert(snprintf(&entry_path[entry_start], sizeof(entry_path) - entry_start, "/%s", name) >= 0, "Filling the variable 'entry_path' failed");
+		static char entry_path[STUPID_MAX_PATH];
+		grug_assert(snprintf(entry_path, sizeof(entry_path), "%s/%s", mods_root_dir_path, name) >= 0, "Filling the variable 'entry_path' failed");
 
 		struct stat entry_stat;
 		grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
 
-		int dll_entry_start = strlen(dll_entry_path);
-		grug_assert(snprintf(&dll_entry_path[dll_entry_start], sizeof(dll_entry_path) - dll_entry_start, "/%s", name) >= 0, "Filling the variable 'entry_path' failed");
-
 		if (S_ISDIR(entry_stat.st_mode)) {
+			mod = name;
+
 			static char about_json_path[STUPID_MAX_PATH];
 			grug_assert(snprintf(about_json_path, sizeof(about_json_path), "%s/about.json", entry_path) >= 0, "Filling the variable 'about_json_path' failed");
 
- 			// This always returns NULL during the first call of reload_modified_mods()
- 			struct grug_mod_dir *subdir = get_subdir(dir, name);
+			validate_about_file(about_json_path);
 
- 			if (!subdir) {
-  			struct grug_mod_dir inserted_subdir = { .name = strdup(entry_path) };
-  			grug_assert(inserted_subdir.name, "strdup: %s", strerror(errno));
-  			subdir = push_subdir(dir, inserted_subdir);
- 			}
+			static char dll_entry_path[STUPID_MAX_PATH];
+			grug_assert(snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_root_dir_path, name) >= 0, "Filling the variable 'dll_entry_path' failed");
 
-			if ((subdir->is_mod = validate_about_file(about_json_path))) {
-			  mod = name;
+			// This always returns NULL during the first call of reload_modified_mods()
+			struct grug_mod_dir *subdir = get_subdir(dir, name);
 
-			  printf("%s\n", about_json_path);
-
-   			subdir->_seen = true;
-   			reload_modified_mod(entry_path, dll_entry_path, subdir);
-			} else {
-   			subdir->_seen = true;
-			  reload_modified_mods_dir(entry_path, dll_entry_path, subdir);
+			if (!subdir) {
+				struct grug_mod_dir inserted_subdir = {.name = strdup(name)};
+				grug_assert(inserted_subdir.name, "strdup: %s", strerror(errno));
+				subdir = push_subdir(dir, inserted_subdir);
 			}
 
-      if (!subdir->is_mod) {
-        grug_assert(subdir->files_size == 0, "Grug files must be contained in a valid mod directory, however no parent of '%s' has an about.json", entry_path)
-      }
-		} else if (S_ISREG(entry_stat.st_mode)) {
-		  grug_assert(!streq(get_file_extension(entry_path), ".grug"), "Grug files must be contained in a valid mod directory, however no parent of '%s' has an about.json", entry_path)
+			subdir->_seen = true;
+
+			reload_modified_mod(entry_path, dll_entry_path, subdir);
+			assert(directory_depth == 0);
 		}
-
-		entry_path[entry_start] = 0;
-		dll_entry_path[dll_entry_start] = 0;
 	}
-
 	grug_assert(errno == 0, "readdir: %s", strerror(errno));
 
 	closedir(dirp);
@@ -9616,11 +9585,6 @@ static void reload_modified_mods_dir(char *mods_root_path, char *dll_root_path, 
 			dir->dirs[i] = dir->dirs[--dir->dirs_size]; // Swap-remove
 		}
 	}
-}
-
-static void reload_modified_mods(void) {
-  entry_path[0] = 0;
-	reload_modified_mods_dir(mods_root_dir_path, dll_root_dir_path, &grug_mods);
 }
 
 bool grug_init(grug_runtime_error_handler_t handler, const char *mod_api_json_path, const char *mods_dir_path, const char *dll_dir_path, uint64_t on_fn_time_limit_ms_) {
