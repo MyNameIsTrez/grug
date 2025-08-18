@@ -99,6 +99,7 @@ struct grug_mod_dir {
 	size_t _files_capacity;
 
 	bool _seen;
+	bool is_mod;
 };
 
 struct grug_modified {
