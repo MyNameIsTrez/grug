@@ -1,3 +1,5 @@
+#include "06_parsing_mod_api_json.c"
+
 //// READING
 
 #define MAX_CHARACTERS 420420

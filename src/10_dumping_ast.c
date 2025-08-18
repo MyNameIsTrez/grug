@@ -1,3 +1,5 @@
+#include "09_parsing.c"
+
 //// DUMPING AST
 
 #define dump(...) {\

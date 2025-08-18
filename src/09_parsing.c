@@ -1,3 +1,5 @@
+#include "08_tokenization.c"
+
 //// PARSING
 
 #define MAX_EXPRS 420420

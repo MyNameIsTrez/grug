@@ -1,3 +1,5 @@
+#include "10_dumping_ast.c"
+
 //// APPLYING AST
 
 #define apply(...) {\

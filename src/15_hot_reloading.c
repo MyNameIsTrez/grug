@@ -1,3 +1,5 @@
+#include "14_linking.c"
+
 //// HOT RELOADING
 
 #define MAX_ENTITIES 420420

@@ -1,3 +1,5 @@
+#include "04_runtime_error_handling.c"
+
 //// JSON
 
 #define JSON_MAX_CHARACTERS 420420

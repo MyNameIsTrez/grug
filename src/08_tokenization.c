@@ -1,3 +1,5 @@
+#include "07_reading.c"
+
 //// TOKENIZATION
 
 #define MAX_TOKENS 420420
