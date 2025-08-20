@@ -1,5 +1,5 @@
 // NOTE: DON'T EDIT THIS FILE! IT IS AUTOMATICALLY REGENERATED BASED ON THE FILES IN src/
-// Regenerated on 2025-08-18T02:41:27Z
+// Regenerated on 2025-08-22T17:31:23Z
 
 //// GRUG DOCUMENTATION
 //
@@ -54,6 +54,7 @@
 
 #include "grug.h"
 
+// TODO: Remove unused includes
 #include <assert.h>
 #include <ctype.h>
 #include <dirent.h>
@@ -72,31 +73,11 @@
 #include <time.h>
 #include <unistd.h>
 
-// "The problem is that you can't meaningfully define a constant like this
-// in a header file. The maximum path size is actually to be something
-// like a filesystem limitation, or at the very least a kernel parameter.
-// This means that it's a dynamic value, not something preordained."
-// https://eklitzke.org/path-max-is-tricky
-#define STUPID_MAX_PATH 4096
-
-static bool streq(const char *a, const char *b);
-
 #define grug_error(...) {\
 	if (snprintf(grug_error.msg, sizeof(grug_error.msg), __VA_ARGS__) < 0) {\
 		abort();\
 	}\
-	\
-	grug_error.grug_c_line_number = __LINE__;\
-	\
-	grug_error.has_changed =\
-		!streq(grug_error.msg, previous_grug_error.msg)\
-	 || !streq(grug_error.path, previous_grug_error.path)\
-	 || grug_error.grug_c_line_number != previous_grug_error.grug_c_line_number;\
-	\
-	memcpy(previous_grug_error.msg, grug_error.msg, sizeof(grug_error.msg));\
-	memcpy(previous_grug_error.path, grug_error.path, sizeof(grug_error.path));\
-	previous_grug_error.grug_c_line_number = grug_error.grug_c_line_number;\
-	\
+    grug_error_impl(__LINE__);\
 	longjmp(error_jmp_buffer, 1);\
 }
 
@@ -127,12 +108,45 @@ static bool streq(const char *a, const char *b);
 }
 #endif
 
+#pragma once
+
+// TODO: Remove unused includes
+#include <assert.h>
+#include <stdbool.h>
+#include <ctype.h>
+#include <dirent.h>
+#include <dlfcn.h>
+#include <elf.h>
+#include <errno.h>
+#include <inttypes.h>
+#include <limits.h>
+#include <math.h>
+#include <setjmp.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <threads.h>
+#include <time.h>
+#include <unistd.h>
+
+#define MAX_ENTITY_DEPENDENCY_NAME_LENGTH 420
+#define MAX_HELPER_FN_MODE_NAMES_CHARACTERS 420420
+#define MAX_VARIABLES_PER_FUNCTION 420420
+#define MAX_GLOBAL_VARIABLES 420420
+#define MAX_ON_FNS 420420
+
+// "The problem is that you can't meaningfully define a constant like this
+// in a header file. The maximum path size is actually to be something
+// like a filesystem limitation, or at the very least a kernel parameter.
+// This means that it's a dynamic value, not something preordained."
+// https://eklitzke.org/path-max-is-tricky
+#define STUPID_MAX_PATH 4096
+
+// These only exist to clarify who will be accessing
+// the handful of globals that grug.c exposes.
 #define USED_BY_MODS
 #define USED_BY_PROGRAMS
-
-#define BFD_HASH_BUCKET_SIZE 4051 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l345
-
-//// UTILS
 
 typedef uint8_t u8;
 typedef uint16_t u16;
@@ -142,16 +156,274 @@ typedef int64_t i64;
 typedef uint64_t u64;
 typedef float f32;
 
+enum token_type {
+	OPEN_PARENTHESIS_TOKEN,
+	CLOSE_PARENTHESIS_TOKEN,
+	OPEN_BRACE_TOKEN,
+	CLOSE_BRACE_TOKEN,
+	PLUS_TOKEN,
+	MINUS_TOKEN,
+	MULTIPLICATION_TOKEN,
+	DIVISION_TOKEN,
+	REMAINDER_TOKEN,
+	COMMA_TOKEN,
+	COLON_TOKEN,
+	NEWLINE_TOKEN,
+	EQUALS_TOKEN,
+	NOT_EQUALS_TOKEN,
+	ASSIGNMENT_TOKEN,
+	GREATER_OR_EQUAL_TOKEN,
+	GREATER_TOKEN,
+	LESS_OR_EQUAL_TOKEN,
+	LESS_TOKEN,
+	AND_TOKEN,
+	OR_TOKEN,
+	NOT_TOKEN,
+	TRUE_TOKEN,
+	FALSE_TOKEN,
+	IF_TOKEN,
+	ELSE_TOKEN,
+	WHILE_TOKEN,
+	BREAK_TOKEN,
+	RETURN_TOKEN,
+	CONTINUE_TOKEN,
+	SPACE_TOKEN,
+	INDENTATION_TOKEN,
+	STRING_TOKEN,
+	WORD_TOKEN,
+	I32_TOKEN,
+	F32_TOKEN,
+	COMMENT_TOKEN,
+};
+
+enum type {
+	type_void,
+	type_bool,
+	type_i32,
+	type_f32,
+	type_string,
+	type_id,
+	type_resource,
+	type_entity,
+};
+
+struct argument {
+	const char *name;
+	enum type type;
+	const char *type_name;
+	union {
+		const char *resource_extension; // This is optional
+		const char *entity_type; // This is optional
+	};
+};
+
+struct grug_game_function {
+	const char *name;
+	enum type return_type;
+	const char *return_type_name;
+	struct argument *arguments;
+	size_t argument_count;
+};
+
+struct literal_expr {
+	union {
+		const char *string;
+		i32 i32;
+		struct {
+			f32 value;
+			const char *string;
+		} f32;
+	};
+};
+
+struct unary_expr {
+	enum token_type operator;
+	struct expr *expr;
+};
+
+struct binary_expr {
+	struct expr *left_expr;
+	enum token_type operator;
+	struct expr *right_expr;
+};
+
+struct call_expr {
+	const char *fn_name;
+	struct expr *arguments;
+	size_t argument_count;
+};
+
+enum expr_type {
+	TRUE_EXPR,
+	FALSE_EXPR,
+	STRING_EXPR,
+	RESOURCE_EXPR,
+	ENTITY_EXPR,
+	IDENTIFIER_EXPR,
+	I32_EXPR,
+	F32_EXPR,
+	UNARY_EXPR,
+	BINARY_EXPR,
+	LOGICAL_EXPR,
+	CALL_EXPR,
+	PARENTHESIZED_EXPR,
+};
+struct expr {
+	enum expr_type type;
+	enum type result_type;
+	const char *result_type_name;
+	union {
+		struct literal_expr literal;
+		struct unary_expr unary;
+		struct binary_expr binary;
+		struct call_expr call;
+		struct expr *parenthesized;
+	};
+};
+
+struct variable_statement {
+	const char *name;
+	enum type type;
+	const char *type_name;
+	bool has_type;
+	struct expr *assignment_expr;
+};
+
+struct call_statement {
+	struct expr *expr;
+};
+
+struct if_statement {
+	struct expr condition;
+	struct statement *if_body_statements;
+	size_t if_body_statement_count;
+	struct statement *else_body_statements;
+	size_t else_body_statement_count;
+};
+
+struct return_statement {
+	struct expr *value;
+	bool has_value;
+};
+
+struct while_statement {
+	struct expr condition;
+	struct statement *body_statements;
+	size_t body_statement_count;
+};
+
+enum statement_type {
+	VARIABLE_STATEMENT,
+	CALL_STATEMENT,
+	IF_STATEMENT,
+	RETURN_STATEMENT,
+	WHILE_STATEMENT,
+	BREAK_STATEMENT,
+	CONTINUE_STATEMENT,
+	EMPTY_LINE_STATEMENT,
+	COMMENT_STATEMENT,
+};
+struct statement {
+	enum statement_type type;
+	union {
+		struct variable_statement variable_statement;
+		struct call_statement call_statement;
+		struct if_statement if_statement;
+		struct return_statement return_statement;
+		struct while_statement while_statement;
+		const char *comment;
+	};
+};
+
+struct on_fn {
+	const char *fn_name;
+	struct argument *arguments;
+	size_t argument_count;
+	struct statement *body_statements;
+	size_t body_statement_count;
+	bool calls_helper_fn;
+	bool contains_while_loop;
+};
+
+struct helper_fn {
+	const char *fn_name;
+	struct argument *arguments;
+	size_t argument_count;
+	enum type return_type;
+	const char *return_type_name;
+	struct statement *body_statements;
+	size_t body_statement_count;
+};
+
+struct global_variable_statement {
+	const char *name;
+	enum type type;
+	const char *type_name;
+	struct expr assignment_expr;
+};
+
+struct grug_on_function {
+	const char *name;
+	struct argument *arguments;
+	size_t argument_count;
+};
+
+struct grug_entity {
+	const char *name;
+	struct grug_on_function *on_functions;
+	size_t on_function_count;
+};
+
+struct variable {
+	const char *name;
+	enum type type;
+	const char *type_name;
+	size_t offset;
+};
+
+struct grug_ast {
+	const char *mod;
+	const char *mods_root_dir_path;
+
+	const char *grug_file_path;
+
+	const char *dll_path; // TODO: Stop having this in this struct.
+
+	struct on_fn *on_fns;
+	size_t on_fns_size;
+
+	struct helper_fn *helper_fns;
+	size_t helper_fns_size;
+
+	struct grug_entity *grug_entity;
+
+	struct variable *global_variables;
+	size_t global_variables_size;
+	size_t globals_bytes;
+
+	struct global_variable_statement *global_variable_statements;
+	size_t global_variable_statements_size;
+};
+
+void grug_error_impl(int line);
+u32 elf_hash(const char *namearg);
+bool streq(const char *a, const char *b);
+struct helper_fn *get_helper_fn(const char *name);
+struct grug_game_function *get_grug_game_fn(const char *name);
+struct variable *get_global_variable(const char *name);
+
+
+//// UTILS
+
 USED_BY_PROGRAMS struct grug_error grug_error;
 USED_BY_PROGRAMS bool grug_loading_error_in_grug_file;
 
 static struct grug_error previous_grug_error;
 static jmp_buf error_jmp_buffer;
 
-static char mods_root_dir_path[STUPID_MAX_PATH];
 static char dll_root_dir_path[STUPID_MAX_PATH];
 
-static bool streq(const char *a, const char *b) {
+USED_BY_PROGRAMS bool streq(const char *a, const char *b) {
 	return strcmp(a, b) == 0;
 }
 
@@ -169,7 +441,7 @@ static bool ends_with(const char *haystack, const char *needle) {
 }
 
 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/elf.c#l193
-static u32 elf_hash(const char *namearg) {
+USED_BY_PROGRAMS u32 elf_hash(const char *namearg) {
 	u32 h = 0;
 
 	for (const unsigned char *name = (const unsigned char *) namearg; *name; name++) {
@@ -178,26 +450,6 @@ static u32 elf_hash(const char *namearg) {
 	}
 
 	return h & 0x0fffffff;
-}
-
-// This is solely here to put the symbols in the same weird order as ld does
-// From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l508
-static unsigned long bfd_hash(const char *string) {
-	const unsigned char *s;
-	unsigned long hash;
-	unsigned int len;
-	unsigned int c;
-
-	hash = 0;
-	s = (const unsigned char *) string;
-	while ((c = *s++) != '\0') {
-		hash += c + (c << 17);
-		hash ^= hash >> 2;
-	}
-	len = (s - (const unsigned char *) string) - 1;
-	hash += len + (len << 17);
-	hash ^= hash >> 2;
-	return hash;
 }
 
 static const char *get_file_extension(const char *filename) {
@@ -220,11 +472,19 @@ static void *get_dll_symbol(void *dll, const char *symbol_name) {
 
 //// RUNTIME ERROR HANDLING
 
+#define NS_PER_MS 1000000
+#define MS_PER_SEC 1000
+#define NS_PER_SEC 1000000000
+
 static char runtime_error_reason[420];
 
 static uint64_t on_fn_time_limit_ms;
 static size_t on_fn_time_limit_sec;
 static size_t on_fn_time_limit_ns;
+
+static thread_local u64 grug_max_rsp;
+static thread_local struct timespec grug_current_time;
+static thread_local struct timespec grug_max_time;
 
 USED_BY_MODS grug_runtime_error_handler_t grug_runtime_error_handler = NULL;
 
@@ -251,6 +511,59 @@ void grug_call_runtime_error_handler(enum grug_runtime_error_type type) {
 	const char *reason = grug_get_runtime_error_reason(type);
 
 	grug_runtime_error_handler(reason, type, grug_fn_name, grug_fn_path);
+}
+
+USED_BY_PROGRAMS void grug_error_impl(int line) {
+	grug_error.grug_c_line_number = line;
+
+	grug_error.has_changed =
+		!streq(grug_error.msg, previous_grug_error.msg)
+	 || !streq(grug_error.path, previous_grug_error.path)
+	 || grug_error.grug_c_line_number != previous_grug_error.grug_c_line_number;
+
+	memcpy(previous_grug_error.msg, grug_error.msg, sizeof(grug_error.msg));
+	memcpy(previous_grug_error.path, grug_error.path, sizeof(grug_error.path));
+
+	previous_grug_error.grug_c_line_number = grug_error.grug_c_line_number;
+}
+
+USED_BY_MODS bool grug_is_time_limit_exceeded(void);
+USED_BY_MODS bool grug_is_time_limit_exceeded(void) {
+	clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &grug_current_time);
+
+	if (grug_current_time.tv_sec < grug_max_time.tv_sec) {
+		return false;
+	}
+
+	if (grug_current_time.tv_sec > grug_max_time.tv_sec) {
+		return true;
+	}
+
+	return grug_current_time.tv_nsec > grug_max_time.tv_nsec;
+}
+
+USED_BY_MODS void grug_set_time_limit(void);
+USED_BY_MODS void grug_set_time_limit(void) {
+	clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &grug_max_time);
+
+	grug_max_time.tv_sec += on_fn_time_limit_sec;
+
+	grug_max_time.tv_nsec += on_fn_time_limit_ns;
+
+	if (grug_max_time.tv_nsec >= NS_PER_SEC) {
+		grug_max_time.tv_nsec -= NS_PER_SEC;
+		grug_max_time.tv_sec++;
+	}
+}
+
+USED_BY_MODS u64* grug_get_max_rsp_addr(void);
+USED_BY_MODS u64* grug_get_max_rsp_addr(void) {
+    return &grug_max_rsp;
+}
+
+USED_BY_MODS u64 grug_get_max_rsp(void);
+USED_BY_MODS u64 grug_get_max_rsp(void) {
+    return grug_max_rsp;
 }
 
 //// JSON
@@ -771,56 +1084,6 @@ static void json(const char *file_path, struct json_node *returned) {
 #define MAX_GRUG_GAME_FUNCTIONS 420420
 #define MAX_GRUG_ARGUMENTS 420420
 
-enum type {
-	type_void,
-	type_bool,
-	type_i32,
-	type_f32,
-	type_string,
-	type_id,
-	type_resource,
-	type_entity,
-};
-static size_t type_sizes[] = {
-	[type_bool] = sizeof(bool),
-	[type_i32] = sizeof(i32),
-	[type_f32] = sizeof(float),
-	[type_string] = sizeof(const char *),
-	[type_id] = sizeof(u64),
-	[type_resource] = sizeof(const char *),
-	[type_entity] = sizeof(const char *),
-};
-
-struct grug_on_function {
-	const char *name;
-	struct argument *arguments;
-	size_t argument_count;
-};
-
-struct grug_entity {
-	const char *name;
-	struct grug_on_function *on_functions;
-	size_t on_function_count;
-};
-
-struct grug_game_function {
-	const char *name;
-	enum type return_type;
-	const char *return_type_name;
-	struct argument *arguments;
-	size_t argument_count;
-};
-
-struct argument {
-	const char *name;
-	enum type type;
-	const char *type_name;
-	union {
-		const char *resource_extension; // This is optional
-		const char *entity_type; // This is optional
-	};
-};
-
 static struct grug_entity grug_entities[MAX_GRUG_ENTITIES];
 static size_t grug_entities_size;
 
@@ -848,7 +1111,7 @@ static void push_grug_on_function(struct grug_on_function fn) {
 	grug_on_functions[grug_on_functions_size++] = fn;
 }
 
-static struct grug_game_function *get_grug_game_fn(const char *name) {
+USED_BY_PROGRAMS struct grug_game_function *get_grug_game_fn(const char *name) {
 	if (grug_game_functions_size == 0) {
 		return NULL;
 	}
@@ -1194,46 +1457,6 @@ static void read_file(const char *path) {
 #define MAX_TOKENS 420420
 #define MAX_TOKEN_STRINGS_CHARACTERS 420420
 #define SPACES_PER_INDENT 4
-
-enum token_type {
-	OPEN_PARENTHESIS_TOKEN,
-	CLOSE_PARENTHESIS_TOKEN,
-	OPEN_BRACE_TOKEN,
-	CLOSE_BRACE_TOKEN,
-	PLUS_TOKEN,
-	MINUS_TOKEN,
-	MULTIPLICATION_TOKEN,
-	DIVISION_TOKEN,
-	REMAINDER_TOKEN,
-	COMMA_TOKEN,
-	COLON_TOKEN,
-	NEWLINE_TOKEN,
-	EQUALS_TOKEN,
-	NOT_EQUALS_TOKEN,
-	ASSIGNMENT_TOKEN,
-	GREATER_OR_EQUAL_TOKEN,
-	GREATER_TOKEN,
-	LESS_OR_EQUAL_TOKEN,
-	LESS_TOKEN,
-	AND_TOKEN,
-	OR_TOKEN,
-	NOT_TOKEN,
-	TRUE_TOKEN,
-	FALSE_TOKEN,
-	IF_TOKEN,
-	ELSE_TOKEN,
-	WHILE_TOKEN,
-	BREAK_TOKEN,
-	RETURN_TOKEN,
-	CONTINUE_TOKEN,
-	SPACE_TOKEN,
-	INDENTATION_TOKEN,
-	STRING_TOKEN,
-	WORD_TOKEN,
-	I32_TOKEN,
-	F32_TOKEN,
-	COMMENT_TOKEN,
-};
 
 struct token {
 	enum token_type type;
@@ -1600,9 +1823,7 @@ static void tokenize(void) {
 #define MAX_STATEMENTS 420420
 #define MAX_GLOBAL_STATEMENTS 420420
 #define MAX_ARGUMENTS 420420
-#define MAX_ON_FNS 420420
 #define MAX_HELPER_FNS 420420
-#define MAX_GLOBAL_VARIABLES 420420
 #define MAX_CALLED_HELPER_FN_NAMES 420420
 #define MAX_CALL_ARGUMENTS_PER_STACK_FRAME 69
 #define MAX_STATEMENTS_PER_SCOPE 1337
@@ -1610,62 +1831,6 @@ static void tokenize(void) {
 
 #define INCREASE_PARSING_DEPTH() parsing_depth++; grug_assert(parsing_depth < MAX_PARSING_DEPTH, "There is a function that contains more than %d levels of nested expressions", MAX_PARSING_DEPTH)
 #define DECREASE_PARSING_DEPTH() assert(parsing_depth > 0); parsing_depth--
-
-struct literal_expr {
-	union {
-		const char *string;
-		i32 i32;
-		struct {
-			f32 value;
-			const char *string;
-		} f32;
-	};
-};
-
-struct unary_expr {
-	enum token_type operator;
-	struct expr *expr;
-};
-
-struct binary_expr {
-	struct expr *left_expr;
-	enum token_type operator;
-	struct expr *right_expr;
-};
-
-struct call_expr {
-	const char *fn_name;
-	struct expr *arguments;
-	size_t argument_count;
-};
-
-enum expr_type {
-	TRUE_EXPR,
-	FALSE_EXPR,
-	STRING_EXPR,
-	RESOURCE_EXPR,
-	ENTITY_EXPR,
-	IDENTIFIER_EXPR,
-	I32_EXPR,
-	F32_EXPR,
-	UNARY_EXPR,
-	BINARY_EXPR,
-	LOGICAL_EXPR,
-	CALL_EXPR,
-	PARENTHESIZED_EXPR,
-};
-struct expr {
-	enum expr_type type;
-	enum type result_type;
-	const char *result_type_name;
-	union {
-		struct literal_expr literal;
-		struct unary_expr unary;
-		struct binary_expr binary;
-		struct call_expr call;
-		struct expr *parenthesized;
-	};
-};
 static const char *get_expr_type_str[] = {
 	[TRUE_EXPR] = "TRUE_EXPR",
 	[FALSE_EXPR] = "FALSE_EXPR",
@@ -1684,59 +1849,6 @@ static const char *get_expr_type_str[] = {
 static struct expr exprs[MAX_EXPRS];
 static size_t exprs_size;
 
-struct variable_statement {
-	const char *name;
-	enum type type;
-	const char *type_name;
-	bool has_type;
-	struct expr *assignment_expr;
-};
-
-struct call_statement {
-	struct expr *expr;
-};
-
-struct if_statement {
-	struct expr condition;
-	struct statement *if_body_statements;
-	size_t if_body_statement_count;
-	struct statement *else_body_statements;
-	size_t else_body_statement_count;
-};
-
-struct return_statement {
-	struct expr *value;
-	bool has_value;
-};
-
-struct while_statement {
-	struct expr condition;
-	struct statement *body_statements;
-	size_t body_statement_count;
-};
-
-enum statement_type {
-	VARIABLE_STATEMENT,
-	CALL_STATEMENT,
-	IF_STATEMENT,
-	RETURN_STATEMENT,
-	WHILE_STATEMENT,
-	BREAK_STATEMENT,
-	CONTINUE_STATEMENT,
-	EMPTY_LINE_STATEMENT,
-	COMMENT_STATEMENT,
-};
-struct statement {
-	enum statement_type type;
-	union {
-		struct variable_statement variable_statement;
-		struct call_statement call_statement;
-		struct if_statement if_statement;
-		struct return_statement return_statement;
-		struct while_statement while_statement;
-		const char *comment;
-	};
-};
 static const char *get_statement_type_str[] = {
 	[VARIABLE_STATEMENT] = "VARIABLE_STATEMENT",
 	[CALL_STATEMENT] = "CALL_STATEMENT",
@@ -1780,38 +1892,14 @@ static size_t global_statements_size;
 static struct argument arguments[MAX_ARGUMENTS];
 static size_t arguments_size;
 
-struct on_fn {
-	const char *fn_name;
-	struct argument *arguments;
-	size_t argument_count;
-	struct statement *body_statements;
-	size_t body_statement_count;
-	bool calls_helper_fn;
-	bool contains_while_loop;
-};
 static struct on_fn on_fns[MAX_ON_FNS];
 static size_t on_fns_size;
 
-struct helper_fn {
-	const char *fn_name;
-	struct argument *arguments;
-	size_t argument_count;
-	enum type return_type;
-	const char *return_type_name;
-	struct statement *body_statements;
-	size_t body_statement_count;
-};
 static struct helper_fn helper_fns[MAX_HELPER_FNS];
 static size_t helper_fns_size;
 static u32 buckets_helper_fns[MAX_HELPER_FNS];
 static u32 chains_helper_fns[MAX_HELPER_FNS];
 
-struct global_variable_statement {
-	const char *name;
-	enum type type;
-	const char *type_name;
-	struct expr assignment_expr;
-};
 static struct global_variable_statement global_variable_statements[MAX_GLOBAL_VARIABLES];
 static size_t global_variable_statements_size;
 
@@ -1838,7 +1926,7 @@ static void reset_parsing(void) {
 	parsing_depth = 0;
 }
 
-static struct helper_fn *get_helper_fn(const char *name) {
+USED_BY_PROGRAMS struct helper_fn *get_helper_fn(const char *name) {
 	if (helper_fns_size == 0) {
 		return NULL;
 	}
@@ -4071,20 +4159,8 @@ bool grug_generate_mods_from_json(const char *input_json_path, const char *outpu
 
 //// TYPE PROPAGATION
 
-#define MAX_VARIABLES_PER_FUNCTION 420420
-#define MAX_ENTITY_DEPENDENCY_NAME_LENGTH 420
-#define MAX_ENTITY_DEPENDENCIES 420420
-#define MAX_DATA_STRINGS 420420
 #define MAX_FILE_ENTITY_TYPE_LENGTH 420
 
-#define GLOBAL_VARIABLES_POINTER_SIZE sizeof(void *)
-
-struct variable {
-	const char *name;
-	enum type type;
-	const char *type_name;
-	size_t offset;
-};
 static struct variable variables[MAX_VARIABLES_PER_FUNCTION];
 static size_t variables_size;
 static u32 buckets_variables[MAX_VARIABLES_PER_FUNCTION];
@@ -4095,9 +4171,6 @@ static size_t global_variables_size;
 static size_t globals_bytes;
 static u32 buckets_global_variables[MAX_GLOBAL_VARIABLES];
 static u32 chains_global_variables[MAX_GLOBAL_VARIABLES];
-
-static size_t stack_frame_bytes;
-static size_t max_stack_frame_bytes;
 
 static enum type fn_return_type;
 static const char *fn_return_type_name;
@@ -4111,73 +4184,23 @@ static u32 chains_entity_on_fns[MAX_ON_FNS];
 static const char *mod;
 static char file_entity_type[MAX_FILE_ENTITY_TYPE_LENGTH];
 
-static u32 entity_types[MAX_ENTITY_DEPENDENCIES];
-static size_t entity_types_size;
-
-static const char *data_strings[MAX_DATA_STRINGS];
-static size_t data_strings_size;
-
-static u32 buckets_data_strings[MAX_DATA_STRINGS];
-static u32 chains_data_strings[MAX_DATA_STRINGS];
-
 static bool *parsed_fn_calls_helper_fn_ptr;
 static bool *parsed_fn_contains_while_loop_ptr;
+
+static size_t type_sizes[] = {
+	[type_bool] = sizeof(bool),
+	[type_i32] = sizeof(i32),
+	[type_f32] = sizeof(float),
+	[type_string] = sizeof(const char *),
+	[type_id] = sizeof(u64),
+	[type_resource] = sizeof(const char *),
+	[type_entity] = sizeof(const char *),
+};
 
 static void reset_filling(void) {
 	global_variables_size = 0;
 	globals_bytes = 0;
 	memset(buckets_global_variables, 0xff, sizeof(buckets_global_variables));
-	entity_types_size = 0;
-	data_strings_size = 0;
-	memset(buckets_data_strings, 0xff, sizeof(buckets_data_strings));
-}
-
-static void push_data_string(const char *string) {
-	grug_assert(data_strings_size < MAX_DATA_STRINGS, "There are more than %d data strings, exceeding MAX_DATA_STRINGS", MAX_DATA_STRINGS);
-
-	data_strings[data_strings_size++] = string;
-}
-
-static u32 get_data_string_index(const char *string) {
-	if (data_strings_size == 0) {
-		return UINT32_MAX;
-	}
-
-	u32 i = buckets_data_strings[elf_hash(string) % MAX_DATA_STRINGS];
-
-	while (true) {
-		if (i == UINT32_MAX) {
-			return UINT32_MAX;
-		}
-
-		if (streq(string, data_strings[i])) {
-			break;
-		}
-
-		i = chains_data_strings[i];
-	}
-
-	return i;
-}
-
-static void add_data_string(const char *string) {
-	if (get_data_string_index(string) == UINT32_MAX) {
-		u32 bucket_index = elf_hash(string) % MAX_DATA_STRINGS;
-
-		chains_data_strings[data_strings_size] = buckets_data_strings[bucket_index];
-
-		buckets_data_strings[bucket_index] = data_strings_size;
-
-		push_data_string(string);
-	}
-}
-
-static void push_entity_type(const char *entity_type) {
-	add_data_string(entity_type);
-
-	grug_assert(entity_types_size < MAX_ENTITY_DEPENDENCIES, "There are more than %d entity types, exceeding MAX_ENTITY_DEPENDENCIES", MAX_ENTITY_DEPENDENCIES);
-
-	entity_types[entity_types_size++] = get_data_string_index(entity_type);
 }
 
 static void fill_expr(struct expr *expr);
@@ -4293,7 +4316,6 @@ static void check_arguments(struct argument *params, size_t param_count, struct 
 			arg->result_type_name = "entity";
 			arg->type = ENTITY_EXPR;
 			validate_entity_string(arg->literal.string);
-			push_entity_type(param.entity_type);
 		}
 
 		grug_assert(arg->result_type != type_void, "Function call '%s' expected the type %s for argument '%s', but got a function call that doesn't return anything", name, param.type_name, param.name);
@@ -4425,7 +4447,7 @@ static void fill_binary_expr(struct expr *expr) {
 	}
 }
 
-static struct variable *get_global_variable(const char *name) {
+USED_BY_PROGRAMS struct variable *get_global_variable(const char *name) {
 	u32 i = buckets_global_variables[elf_hash(name) % MAX_GLOBAL_VARIABLES];
 
 	while (true) {
@@ -4480,7 +4502,7 @@ static struct variable *get_local_variable(const char *name) {
 		// When a scope block is exited, the local variables in it aren't reachable anymore.
 		// These unreachable local variables are marked with an offset of SIZE_MAX.
 		// It is possible for a new local variable with the same name to be added after the block,
-		// which is why we still keep looping in that case.
+		// which is why we still keep looping.
 		if (streq(name, variables[i].name) && variables[i].offset != SIZE_MAX) {
 			break;
 		}
@@ -4568,17 +4590,11 @@ static void add_local_variable(const char *name, enum type type, const char *typ
 	grug_assert(!get_local_variable(name), "The local variable '%s' shadows an earlier local variable with the same name, so change the name of one of them", name);
 	grug_assert(!get_global_variable(name), "The local variable '%s' shadows an earlier global variable with the same name, so change the name of one of them", name);
 
-	stack_frame_bytes += type_sizes[type];
-
 	variables[variables_size] = (struct variable){
 		.name = name,
 		.type = type,
 		.type_name = type_name,
-
-		// This field is used by the "COMPILING" section to track the stack location of a local variable.
-		// The "TYPE PROPAGATION" section only checks whether it is SIZE_MAX,
-		// since that indicates that the variable is unreachable, due to having exited the scope block.
-		.offset = stack_frame_bytes,
+		.offset = 0, // Assigned SIZE_MAX when it becomes unreachable.
 	};
 
 	u32 bucket_index = elf_hash(name) % MAX_VARIABLES_PER_FUNCTION;
@@ -4622,12 +4638,6 @@ static void mark_local_variables_unreachable(struct statement *body_statements, 
 			assert(var);
 
 			var->offset = SIZE_MAX;
-
-			// Even though we have already calculated the final stack frame size in advance
-			// before we started compiling the function's body, we are still calling add_local_variable()
-			// during the compilation of the function body. And that fn uses stack_frame_bytes.
-			assert(stack_frame_bytes >= type_sizes[var->type]);
-			stack_frame_bytes -= type_sizes[var->type];
 		}
 	}
 }
@@ -4691,14 +4701,9 @@ static void add_argument_variables(struct argument *fn_arguments, size_t argumen
 	variables_size = 0;
 	memset(buckets_variables, 0xff, sizeof(buckets_variables));
 
-	stack_frame_bytes = GLOBAL_VARIABLES_POINTER_SIZE;
-	max_stack_frame_bytes = stack_frame_bytes;
-
 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
 		struct argument arg = fn_arguments[argument_index];
 		add_local_variable(arg.name, arg.type, arg.type_name);
-
-		max_stack_frame_bytes += type_sizes[arg.type];
 	}
 }
 
@@ -4892,7 +4897,59 @@ static void fill_result_types(void) {
 	fill_helper_fns();
 }
 
-//// COMPILING
+//// GRUG BACKEND LINUX
+
+// TODO: Remove every `tmp_` prefix in this file,
+// once this file has been moved to its own dedicated repository.
+
+#include "grug.h"
+
+#include "grug_backend.h"
+
+// TODO: Remove unused includes
+#include <assert.h>
+#include <ctype.h>
+#include <dirent.h>
+#include <dlfcn.h>
+#include <elf.h>
+#include <errno.h>
+#include <inttypes.h>
+#include <limits.h>
+#include <math.h>
+#include <setjmp.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <threads.h>
+#include <time.h>
+#include <unistd.h>
+
+////// COMPILING
+
+#define backend_error(...) {\
+	if (snprintf(grug_error.msg, sizeof(grug_error.msg), __VA_ARGS__) < 0) {\
+		abort();\
+	}\
+    grug_error_impl(__LINE__);\
+	longjmp(backend_error_jmp_buffer, 1);\
+}
+
+#define backend_assert(condition, ...) {\
+	if (!(condition)) {\
+		backend_error(__VA_ARGS__);\
+	}\
+}
+
+#ifdef CRASH_ON_UNREACHABLE
+#define backend_unreachable() {\
+	assert(false && "This line of code is supposed to be unreachable. Please report this bug to the grug backend developers!");\
+}
+#else
+#define backend_unreachable() {\
+	backend_error("This line of code in grug.c:%d is supposed to be unreachable. Please report this bug to the grug backend developers!", __LINE__);\
+}
+#endif
 
 #define GAME_FN_PREFIX "game_fn_"
 
@@ -4907,12 +4964,17 @@ static void fill_result_types(void) {
 #define MAX_HELPER_FN_CALLS 420420
 #define MAX_USED_GAME_FNS 420
 #define MAX_HELPER_FN_OFFSETS 420420
+#define MAX_DATA_STRINGS 420420
 #define MAX_RESOURCES 420420
-#define MAX_HELPER_FN_MODE_NAMES_CHARACTERS 420420
 #define MAX_LOOP_DEPTH 420
 #define MAX_BREAK_STATEMENTS_PER_LOOP 420
+#define MAX_ENTITY_DEPENDENCIES 420420
 
 #define NEXT_INSTRUCTION_OFFSET sizeof(u32)
+
+#define GLOBAL_VARIABLES_POINTER_SIZE sizeof(void *)
+
+#define BFD_HASH_BUCKET_SIZE 4051 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l345
 
 // 0xDEADBEEF in little-endian
 #define PLACEHOLDER_8 0xDE
@@ -4924,10 +4986,6 @@ static void fill_result_types(void) {
 // without a risk of a JVM crash:
 // See https://pangin.pro/posts/stack-overflow-handling
 #define GRUG_STACK_LIMIT 0x10000
-
-#define NS_PER_MS 1000000
-#define MS_PER_SEC 1000
-#define NS_PER_SEC 1000000000
 
 // Start of code enums
 
@@ -5213,6 +5271,37 @@ static size_t helper_fn_mode_names_size;
 static const char *current_grug_path;
 static const char *current_fn_name;
 
+static size_t stack_frame_bytes;
+static size_t max_stack_frame_bytes;
+
+static size_t tmp_type_sizes[] = {
+	[type_bool] = sizeof(bool),
+	[type_i32] = sizeof(i32),
+	[type_f32] = sizeof(float),
+	[type_string] = sizeof(const char *),
+	[type_id] = sizeof(u64),
+	[type_resource] = sizeof(const char *),
+	[type_entity] = sizeof(const char *),
+};
+
+static struct variable tmp_variables[MAX_VARIABLES_PER_FUNCTION];
+static size_t tmp_variables_size;
+static u32 tmp_buckets_variables[MAX_VARIABLES_PER_FUNCTION];
+static u32 tmp_chains_variables[MAX_VARIABLES_PER_FUNCTION];
+
+static u32 entity_types[MAX_ENTITY_DEPENDENCIES];
+static size_t entity_types_size;
+
+static const char *data_strings[MAX_DATA_STRINGS];
+static size_t data_strings_size;
+
+static u32 buckets_data_strings[MAX_DATA_STRINGS];
+static u32 chains_data_strings[MAX_DATA_STRINGS];
+
+static jmp_buf backend_error_jmp_buffer;
+
+static struct grug_ast ast;
+
 static void reset_compiling(void) {
 	codes_size = 0;
 	resource_strings_size = 0;
@@ -5231,12 +5320,15 @@ static void reset_compiling(void) {
 	compiled_init_globals_fn = false;
 	is_runtime_error_handler_used = false;
 	helper_fn_mode_names_size = 0;
+	entity_types_size = 0;
+	data_strings_size = 0;
+	memset(buckets_data_strings, 0xff, sizeof(buckets_data_strings));
 }
 
 static const char *get_helper_fn_mode_name(const char *name, bool safe) {
 	size_t length = strlen(name);
 
-	grug_assert(helper_fn_mode_names_size + length + (sizeof("_safe") - 1) < MAX_HELPER_FN_MODE_NAMES_CHARACTERS, "There are more than %d characters in the helper_fn_mode_names array, exceeding MAX_HELPER_FN_MODE_NAMES_CHARACTERS", MAX_HELPER_FN_MODE_NAMES_CHARACTERS);
+	backend_assert(helper_fn_mode_names_size + length + (sizeof("_safe") - 1) < MAX_HELPER_FN_MODE_NAMES_CHARACTERS, "There are more than %d characters in the helper_fn_mode_names array, exceeding MAX_HELPER_FN_MODE_NAMES_CHARACTERS", MAX_HELPER_FN_MODE_NAMES_CHARACTERS);
 
 	const char *mode_name = helper_fn_mode_names + helper_fn_mode_names_size;
 
@@ -5290,12 +5382,32 @@ static void hash_helper_fn_offsets(void) {
 }
 
 static void push_helper_fn_offset(const char *fn_name, size_t offset) {
-	grug_assert(helper_fn_offsets_size < MAX_HELPER_FN_OFFSETS, "There are more than %d helper functions, exceeding MAX_HELPER_FN_OFFSETS", MAX_HELPER_FN_OFFSETS);
+	backend_assert(helper_fn_offsets_size < MAX_HELPER_FN_OFFSETS, "There are more than %d helper functions, exceeding MAX_HELPER_FN_OFFSETS", MAX_HELPER_FN_OFFSETS);
 
 	helper_fn_offsets[helper_fn_offsets_size++] = (struct offset){
 		.name = fn_name,
 		.offset = offset,
 	};
+}
+
+// This is solely here to put the symbols in the same weird order as ld does
+// From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l508
+static unsigned long bfd_hash(const char *string) {
+	const unsigned char *s;
+	unsigned long hash;
+	unsigned int len;
+	unsigned int c;
+
+	hash = 0;
+	s = (const unsigned char *) string;
+	while ((c = *s++) != '\0') {
+		hash += c + (c << 17);
+		hash ^= hash >> 2;
+	}
+	len = (s - (const unsigned char *) string) - 1;
+	hash += len + (len << 17);
+	hash ^= hash >> 2;
+	return hash;
 }
 
 static bool has_used_extern_fn(const char *name) {
@@ -5337,7 +5449,7 @@ static void hash_used_extern_fns(void) {
 }
 
 static void push_helper_fn_call(const char *fn_name, size_t codes_offset) {
-	grug_assert(helper_fn_calls_size < MAX_HELPER_FN_CALLS, "There are more than %d helper function calls, exceeding MAX_HELPER_FN_CALLS", MAX_HELPER_FN_CALLS);
+	backend_assert(helper_fn_calls_size < MAX_HELPER_FN_CALLS, "There are more than %d helper function calls, exceeding MAX_HELPER_FN_CALLS", MAX_HELPER_FN_CALLS);
 
 	helper_fn_calls[helper_fn_calls_size++] = (struct offset){
 		.name = fn_name,
@@ -5349,7 +5461,7 @@ static const char *push_used_extern_fn_symbol(const char *name, bool is_game_fn)
 	size_t length = strlen(name);
 	size_t fn_prefix_length = is_game_fn ? sizeof(GAME_FN_PREFIX) - 1 : 0;
 
-	grug_assert(used_extern_fn_symbols_size + fn_prefix_length + length < MAX_USED_EXTERN_FN_SYMBOLS_CHARACTERS, "There are more than %d characters in the used_extern_fn_symbols array, exceeding MAX_USED_EXTERN_FN_SYMBOLS_CHARACTERS", MAX_USED_EXTERN_FN_SYMBOLS_CHARACTERS);
+	backend_assert(used_extern_fn_symbols_size + fn_prefix_length + length < MAX_USED_EXTERN_FN_SYMBOLS_CHARACTERS, "There are more than %d characters in the used_extern_fn_symbols array, exceeding MAX_USED_EXTERN_FN_SYMBOLS_CHARACTERS", MAX_USED_EXTERN_FN_SYMBOLS_CHARACTERS);
 
 	char *symbol = used_extern_fn_symbols + used_extern_fn_symbols_size;
 
@@ -5367,7 +5479,7 @@ static const char *push_used_extern_fn_symbol(const char *name, bool is_game_fn)
 }
 
 static void push_extern_fn_call(const char *fn_name, size_t codes_offset, bool is_game_fn) {
-	grug_assert(extern_fn_calls_size < MAX_GAME_FN_CALLS, "There are more than %d game function calls, exceeding MAX_GAME_FN_CALLS", MAX_GAME_FN_CALLS);
+	backend_assert(extern_fn_calls_size < MAX_GAME_FN_CALLS, "There are more than %d game function calls, exceeding MAX_GAME_FN_CALLS", MAX_GAME_FN_CALLS);
 
 	extern_fn_calls[extern_fn_calls_size++] = (struct offset){
 		.name = push_used_extern_fn_symbol(fn_name, is_game_fn),
@@ -5384,7 +5496,7 @@ static void push_system_fn_call(const char *fn_name, size_t codes_offset) {
 }
 
 static void push_data_string_code(const char *string, size_t code_offset) {
-	grug_assert(data_string_codes_size < MAX_DATA_STRING_CODES, "There are more than %d data string code bytes, exceeding MAX_DATA_STRING_CODES", MAX_DATA_STRING_CODES);
+	backend_assert(data_string_codes_size < MAX_DATA_STRING_CODES, "There are more than %d data string code bytes, exceeding MAX_DATA_STRING_CODES", MAX_DATA_STRING_CODES);
 
 	data_string_codes[data_string_codes_size++] = (struct data_string_code){
 		.string = string,
@@ -5393,7 +5505,7 @@ static void push_data_string_code(const char *string, size_t code_offset) {
 }
 
 static void compile_byte(u8 byte) {
-	grug_assert(codes_size < MAX_CODES, "There are more than %d code bytes, exceeding MAX_CODES", MAX_CODES);
+	backend_assert(codes_size < MAX_CODES, "There are more than %d code bytes, exceeding MAX_CODES", MAX_CODES);
 
 	codes[codes_size++] = byte;
 }
@@ -5449,6 +5561,56 @@ static void stack_push_rax(void) {
 	pushed++;
 }
 
+static struct variable *tmp_get_local_variable(const char *name) {
+	if (tmp_variables_size == 0) {
+		return NULL;
+	}
+
+	u32 i = tmp_buckets_variables[elf_hash(name) % MAX_VARIABLES_PER_FUNCTION];
+
+	while (true) {
+		if (i == UINT32_MAX) {
+			return NULL;
+		}
+
+		// When a scope block is exited, the local variables in it aren't reachable anymore.
+		// It is possible for a new local variable with the same name to be added after the block,
+		// which is why we still keep looping.
+		if (streq(name, tmp_variables[i].name) && tmp_variables[i].offset != SIZE_MAX) {
+			break;
+		}
+
+		i = tmp_chains_variables[i];
+	}
+
+	return tmp_variables + i;
+}
+
+static void tmp_add_local_variable(const char *name, enum type type, const char *type_name) {
+	// TODO: Print the exact grug file path, function and line number
+	backend_assert(tmp_variables_size < MAX_VARIABLES_PER_FUNCTION, "There are more than %d variables in a function, exceeding MAX_VARIABLES_PER_FUNCTION", MAX_VARIABLES_PER_FUNCTION);
+
+	backend_assert(!tmp_get_local_variable(name), "The local variable '%s' shadows an earlier local variable with the same name, so change the name of one of them", name);
+	backend_assert(!get_global_variable(name), "The local variable '%s' shadows an earlier global variable with the same name, so change the name of one of them", name);
+
+	stack_frame_bytes += tmp_type_sizes[type];
+
+	tmp_variables[tmp_variables_size] = (struct variable){
+		.name = name,
+		.type = type,
+		.type_name = type_name,
+
+		// This field is used to track the stack location of a local variable.
+		.offset = stack_frame_bytes,
+	};
+
+	u32 bucket_index = elf_hash(name) % MAX_VARIABLES_PER_FUNCTION;
+
+	tmp_chains_variables[tmp_variables_size] = tmp_buckets_variables[bucket_index];
+
+	tmp_buckets_variables[bucket_index] = tmp_variables_size++;
+}
+
 static void move_arguments(struct argument *fn_arguments, size_t argument_count) {
 	size_t integer_argument_index = 0;
 	size_t float_argument_index = 0;
@@ -5461,14 +5623,14 @@ static void move_arguments(struct argument *fn_arguments, size_t argument_count)
 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
 		struct argument arg = fn_arguments[argument_index];
 
-		size_t offset = get_local_variable(arg.name)->offset;
+		size_t offset = tmp_get_local_variable(arg.name)->offset;
 
 		// We skip EDI/RDI, since that is reserved by the secret global variables pointer
 		switch (arg.type) {
 			case type_void:
 			case type_resource:
 			case type_entity:
-				grug_unreachable();
+				backend_unreachable();
 			case type_bool:
 			case type_i32:
 				if (integer_argument_index < 5) {
@@ -5584,11 +5746,11 @@ static void move_arguments(struct argument *fn_arguments, size_t argument_count)
 }
 
 static void push_break_statement_jump_address_offset(size_t offset) {
-	grug_assert(loop_depth > 0, "There is a break statement that isn't inside of a while loop");
+	backend_assert(loop_depth > 0, "There is a break statement that isn't inside of a while loop");
 
 	struct loop_break_statements *loop_break_statements = &loop_break_statements_stack[loop_depth - 1];
 
-	grug_assert(loop_break_statements->break_statements_size < MAX_BREAK_STATEMENTS_PER_LOOP, "There are more than %d break statements in one of the while loops, exceeding MAX_BREAK_STATEMENTS_PER_LOOP", MAX_BREAK_STATEMENTS_PER_LOOP);
+	backend_assert(loop_break_statements->break_statements_size < MAX_BREAK_STATEMENTS_PER_LOOP, "There are more than %d break statements in one of the while loops, exceeding MAX_BREAK_STATEMENTS_PER_LOOP", MAX_BREAK_STATEMENTS_PER_LOOP);
 
 	loop_break_statements->break_statements[loop_break_statements->break_statements_size++] = offset;
 }
@@ -5604,7 +5766,7 @@ static void compile_function_epilogue(void) {
 }
 
 static void push_used_extern_global_variable(const char *variable_name, size_t codes_offset) {
-	grug_assert(used_extern_global_variables_size < MAX_USED_EXTERN_GLOBAL_VARIABLES, "There are more than %d usages of game global variables, exceeding MAX_USED_EXTERN_GLOBAL_VARIABLES", MAX_USED_EXTERN_GLOBAL_VARIABLES);
+	backend_assert(used_extern_global_variables_size < MAX_USED_EXTERN_GLOBAL_VARIABLES, "There are more than %d usages of game global variables, exceeding MAX_USED_EXTERN_GLOBAL_VARIABLES", MAX_USED_EXTERN_GLOBAL_VARIABLES);
 
 	used_extern_global_variables[used_extern_global_variables_size++] = (struct used_extern_global_variable){
 		.variable_name = variable_name,
@@ -5754,7 +5916,7 @@ static void compile_check_time_limit_exceeded(void) {
 }
 
 static void compile_continue_statement(void) {
-	grug_assert(loop_depth > 0, "There is a continue statement that isn't inside of a while loop");
+	backend_assert(loop_depth > 0, "There is a continue statement that isn't inside of a while loop");
 	if (!compiling_fast_mode) {
 		compile_check_time_limit_exceeded();
 	}
@@ -5772,6 +5934,54 @@ static void compile_clear_has_runtime_error_happened(void) {
 	// mov [rax], byte 0:
 	compile_16(MOV_8_BIT_TO_DEREF_RAX);
 	compile_byte(0);
+}
+
+static void push_data_string(const char *string) {
+	backend_assert(data_strings_size < MAX_DATA_STRINGS, "There are more than %d data strings, exceeding MAX_DATA_STRINGS", MAX_DATA_STRINGS);
+
+	data_strings[data_strings_size++] = string;
+}
+
+static u32 get_data_string_index(const char *string) {
+	if (data_strings_size == 0) {
+		return UINT32_MAX;
+	}
+
+	u32 i = buckets_data_strings[elf_hash(string) % MAX_DATA_STRINGS];
+
+	while (true) {
+		if (i == UINT32_MAX) {
+			return UINT32_MAX;
+		}
+
+		if (streq(string, data_strings[i])) {
+			break;
+		}
+
+		i = chains_data_strings[i];
+	}
+
+	return i;
+}
+
+static void add_data_string(const char *string) {
+	if (get_data_string_index(string) == UINT32_MAX) {
+		u32 bucket_index = elf_hash(string) % MAX_DATA_STRINGS;
+
+		chains_data_strings[data_strings_size] = buckets_data_strings[bucket_index];
+
+		buckets_data_strings[bucket_index] = data_strings_size;
+
+		push_data_string(string);
+	}
+}
+
+static void push_entity_type(const char *entity_type) {
+	add_data_string(entity_type);
+
+	backend_assert(entity_types_size < MAX_ENTITY_DEPENDENCIES, "There are more than %d entity types, exceeding MAX_ENTITY_DEPENDENCIES", MAX_ENTITY_DEPENDENCIES);
+
+	entity_types[entity_types_size++] = get_data_string_index(entity_type);
 }
 
 static void compile_save_fn_name_and_path(const char *grug_path, const char *fn_name) {
@@ -5807,7 +6017,7 @@ static void compile_save_fn_name_and_path(const char *grug_path, const char *fn_
 static void compile_while_statement(struct while_statement while_statement) {
 	size_t start_of_loop_jump_offset = codes_size;
 
-	grug_assert(loop_depth < MAX_LOOP_DEPTH, "There are more than %d while loops nested inside each other, exceeding MAX_LOOP_DEPTH", MAX_LOOP_DEPTH);
+	backend_assert(loop_depth < MAX_LOOP_DEPTH, "There are more than %d while loops nested inside each other, exceeding MAX_LOOP_DEPTH", MAX_LOOP_DEPTH);
 	start_of_loop_jump_offsets[loop_depth] = start_of_loop_jump_offset;
 	loop_break_statements_stack[loop_depth].break_statements_size = 0;
 	loop_depth++;
@@ -5885,7 +6095,8 @@ static void compile_check_stack_overflow(void) {
 static void compile_call_expr(struct call_expr call_expr) {
 	const char *fn_name = call_expr.fn_name;
 
-	bool calls_helper_fn = get_helper_fn(fn_name) != NULL;
+	struct helper_fn *helper_fn = get_helper_fn(fn_name);
+	bool calls_helper_fn = helper_fn != NULL;
 
 	// `integer` here refers to the classification type:
 	// "integer types and pointers which use the general purpose registers"
@@ -6043,6 +6254,18 @@ static void compile_call_expr(struct call_expr call_expr) {
 	compile_byte(CALL);
 
 	struct grug_game_function *game_fn = get_grug_game_fn(fn_name);
+
+	// Push every entity type into an array, so the linker can embed them in the shared library
+	if (!compiling_fast_mode) {
+		struct argument *params = game_fn ? game_fn->arguments : helper_fn->arguments;
+		for (size_t i = 0; i < call_expr.argument_count; i++) {
+			struct argument param = params[i];
+			if (param.type == type_entity) {
+				push_entity_type(param.entity_type);
+			}
+		}
+	}
+
 	bool calls_game_fn = game_fn != NULL;
 	assert(calls_helper_fn || calls_game_fn);
 
@@ -6050,14 +6273,11 @@ static void compile_call_expr(struct call_expr call_expr) {
 	if (calls_game_fn) {
 		push_game_fn_call(fn_name, codes_size);
 		returns_float = game_fn->return_type == type_f32;
+	} else if (helper_fn) {
+		push_helper_fn_call(get_helper_fn_mode_name(fn_name, !compiling_fast_mode), codes_size);
+		returns_float = helper_fn->return_type == type_f32;
 	} else {
-		struct helper_fn *helper_fn = get_helper_fn(fn_name);
-		if (helper_fn) {
-			push_helper_fn_call(get_helper_fn_mode_name(fn_name, !compiling_fast_mode), codes_size);
-			returns_float = helper_fn->return_type == type_f32;
-		} else {
-			grug_unreachable();
-		}
+		backend_unreachable();
 	}
 	compile_unpadded(PLACEHOLDER_32);
 
@@ -6130,7 +6350,7 @@ static void compile_logical_expr(struct binary_expr logical_expr) {
 			break;
 		}
 		default:
-			grug_unreachable();
+			backend_unreachable();
 	}
 }
 
@@ -6323,7 +6543,7 @@ static void compile_binary_expr(struct expr expr) {
 			}
 			break;
 		default:
-			grug_unreachable();
+			backend_unreachable();
 	}
 }
 
@@ -6350,18 +6570,18 @@ static void compile_unary_expr(struct unary_expr unary_expr) {
 			compile_unpadded(SETE_AL);
 			break;
 		default:
-			grug_unreachable();
+			backend_unreachable();
 	}
 }
 
 static void push_entity_dependency(u32 string_index) {
-	grug_assert(entity_dependencies_size < MAX_ENTITY_DEPENDENCIES, "There are more than %d entity dependencies, exceeding MAX_ENTITY_DEPENDENCIES", MAX_ENTITY_DEPENDENCIES);
+	backend_assert(entity_dependencies_size < MAX_ENTITY_DEPENDENCIES, "There are more than %d entity dependencies, exceeding MAX_ENTITY_DEPENDENCIES", MAX_ENTITY_DEPENDENCIES);
 
 	entity_dependencies[entity_dependencies_size++] = string_index;
 }
 
 static void push_resource(u32 string_index) {
-	grug_assert(resources_size < MAX_RESOURCES, "There are more than %d resources, exceeding MAX_RESOURCES", MAX_RESOURCES);
+	backend_assert(resources_size < MAX_RESOURCES, "There are more than %d resources, exceeding MAX_RESOURCES", MAX_RESOURCES);
 
 	resources[resources_size++] = string_index;
 }
@@ -6370,16 +6590,16 @@ static const char *push_entity_dependency_string(const char *string) {
 	static char entity[MAX_ENTITY_DEPENDENCY_NAME_LENGTH];
 
 	if (strchr(string, ':')) {
-		grug_assert(strlen(string) + 1 <= sizeof(entity), "There are more than %d characters in the entity string '%s', exceeding MAX_ENTITY_DEPENDENCY_NAME_LENGTH", MAX_ENTITY_DEPENDENCY_NAME_LENGTH, string);
+		backend_assert(strlen(string) + 1 <= sizeof(entity), "There are more than %d characters in the entity string '%s', exceeding MAX_ENTITY_DEPENDENCY_NAME_LENGTH", MAX_ENTITY_DEPENDENCY_NAME_LENGTH, string);
 
 		memcpy(entity, string, strlen(string) + 1);
 	} else {
-		snprintf(entity, sizeof(entity), "%s:%s", mod, string);
+		snprintf(entity, sizeof(entity), "%s:%s", ast.mod, string);
 	}
 
 	size_t length = strlen(entity);
 
-	grug_assert(entity_dependency_strings_size + length < MAX_ENTITY_DEPENDENCIES_STRINGS_CHARACTERS, "There are more than %d characters in the entity_dependency_strings array, exceeding MAX_ENTITY_DEPENDENCIES_STRINGS_CHARACTERS", MAX_ENTITY_DEPENDENCIES_STRINGS_CHARACTERS);
+	backend_assert(entity_dependency_strings_size + length < MAX_ENTITY_DEPENDENCIES_STRINGS_CHARACTERS, "There are more than %d characters in the entity_dependency_strings array, exceeding MAX_ENTITY_DEPENDENCIES_STRINGS_CHARACTERS", MAX_ENTITY_DEPENDENCIES_STRINGS_CHARACTERS);
 
 	const char *entity_str = entity_dependency_strings + entity_dependency_strings_size;
 
@@ -6393,11 +6613,11 @@ static const char *push_entity_dependency_string(const char *string) {
 
 static const char *push_resource_string(const char *string) {
 	static char resource[STUPID_MAX_PATH];
-	grug_assert(snprintf(resource, sizeof(resource), "%s/%s/%s", mods_root_dir_path, mod, string) >= 0, "Filling the variable 'resource' failed");
+	backend_assert(snprintf(resource, sizeof(resource), "%s/%s/%s", ast.mods_root_dir_path, ast.mod, string) >= 0, "Filling the variable 'resource' failed");
 
 	size_t length = strlen(resource);
 
-	grug_assert(resource_strings_size + length < MAX_RESOURCE_STRINGS_CHARACTERS, "There are more than %d characters in the resource_strings array, exceeding MAX_RESOURCE_STRINGS_CHARACTERS", MAX_RESOURCE_STRINGS_CHARACTERS);
+	backend_assert(resource_strings_size + length < MAX_RESOURCE_STRINGS_CHARACTERS, "There are more than %d characters in the resource_strings array, exceeding MAX_RESOURCE_STRINGS_CHARACTERS", MAX_RESOURCE_STRINGS_CHARACTERS);
 
 	const char *resource_str = resource_strings + resource_strings_size;
 
@@ -6464,8 +6684,8 @@ static void compile_expr(struct expr expr) {
 				// We can't do the same thing we do with RESOURCE_EXPR,
 				// where we only call `push_entity_dependency()` when `!had_string`,
 				// because the same entity dependency strings
-				// can have with different "entity_type" values in mod_api.json
-				// (namely, game fn 1 might have "car", and game fn 2 the empty string "")
+				// can have different "entity_type" values in mod_api.json:
+				// Game fn 1 might have entity type "car", while game fn 2 has the empty string "".
 				push_entity_dependency(get_data_string_index(string));
 			}
 
@@ -6478,13 +6698,13 @@ static void compile_expr(struct expr expr) {
 			break;
 		}
 		case IDENTIFIER_EXPR: {
-			struct variable *var = get_local_variable(expr.literal.string);
+			struct variable *var = tmp_get_local_variable(expr.literal.string);
 			if (var) {
 				switch (var->type) {
 					case type_void:
 					case type_resource:
 					case type_entity:
-						grug_unreachable();
+						backend_unreachable();
 					case type_bool:
 						if (var->offset <= 0x80) {
 							compile_unpadded(MOVZX_BYTE_DEREF_RBP_TO_EAX_8_BIT_OFFSET);
@@ -6526,7 +6746,7 @@ static void compile_expr(struct expr expr) {
 				case type_void:
 				case type_resource:
 				case type_entity:
-					grug_unreachable();
+					backend_unreachable();
 				case type_bool:
 					if (var->offset < 0x80) {
 						compile_unpadded(MOVZX_BYTE_DEREF_RAX_TO_EAX_8_BIT_OFFSET);
@@ -6607,7 +6827,7 @@ static void compile_global_variable_statement(const char *name) {
 		case type_void:
 		case type_resource:
 		case type_entity:
-			grug_unreachable();
+			backend_unreachable();
 		case type_bool:
 			if (var->offset < 0x80) {
 				compile_unpadded(MOV_AL_TO_DEREF_R11_8_BIT_OFFSET);
@@ -6625,7 +6845,7 @@ static void compile_global_variable_statement(const char *name) {
 			break;
 		case type_id:
 			// See tests/err/global_id_cant_be_reassigned
-			grug_assert(!compiled_init_globals_fn, "Global id variables can't be reassigned");
+			backend_assert(!compiled_init_globals_fn, "Global id variables can't be reassigned");
 			__attribute__((fallthrough));
 		case type_string:
 			if (var->offset < 0x80) {
@@ -6648,16 +6868,16 @@ static void compile_variable_statement(struct variable_statement variable_statem
 
 	// The "TYPE PROPAGATION" section already checked for any possible errors.
 	if (variable_statement.has_type) {
-		add_local_variable(variable_statement.name, variable_statement.type, variable_statement.type_name);
+		tmp_add_local_variable(variable_statement.name, variable_statement.type, variable_statement.type_name);
 	}
 
-	struct variable *var = get_local_variable(variable_statement.name);
+	struct variable *var = tmp_get_local_variable(variable_statement.name);
 	if (var) {
 		switch (var->type) {
 			case type_void:
 			case type_resource:
 			case type_entity:
-				grug_unreachable();
+				backend_unreachable();
 			case type_bool:
 				if (var->offset <= 0x80) {
 					compile_unpadded(MOV_AL_TO_DEREF_RBP_8_BIT_OFFSET);
@@ -6692,6 +6912,26 @@ static void compile_variable_statement(struct variable_statement variable_statem
 	}
 
 	compile_global_variable_statement(variable_statement.name);
+}
+
+static void tmp_mark_local_variables_unreachable(struct statement *body_statements, size_t statement_count) {
+	// Mark all local variables in this exited scope block as being unreachable.
+	for (size_t i = 0; i < statement_count; i++) {
+		struct statement statement = body_statements[i];
+
+		if (statement.type == VARIABLE_STATEMENT && statement.variable_statement.has_type) {
+			struct variable *var = tmp_get_local_variable(statement.variable_statement.name);
+			assert(var);
+
+			var->offset = SIZE_MAX;
+
+			// Even though we have already calculated the final stack frame size in advance
+			// before we started compiling the function's body, we are still calling add_local_variable()
+			// during the compilation of the function body. And that fn uses stack_frame_bytes.
+			assert(stack_frame_bytes >= tmp_type_sizes[var->type]);
+			stack_frame_bytes -= tmp_type_sizes[var->type];
+		}
+	}
 }
 
 static void compile_statements(struct statement *body_statements, size_t statement_count) {
@@ -6731,7 +6971,7 @@ static void compile_statements(struct statement *body_statements, size_t stateme
 		}
 	}
 
-	mark_local_variables_unreachable(body_statements, statement_count);
+	tmp_mark_local_variables_unreachable(body_statements, statement_count);
 }
 
 static void calc_max_local_variable_stack_usage(struct statement *body_statements, size_t statement_count) {
@@ -6741,7 +6981,7 @@ static void calc_max_local_variable_stack_usage(struct statement *body_statement
 		switch (statement.type) {
 			case VARIABLE_STATEMENT:
 				if (statement.variable_statement.has_type) {
-					stack_frame_bytes += type_sizes[statement.variable_statement.type];
+					stack_frame_bytes += tmp_type_sizes[statement.variable_statement.type];
 
 					if (stack_frame_bytes > max_stack_frame_bytes) {
 						max_stack_frame_bytes = stack_frame_bytes;
@@ -6774,8 +7014,8 @@ static void calc_max_local_variable_stack_usage(struct statement *body_statement
 		struct statement statement = body_statements[i];
 
 		if (statement.type == VARIABLE_STATEMENT && statement.variable_statement.has_type) {
-			assert(stack_frame_bytes >= type_sizes[statement.variable_statement.type]);
-			stack_frame_bytes -= type_sizes[statement.variable_statement.type];
+			assert(stack_frame_bytes >= tmp_type_sizes[statement.variable_statement.type]);
+			stack_frame_bytes -= tmp_type_sizes[statement.variable_statement.type];
 		}
 	}
 }
@@ -6837,8 +7077,27 @@ static void compile_function_prologue(void) {
 	}
 }
 
+static void tmp_add_argument_variables(struct argument *fn_arguments, size_t argument_count) {
+	tmp_variables_size = 0;
+	memset(tmp_buckets_variables, 0xff, sizeof(tmp_buckets_variables));
+
+	stack_frame_bytes = sizeof(void *); // Size of the global variables pointer.
+	max_stack_frame_bytes = stack_frame_bytes;
+
+	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
+		struct argument arg = fn_arguments[argument_index];
+		tmp_add_local_variable(arg.name, arg.type, arg.type_name);
+
+		if (arg.type == type_entity) {
+			push_entity_type(arg.entity_type);
+		}
+
+		max_stack_frame_bytes += tmp_type_sizes[arg.type];
+	}
+}
+
 static void compile_on_fn_impl(const char *fn_name, struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count, const char *grug_path, bool on_fn_calls_helper_fn, bool on_fn_contains_while_loop) {
-	add_argument_variables(fn_arguments, argument_count);
+	tmp_add_argument_variables(fn_arguments, argument_count);
 
 	calc_max_local_variable_stack_usage(body_statements, body_statement_count);
 
@@ -6898,7 +7157,7 @@ static void compile_on_fn(struct on_fn fn, const char *grug_path) {
 }
 
 static void compile_helper_fn_impl(struct argument *fn_arguments, size_t argument_count, struct statement *body_statements, size_t body_statement_count) {
-	add_argument_variables(fn_arguments, argument_count);
+	tmp_add_argument_variables(fn_arguments, argument_count);
 
 	calc_max_local_variable_stack_usage(body_statements, body_statement_count);
 
@@ -6926,7 +7185,7 @@ static void compile_helper_fn(struct helper_fn fn) {
 static void compile_init_globals_fn(const char *grug_path) {
 	// The "me" global variable is always present
 	// If there are no other global variables, take a shortcut
-	if (global_variables_size == 1) {
+	if (ast.global_variables_size == 1) {
 		// The entity ID passed in the rsi register is always the first global
 		compile_unpadded(MOV_RSI_TO_DEREF_RDI);
 
@@ -6954,8 +7213,8 @@ static void compile_init_globals_fn(const char *grug_path) {
 	current_grug_path = grug_path;
 	current_fn_name = "init_globals";
 
-	for (size_t i = 0; i < global_variable_statements_size; i++) {
-		struct global_variable_statement global = global_variable_statements[i];
+	for (size_t i = 0; i < ast.global_variable_statements_size; i++) {
+		struct global_variable_statement global = ast.global_variable_statements[i];
 
 		compile_expr(global.assignment_expr);
 
@@ -6968,8 +7227,8 @@ static void compile_init_globals_fn(const char *grug_path) {
 	overwrite_jmp_address_32(skip_safe_code_offset, codes_size);
 
 	compiling_fast_mode = true;
-	for (size_t i = 0; i < global_variable_statements_size; i++) {
-		struct global_variable_statement global = global_variable_statements[i];
+	for (size_t i = 0; i < ast.global_variable_statements_size; i++) {
+		struct global_variable_statement global = ast.global_variable_statements[i];
 
 		compile_expr(global.assignment_expr);
 
@@ -6993,8 +7252,8 @@ static void compile(const char *grug_path) {
 	text_offsets[text_offset_index++] = text_offset;
 	text_offset = codes_size;
 
-	for (size_t on_fn_index = 0; on_fn_index < on_fns_size; on_fn_index++) {
-		struct on_fn fn = on_fns[on_fn_index];
+	for (size_t on_fn_index = 0; on_fn_index < ast.on_fns_size; on_fn_index++) {
+		struct on_fn fn = ast.on_fns[on_fn_index];
 
 		compile_on_fn(fn, grug_path);
 
@@ -7002,8 +7261,8 @@ static void compile(const char *grug_path) {
 		text_offset = codes_size;
 	}
 
-	for (size_t helper_fn_index = 0; helper_fn_index < helper_fns_size; helper_fn_index++) {
-		struct helper_fn fn = helper_fns[helper_fn_index];
+	for (size_t helper_fn_index = 0; helper_fn_index < ast.helper_fns_size; helper_fn_index++) {
+		struct helper_fn fn = ast.helper_fns[helper_fn_index];
 
 		push_helper_fn_offset(get_safe_helper_fn_name(fn.fn_name), codes_size);
 
@@ -7028,7 +7287,7 @@ static void compile(const char *grug_path) {
 	hash_helper_fn_offsets();
 }
 
-//// LINKING
+////// LINKING
 
 #define MAX_BYTES 420420
 #define MAX_GAME_FN_OFFSETS 420420
@@ -7165,10 +7424,6 @@ static size_t resources_offset;
 static size_t entities_offset;
 static size_t entity_types_offset;
 
-static thread_local u64 grug_max_rsp;
-static thread_local struct timespec grug_current_time;
-static thread_local struct timespec grug_max_time;
-
 static void reset_generate_shared_object(void) {
 	symbols_size = 0;
 	data_symbols_size = 0;
@@ -7177,45 +7432,6 @@ static void reset_generate_shared_object(void) {
 	bytes_size = 0;
 	game_fn_offsets_size = 0;
 	global_variable_offsets_size = 0;
-}
-
-USED_BY_MODS bool grug_is_time_limit_exceeded(void);
-USED_BY_MODS bool grug_is_time_limit_exceeded(void) {
-	clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &grug_current_time);
-
-	if (grug_current_time.tv_sec < grug_max_time.tv_sec) {
-		return false;
-	}
-
-	if (grug_current_time.tv_sec > grug_max_time.tv_sec) {
-		return true;
-	}
-
-	return grug_current_time.tv_nsec > grug_max_time.tv_nsec;
-}
-
-USED_BY_MODS void grug_set_time_limit(void);
-USED_BY_MODS void grug_set_time_limit(void) {
-	clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &grug_max_time);
-
-	grug_max_time.tv_sec += on_fn_time_limit_sec;
-
-	grug_max_time.tv_nsec += on_fn_time_limit_ns;
-
-	if (grug_max_time.tv_nsec >= NS_PER_SEC) {
-		grug_max_time.tv_nsec -= NS_PER_SEC;
-		grug_max_time.tv_sec++;
-	}
-}
-
-USED_BY_MODS u64* grug_get_max_rsp_addr(void);
-USED_BY_MODS u64* grug_get_max_rsp_addr(void) {
-    return &grug_max_rsp;
-}
-
-USED_BY_MODS u64 grug_get_max_rsp(void);
-USED_BY_MODS u64 grug_get_max_rsp(void) {
-    return grug_max_rsp;
 }
 
 static void overwrite(u64 n, size_t bytes_offset, size_t overwrite_count) {
@@ -7238,36 +7454,36 @@ static void overwrite_64(u64 n, size_t bytes_offset) {
 }
 
 static struct on_fn *get_on_fn(const char *name) {
-	if (on_fns_size == 0) {
+	if (ast.on_fns_size == 0) {
 		return NULL;
 	}
 
-	u32 i = buckets_on_fns[elf_hash(name) % on_fns_size];
+	u32 i = buckets_on_fns[elf_hash(name) % ast.on_fns_size];
 
 	while (true) {
 		if (i == UINT32_MAX) {
 			return NULL;
 		}
 
-		if (streq(name, on_fns[i].fn_name)) {
+		if (streq(name, ast.on_fns[i].fn_name)) {
 			break;
 		}
 
 		i = chains_on_fns[i];
 	}
 
-	return on_fns + i;
+	return ast.on_fns + i;
 }
 
 static void hash_on_fns(void) {
-	memset(buckets_on_fns, 0xff, on_fns_size * sizeof(u32));
+	memset(buckets_on_fns, 0xff, ast.on_fns_size * sizeof(u32));
 
-	for (size_t i = 0; i < on_fns_size; i++) {
-		const char *name = on_fns[i].fn_name;
+	for (size_t i = 0; i < ast.on_fns_size; i++) {
+		const char *name = ast.on_fns[i].fn_name;
 
-		grug_assert(!get_on_fn(name), "The function '%s' was defined several times in the same file", name);
+		backend_assert(!get_on_fn(name), "The function '%s' was defined several times in the same file", name);
 
-		u32 bucket_index = elf_hash(name) % on_fns_size;
+		u32 bucket_index = elf_hash(name) % ast.on_fns_size;
 
 		chains_on_fns[i] = buckets_on_fns[bucket_index];
 
@@ -7340,10 +7556,10 @@ static void patch_rela_dyn(void) {
 	}
 
 	size_t bytes_offset = rela_dyn_offset;
-	for (size_t i = 0; i < grug_entity->on_function_count; i++) {
-		struct on_fn *on_fn = get_on_fn(grug_entity->on_functions[i].name);
+	for (size_t i = 0; i < ast.grug_entity->on_function_count; i++) {
+		struct on_fn *on_fn = get_on_fn(ast.grug_entity->on_functions[i].name);
 		if (on_fn) {
-			size_t on_fn_index = on_fn - on_fns;
+			size_t on_fn_index = on_fn - ast.on_fns;
 
 			overwrite_64(got_plt_offset + got_plt_size + on_fn_data_offset, bytes_offset);
 			bytes_offset += 2 * sizeof(u64);
@@ -7474,7 +7690,7 @@ static void hash_game_fn_offsets(void) {
 }
 
 static void push_game_fn_offset(const char *fn_name, size_t offset) {
-	grug_assert(game_fn_offsets_size < MAX_GAME_FN_OFFSETS, "There are more than %d game functions, exceeding MAX_GAME_FN_OFFSETS", MAX_GAME_FN_OFFSETS);
+	backend_assert(game_fn_offsets_size < MAX_GAME_FN_OFFSETS, "There are more than %d game functions, exceeding MAX_GAME_FN_OFFSETS", MAX_GAME_FN_OFFSETS);
 
 	game_fn_offsets[game_fn_offsets_size++] = (struct offset){
 		.name = fn_name,
@@ -7483,7 +7699,7 @@ static void push_game_fn_offset(const char *fn_name, size_t offset) {
 }
 
 static bool has_got(void) {
-	return global_variables_size > 1 || on_fns_size > 0;
+	return ast.global_variables_size > 1 || ast.on_fns_size > 0;
 }
 
 // Used for both .plt and .rela.plt
@@ -7492,7 +7708,7 @@ static bool has_plt(void) {
 }
 
 static bool has_rela_dyn(void) {
-	return global_variables_size > 1 || on_fns_size > 0 || resources_size > 0 || entity_dependencies_size > 0;
+	return ast.global_variables_size > 1 || ast.on_fns_size > 0 || resources_size > 0 || entity_dependencies_size > 0;
 }
 
 static void patch_dynamic(void) {
@@ -7535,7 +7751,7 @@ static void hash_global_variable_offsets(void) {
 }
 
 static void push_global_variable_offset(const char *name, size_t offset) {
-	grug_assert(global_variable_offsets_size < MAX_GLOBAL_VARIABLE_OFFSETS, "There are more than %d game functions, exceeding MAX_GLOBAL_VARIABLE_OFFSETS", MAX_GLOBAL_VARIABLE_OFFSETS);
+	backend_assert(global_variable_offsets_size < MAX_GLOBAL_VARIABLE_OFFSETS, "There are more than %d game functions, exceeding MAX_GLOBAL_VARIABLE_OFFSETS", MAX_GLOBAL_VARIABLE_OFFSETS);
 
 	global_variable_offsets[global_variable_offsets_size++] = (struct offset){
 		.name = name,
@@ -7679,7 +7895,7 @@ static void patch_bytes(void) {
 }
 
 static void push_byte(u8 byte) {
-	grug_assert(bytes_size < MAX_BYTES, "There are more than %d bytes, exceeding MAX_BYTES", MAX_BYTES);
+	backend_assert(bytes_size < MAX_BYTES, "There are more than %d bytes, exceeding MAX_BYTES", MAX_BYTES);
 
 	bytes[bytes_size++] = byte;
 }
@@ -7887,15 +8103,15 @@ static void push_data(void) {
 	data_offset = bytes_size;
 
 	// "globals_size" symbol
-	push_64(globals_bytes);
+	push_64(ast.globals_bytes);
 
 	// "on_fns" function addresses
 	size_t previous_on_fn_index = 0;
-	for (size_t i = 0; i < grug_entity->on_function_count; i++) {
-		struct on_fn *on_fn = get_on_fn(grug_entity->on_functions[i].name);
+	for (size_t i = 0; i < ast.grug_entity->on_function_count; i++) {
+		struct on_fn *on_fn = get_on_fn(ast.grug_entity->on_functions[i].name);
 		if (on_fn) {
-			size_t on_fn_index = on_fn - on_fns;
-			grug_assert(previous_on_fn_index <= on_fn_index, "The function '%s' needs to be moved before/after a different on_ function, according to the entity '%s' in mod_api.json", on_fn->fn_name, grug_entity->name);
+			size_t on_fn_index = on_fn - ast.on_fns;
+			backend_assert(previous_on_fn_index <= on_fn_index, "The function '%s' needs to be moved before/after a different on_ function, according to the entity '%s' in mod_api.json", on_fn->fn_name, ast.grug_entity->name);
 			previous_on_fn_index = on_fn_index;
 
 			size_t fns_before_on_fns = 1; // Just init_globals()
@@ -8053,10 +8269,10 @@ static void push_dynamic(void) {
 
 	if (has_rela_dyn()) {
 		push_dynamic_entry(DT_RELA, rela_dyn_offset);
-		push_dynamic_entry(DT_RELASZ, (on_fns_size + extern_data_symbols_size + resources_size + 2 * entity_dependencies_size) * RELA_ENTRY_SIZE);
+		push_dynamic_entry(DT_RELASZ, (ast.on_fns_size + extern_data_symbols_size + resources_size + 2 * entity_dependencies_size) * RELA_ENTRY_SIZE);
 		push_dynamic_entry(DT_RELAENT, RELA_ENTRY_SIZE);
 
-		size_t rela_count = on_fns_size + resources_size + 2 * entity_dependencies_size;
+		size_t rela_count = ast.on_fns_size + resources_size + 2 * entity_dependencies_size;
 		// tests/ok/global_id reaches this with rela_count == 0
 		if (rela_count > 0) {
 			push_dynamic_entry(DT_RELACOUNT, rela_count);
@@ -8073,7 +8289,7 @@ static void push_dynamic(void) {
 	size_t count = 0;
 	count += resources_size > 0;
 	count += entity_dependencies_size > 0;
-	count += on_fns_size > 0;
+	count += ast.on_fns_size > 0;
 
 	if (count > 0) {
 		padding -= entry_size;
@@ -8087,7 +8303,7 @@ static void push_text(void) {
 
 	text_offset = bytes_size;
 
-	grug_assert(bytes_size + codes_size < MAX_BYTES, "There are more than %d bytes, exceeding MAX_BYTES", MAX_BYTES);
+	backend_assert(bytes_size + codes_size < MAX_BYTES, "There are more than %d bytes, exceeding MAX_BYTES", MAX_BYTES);
 
 	for (size_t i = 0; i < codes_size; i++) {
 		bytes[bytes_size++] = codes[i];
@@ -8174,8 +8390,8 @@ static void push_rela_plt(void) {
 static void push_rela_dyn(void) {
 	grug_log_section(".rela.dyn");
 
-	for (size_t i = 0; i < grug_entity->on_function_count; i++) {
-		struct on_fn *on_fn = get_on_fn(grug_entity->on_functions[i].name);
+	for (size_t i = 0; i < ast.grug_entity->on_function_count; i++) {
+		struct on_fn *on_fn = get_on_fn(ast.grug_entity->on_functions[i].name);
 		if (on_fn) {
 			push_rela(PLACEHOLDER_64, ELF64_R_INFO(0, R_X86_64_RELATIVE), PLACEHOLDER_64);
 		}
@@ -8592,9 +8808,9 @@ static void init_data_offsets(void) {
 	offset += sizeof(u64);
 
 	// "on_fns" function address symbols
-	if (grug_entity->on_function_count > 0) {
+	if (ast.grug_entity->on_function_count > 0) {
 		data_offsets[i++] = offset;
-		for (size_t on_fn_index = 0; on_fn_index < grug_entity->on_function_count; on_fn_index++) {
+		for (size_t on_fn_index = 0; on_fn_index < ast.grug_entity->on_function_count; on_fn_index++) {
 			offset += sizeof(size_t);
 		}
 	}
@@ -8654,7 +8870,7 @@ static void init_symbol_name_strtab_offsets(void) {
 }
 
 static void push_shuffled_symbol(const char *shuffled_symbol) {
-	grug_assert(shuffled_symbols_size < MAX_SYMBOLS, "There are more than %d symbols, exceeding MAX_SYMBOLS", MAX_SYMBOLS);
+	backend_assert(shuffled_symbols_size < MAX_SYMBOLS, "There are more than %d symbols, exceeding MAX_SYMBOLS", MAX_SYMBOLS);
 
 	shuffled_symbols[shuffled_symbols_size++] = shuffled_symbol;
 }
@@ -8713,7 +8929,7 @@ static void init_symbol_name_dynstr_offsets(void) {
 }
 
 static void push_symbol(const char *symbol) {
-	grug_assert(symbols_size < MAX_SYMBOLS, "There are more than %d symbols, exceeding MAX_SYMBOLS", MAX_SYMBOLS);
+	backend_assert(symbols_size < MAX_SYMBOLS, "There are more than %d symbols, exceeding MAX_SYMBOLS", MAX_SYMBOLS);
 
 	symbols[symbols_size++] = symbol;
 }
@@ -8754,7 +8970,7 @@ static void generate_shared_object(const char *dll_path) {
 	push_symbol("globals_size");
 	data_symbols_size++;
 
-	if (grug_entity->on_function_count > 0) {
+	if (ast.grug_entity->on_function_count > 0) {
 		push_symbol("on_fns");
 		data_symbols_size++;
 	}
@@ -8771,7 +8987,7 @@ static void generate_shared_object(const char *dll_path) {
 	data_symbols_size++;
 
 	if (entity_dependencies_size != entity_types_size) {
-		grug_unreachable();
+		backend_unreachable();
 	}
 
 	if (entity_dependencies_size > 0) {
@@ -8810,13 +9026,13 @@ static void generate_shared_object(const char *dll_path) {
 	push_symbol("init_globals");
 
 	on_fns_symbol_offset = symbols_size;
-	for (size_t i = 0; i < on_fns_size; i++) {
-		push_symbol(on_fns[i].fn_name);
+	for (size_t i = 0; i < ast.on_fns_size; i++) {
+		push_symbol(ast.on_fns[i].fn_name);
 	}
 
-	for (size_t i = 0; i < helper_fns_size; i++) {
-		push_symbol(get_safe_helper_fn_name(helper_fns[i].fn_name));
-		push_symbol(get_fast_helper_fn_name(helper_fns[i].fn_name));
+	for (size_t i = 0; i < ast.helper_fns_size; i++) {
+		push_symbol(get_safe_helper_fn_name(ast.helper_fns[i].fn_name));
+		push_symbol(get_fast_helper_fn_name(ast.helper_fns[i].fn_name));
 	}
 
 	init_symbol_name_dynstr_offsets();
@@ -8834,9 +9050,24 @@ static void generate_shared_object(const char *dll_path) {
 	patch_bytes();
 
 	FILE *f = fopen(dll_path, "w");
-	grug_assert(f, "fopen: %s", strerror(errno));
-	grug_assert(fwrite(bytes, sizeof(u8), bytes_size, f) > 0, "fwrite error");
-	grug_assert(fclose(f) == 0, "fclose: %s", strerror(errno));
+	backend_assert(f, "fopen: %s", strerror(errno));
+	backend_assert(fwrite(bytes, sizeof(u8), bytes_size, f) > 0, "fwrite error");
+	backend_assert(fclose(f) == 0, "fclose: %s", strerror(errno));
+}
+
+USED_BY_PROGRAMS bool grug_backend_linux(struct grug_ast *ast_);
+USED_BY_PROGRAMS bool grug_backend_linux(struct grug_ast *ast_) {
+	if (setjmp(backend_error_jmp_buffer)) {
+		return true;
+	}
+
+	ast = *ast_;
+
+	compile(ast.grug_file_path);
+
+	generate_shared_object(ast.dll_path);
+
+	return false;
 }
 
 //// HOT RELOADING
@@ -8847,6 +9078,8 @@ static void generate_shared_object(const char *dll_path) {
 #define MAX_DIRECTORY_DEPTH 42
 
 USED_BY_PROGRAMS struct grug_mod_dir grug_mods;
+
+static char mods_root_dir_path[STUPID_MAX_PATH];
 
 USED_BY_PROGRAMS struct grug_modified grug_reloads[MAX_RELOADS];
 USED_BY_PROGRAMS size_t grug_reloads_size;
@@ -8864,6 +9097,8 @@ USED_BY_PROGRAMS size_t grug_resource_reloads_size;
 
 USED_BY_MODS const char *grug_fn_name;
 USED_BY_MODS const char *grug_fn_path;
+
+static grug_backend backend;
 
 static bool is_grug_initialized = false;
 
@@ -8934,6 +9169,32 @@ static void reload_resources_from_dll(const char *dll_path, i64 *resource_mtimes
 	}
 }
 
+static struct grug_ast get_ast(const char *grug_path, const char *dll_path) {
+	return (struct grug_ast){
+		.mod = mod,
+		.mods_root_dir_path = mods_root_dir_path,
+
+		.grug_file_path = grug_path,
+
+		.dll_path = dll_path,
+
+		.on_fns = on_fns,
+		.on_fns_size = on_fns_size,
+
+		.helper_fns = helper_fns,
+		.helper_fns_size = helper_fns_size,
+
+		.grug_entity = grug_entity,
+
+		.global_variables = global_variables,
+		.global_variables_size = global_variables_size,
+		.globals_bytes = globals_bytes,
+
+		.global_variable_statements = global_variable_statements,
+		.global_variable_statements_size = global_variable_statements_size,
+	};
+}
+
 static void regenerate_dll(const char *grug_path, const char *dll_path) {
 	grug_log("# Regenerating %s\n", dll_path);
 
@@ -8953,10 +9214,10 @@ static void regenerate_dll(const char *grug_path, const char *dll_path) {
 	parse();
 	fill_result_types();
 
-	compile(grug_path);
-
-	grug_log("\n# Section offsets\n");
-	generate_shared_object(dll_path);
+	struct grug_ast data = get_ast(grug_path, dll_path);
+	if (backend(&data)) {
+		longjmp(error_jmp_buffer, 1);\
+	}
 
 	grug_loading_error_in_grug_file = false;
 }
@@ -9587,7 +9848,7 @@ static void reload_modified_mods(void) {
 	}
 }
 
-bool grug_init(grug_runtime_error_handler_t handler, const char *mod_api_json_path, const char *mods_dir_path, const char *dll_dir_path, uint64_t on_fn_time_limit_ms_) {
+bool grug_init(grug_runtime_error_handler_t handler, const char *mod_api_json_path, const char *mods_dir_path, const char *dll_dir_path, uint64_t on_fn_time_limit_ms_, grug_backend backend_) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
@@ -9614,6 +9875,9 @@ bool grug_init(grug_runtime_error_handler_t handler, const char *mod_api_json_pa
 	on_fn_time_limit_ms = on_fn_time_limit_ms_;
 	on_fn_time_limit_sec = on_fn_time_limit_ms / MS_PER_SEC;
 	on_fn_time_limit_ns = (on_fn_time_limit_ms % MS_PER_SEC) * NS_PER_MS;
+
+	bool grug_backend_linux(struct grug_ast *ast);
+	backend = backend_ ? backend_ : grug_backend_linux;
 
 	is_grug_initialized = true;
 
@@ -9686,4 +9950,3 @@ void grug_toggle_on_fns_mode(void) {
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
-

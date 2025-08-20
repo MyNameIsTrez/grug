@@ -2,6 +2,8 @@
 
 [![](https://dcbadge.limes.pink/api/server/https://discord.com/invite/ufeJ6MBXJG)](https://discord.gg/https://discord.com/invite/ufeJ6MBXJG)
 
+grug aims to be the perfect modding language. Use it by dropping `grug.c` and `grug.h` into your game.
+
 See my YouTube video explaining and showcasing grug:
 
 [<img src="https://img.youtube.com/vi/4oUToVXR2Vo/maxresdefault.jpg" height="200">](https://youtu.be/4oUToVXR2Vo)
@@ -36,9 +38,8 @@ This gives everyone the chance to discuss it, and prevents your hard work from b
 10. DUMPING AST
 11. APPLYING AST
 12. TYPE PROPAGATION
-13. COMPILING
-14. LINKING
-15. HOT RELOADING
+13. GRUG BACKEND LINUX
+14. HOT RELOADING
 
 ## Programs showcasing grug
 

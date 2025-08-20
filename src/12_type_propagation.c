@@ -2,20 +2,8 @@
 
 //// TYPE PROPAGATION
 
-#define MAX_VARIABLES_PER_FUNCTION 420420
-#define MAX_ENTITY_DEPENDENCY_NAME_LENGTH 420
-#define MAX_ENTITY_DEPENDENCIES 420420
-#define MAX_DATA_STRINGS 420420
 #define MAX_FILE_ENTITY_TYPE_LENGTH 420
 
-#define GLOBAL_VARIABLES_POINTER_SIZE sizeof(void *)
-
-struct variable {
-	const char *name;
-	enum type type;
-	const char *type_name;
-	size_t offset;
-};
 static struct variable variables[MAX_VARIABLES_PER_FUNCTION];
 static size_t variables_size;
 static u32 buckets_variables[MAX_VARIABLES_PER_FUNCTION];
@@ -26,9 +14,6 @@ static size_t global_variables_size;
 static size_t globals_bytes;
 static u32 buckets_global_variables[MAX_GLOBAL_VARIABLES];
 static u32 chains_global_variables[MAX_GLOBAL_VARIABLES];
-
-static size_t stack_frame_bytes;
-static size_t max_stack_frame_bytes;
 
 static enum type fn_return_type;
 static const char *fn_return_type_name;
@@ -42,73 +27,23 @@ static u32 chains_entity_on_fns[MAX_ON_FNS];
 static const char *mod;
 static char file_entity_type[MAX_FILE_ENTITY_TYPE_LENGTH];
 
-static u32 entity_types[MAX_ENTITY_DEPENDENCIES];
-static size_t entity_types_size;
-
-static const char *data_strings[MAX_DATA_STRINGS];
-static size_t data_strings_size;
-
-static u32 buckets_data_strings[MAX_DATA_STRINGS];
-static u32 chains_data_strings[MAX_DATA_STRINGS];
-
 static bool *parsed_fn_calls_helper_fn_ptr;
 static bool *parsed_fn_contains_while_loop_ptr;
+
+static size_t type_sizes[] = {
+	[type_bool] = sizeof(bool),
+	[type_i32] = sizeof(i32),
+	[type_f32] = sizeof(float),
+	[type_string] = sizeof(const char *),
+	[type_id] = sizeof(u64),
+	[type_resource] = sizeof(const char *),
+	[type_entity] = sizeof(const char *),
+};
 
 static void reset_filling(void) {
 	global_variables_size = 0;
 	globals_bytes = 0;
 	memset(buckets_global_variables, 0xff, sizeof(buckets_global_variables));
-	entity_types_size = 0;
-	data_strings_size = 0;
-	memset(buckets_data_strings, 0xff, sizeof(buckets_data_strings));
-}
-
-static void push_data_string(const char *string) {
-	grug_assert(data_strings_size < MAX_DATA_STRINGS, "There are more than %d data strings, exceeding MAX_DATA_STRINGS", MAX_DATA_STRINGS);
-
-	data_strings[data_strings_size++] = string;
-}
-
-static u32 get_data_string_index(const char *string) {
-	if (data_strings_size == 0) {
-		return UINT32_MAX;
-	}
-
-	u32 i = buckets_data_strings[elf_hash(string) % MAX_DATA_STRINGS];
-
-	while (true) {
-		if (i == UINT32_MAX) {
-			return UINT32_MAX;
-		}
-
-		if (streq(string, data_strings[i])) {
-			break;
-		}
-
-		i = chains_data_strings[i];
-	}
-
-	return i;
-}
-
-static void add_data_string(const char *string) {
-	if (get_data_string_index(string) == UINT32_MAX) {
-		u32 bucket_index = elf_hash(string) % MAX_DATA_STRINGS;
-
-		chains_data_strings[data_strings_size] = buckets_data_strings[bucket_index];
-
-		buckets_data_strings[bucket_index] = data_strings_size;
-
-		push_data_string(string);
-	}
-}
-
-static void push_entity_type(const char *entity_type) {
-	add_data_string(entity_type);
-
-	grug_assert(entity_types_size < MAX_ENTITY_DEPENDENCIES, "There are more than %d entity types, exceeding MAX_ENTITY_DEPENDENCIES", MAX_ENTITY_DEPENDENCIES);
-
-	entity_types[entity_types_size++] = get_data_string_index(entity_type);
 }
 
 static void fill_expr(struct expr *expr);
@@ -224,7 +159,6 @@ static void check_arguments(struct argument *params, size_t param_count, struct 
 			arg->result_type_name = "entity";
 			arg->type = ENTITY_EXPR;
 			validate_entity_string(arg->literal.string);
-			push_entity_type(param.entity_type);
 		}
 
 		grug_assert(arg->result_type != type_void, "Function call '%s' expected the type %s for argument '%s', but got a function call that doesn't return anything", name, param.type_name, param.name);
@@ -356,7 +290,7 @@ static void fill_binary_expr(struct expr *expr) {
 	}
 }
 
-static struct variable *get_global_variable(const char *name) {
+USED_BY_PROGRAMS struct variable *get_global_variable(const char *name) {
 	u32 i = buckets_global_variables[elf_hash(name) % MAX_GLOBAL_VARIABLES];
 
 	while (true) {
@@ -411,7 +345,7 @@ static struct variable *get_local_variable(const char *name) {
 		// When a scope block is exited, the local variables in it aren't reachable anymore.
 		// These unreachable local variables are marked with an offset of SIZE_MAX.
 		// It is possible for a new local variable with the same name to be added after the block,
-		// which is why we still keep looping in that case.
+		// which is why we still keep looping.
 		if (streq(name, variables[i].name) && variables[i].offset != SIZE_MAX) {
 			break;
 		}
@@ -499,17 +433,11 @@ static void add_local_variable(const char *name, enum type type, const char *typ
 	grug_assert(!get_local_variable(name), "The local variable '%s' shadows an earlier local variable with the same name, so change the name of one of them", name);
 	grug_assert(!get_global_variable(name), "The local variable '%s' shadows an earlier global variable with the same name, so change the name of one of them", name);
 
-	stack_frame_bytes += type_sizes[type];
-
 	variables[variables_size] = (struct variable){
 		.name = name,
 		.type = type,
 		.type_name = type_name,
-
-		// This field is used by the "COMPILING" section to track the stack location of a local variable.
-		// The "TYPE PROPAGATION" section only checks whether it is SIZE_MAX,
-		// since that indicates that the variable is unreachable, due to having exited the scope block.
-		.offset = stack_frame_bytes,
+		.offset = 0, // Assigned SIZE_MAX when it becomes unreachable.
 	};
 
 	u32 bucket_index = elf_hash(name) % MAX_VARIABLES_PER_FUNCTION;
@@ -553,12 +481,6 @@ static void mark_local_variables_unreachable(struct statement *body_statements, 
 			assert(var);
 
 			var->offset = SIZE_MAX;
-
-			// Even though we have already calculated the final stack frame size in advance
-			// before we started compiling the function's body, we are still calling add_local_variable()
-			// during the compilation of the function body. And that fn uses stack_frame_bytes.
-			assert(stack_frame_bytes >= type_sizes[var->type]);
-			stack_frame_bytes -= type_sizes[var->type];
 		}
 	}
 }
@@ -622,14 +544,9 @@ static void add_argument_variables(struct argument *fn_arguments, size_t argumen
 	variables_size = 0;
 	memset(buckets_variables, 0xff, sizeof(buckets_variables));
 
-	stack_frame_bytes = GLOBAL_VARIABLES_POINTER_SIZE;
-	max_stack_frame_bytes = stack_frame_bytes;
-
 	for (size_t argument_index = 0; argument_index < argument_count; argument_index++) {
 		struct argument arg = fn_arguments[argument_index];
 		add_local_variable(arg.name, arg.type, arg.type_name);
-
-		max_stack_frame_bytes += type_sizes[arg.type];
 	}
 }
 

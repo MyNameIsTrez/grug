@@ -1,4 +1,4 @@
-// See the bottom of grug.c for the MIT license, which also applies to this file
+// See the bottom of grug.c for the MIT license, which also applies to this file.
 
 #pragma once
 
@@ -24,10 +24,15 @@ typedef void (*grug_runtime_error_handler_t)(const char *reason, enum grug_runti
 
 typedef void (*grug_init_globals_fn_t)(void *globals, uint64_t id);
 
+// The backend implementation should let this handler return `true` when an error occurred.
+struct grug_ast;
+typedef bool (*grug_backend)(struct grug_ast *ast);
+
 //// Functions
 
 // Returns whether an error occurred
-bool grug_init(grug_runtime_error_handler_t handler, const char *mod_api_json_path, const char *mods_dir_path, const char *dll_dir_path, uint64_t on_fn_time_limit_ms) __attribute__((warn_unused_result));
+// The `backend` argument is optional, and should normally be passed NULL.
+bool grug_init(grug_runtime_error_handler_t handler, const char *mod_api_json_path, const char *mods_dir_path, const char *dll_dir_path, uint64_t on_fn_time_limit_ms, grug_backend backend) __attribute__((warn_unused_result));
 
 // Returns whether an error occurred
 bool grug_regenerate_modified_mods(void) __attribute__((warn_unused_result));
