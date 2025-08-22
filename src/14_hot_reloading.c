@@ -1,4 +1,4 @@
-#include "14_linking.c"
+#include "12_type_propagation.c"
 
 //// HOT RELOADING
 
@@ -8,6 +8,8 @@
 #define MAX_DIRECTORY_DEPTH 42
 
 USED_BY_PROGRAMS struct grug_mod_dir grug_mods;
+
+static char mods_root_dir_path[STUPID_MAX_PATH];
 
 USED_BY_PROGRAMS struct grug_modified grug_reloads[MAX_RELOADS];
 USED_BY_PROGRAMS size_t grug_reloads_size;
@@ -25,6 +27,8 @@ USED_BY_PROGRAMS size_t grug_resource_reloads_size;
 
 USED_BY_MODS const char *grug_fn_name;
 USED_BY_MODS const char *grug_fn_path;
+
+static grug_backend backend;
 
 static bool is_grug_initialized = false;
 
@@ -95,6 +99,32 @@ static void reload_resources_from_dll(const char *dll_path, i64 *resource_mtimes
 	}
 }
 
+static struct grug_ast get_ast(const char *grug_path, const char *dll_path) {
+	return (struct grug_ast){
+		.mod = mod,
+		.mods_root_dir_path = mods_root_dir_path,
+
+		.grug_file_path = grug_path,
+
+		.dll_path = dll_path,
+
+		.on_fns = on_fns,
+		.on_fns_size = on_fns_size,
+
+		.helper_fns = helper_fns,
+		.helper_fns_size = helper_fns_size,
+
+		.grug_entity = grug_entity,
+
+		.global_variables = global_variables,
+		.global_variables_size = global_variables_size,
+		.globals_bytes = globals_bytes,
+
+		.global_variable_statements = global_variable_statements,
+		.global_variable_statements_size = global_variable_statements_size,
+	};
+}
+
 static void regenerate_dll(const char *grug_path, const char *dll_path) {
 	grug_log("# Regenerating %s\n", dll_path);
 
@@ -114,10 +144,10 @@ static void regenerate_dll(const char *grug_path, const char *dll_path) {
 	parse();
 	fill_result_types();
 
-	compile(grug_path);
-
-	grug_log("\n# Section offsets\n");
-	generate_shared_object(dll_path);
+	struct grug_ast data = get_ast(grug_path, dll_path);
+	if (backend(&data)) {
+		longjmp(error_jmp_buffer, 1);\
+	}
 
 	grug_loading_error_in_grug_file = false;
 }
@@ -748,7 +778,7 @@ static void reload_modified_mods(void) {
 	}
 }
 
-bool grug_init(grug_runtime_error_handler_t handler, const char *mod_api_json_path, const char *mods_dir_path, const char *dll_dir_path, uint64_t on_fn_time_limit_ms_) {
+bool grug_init(grug_runtime_error_handler_t handler, const char *mod_api_json_path, const char *mods_dir_path, const char *dll_dir_path, uint64_t on_fn_time_limit_ms_, grug_backend backend_) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
@@ -775,6 +805,9 @@ bool grug_init(grug_runtime_error_handler_t handler, const char *mod_api_json_pa
 	on_fn_time_limit_ms = on_fn_time_limit_ms_;
 	on_fn_time_limit_sec = on_fn_time_limit_ms / MS_PER_SEC;
 	on_fn_time_limit_ns = (on_fn_time_limit_ms % MS_PER_SEC) * NS_PER_MS;
+
+	bool grug_backend_linux(struct grug_ast *ast);
+	backend = backend_ ? backend_ : grug_backend_linux;
 
 	is_grug_initialized = true;
 

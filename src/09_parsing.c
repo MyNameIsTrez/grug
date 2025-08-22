@@ -6,9 +6,7 @@
 #define MAX_STATEMENTS 420420
 #define MAX_GLOBAL_STATEMENTS 420420
 #define MAX_ARGUMENTS 420420
-#define MAX_ON_FNS 420420
 #define MAX_HELPER_FNS 420420
-#define MAX_GLOBAL_VARIABLES 420420
 #define MAX_CALLED_HELPER_FN_NAMES 420420
 #define MAX_CALL_ARGUMENTS_PER_STACK_FRAME 69
 #define MAX_STATEMENTS_PER_SCOPE 1337
@@ -16,62 +14,6 @@
 
 #define INCREASE_PARSING_DEPTH() parsing_depth++; grug_assert(parsing_depth < MAX_PARSING_DEPTH, "There is a function that contains more than %d levels of nested expressions", MAX_PARSING_DEPTH)
 #define DECREASE_PARSING_DEPTH() assert(parsing_depth > 0); parsing_depth--
-
-struct literal_expr {
-	union {
-		const char *string;
-		i32 i32;
-		struct {
-			f32 value;
-			const char *string;
-		} f32;
-	};
-};
-
-struct unary_expr {
-	enum token_type operator;
-	struct expr *expr;
-};
-
-struct binary_expr {
-	struct expr *left_expr;
-	enum token_type operator;
-	struct expr *right_expr;
-};
-
-struct call_expr {
-	const char *fn_name;
-	struct expr *arguments;
-	size_t argument_count;
-};
-
-enum expr_type {
-	TRUE_EXPR,
-	FALSE_EXPR,
-	STRING_EXPR,
-	RESOURCE_EXPR,
-	ENTITY_EXPR,
-	IDENTIFIER_EXPR,
-	I32_EXPR,
-	F32_EXPR,
-	UNARY_EXPR,
-	BINARY_EXPR,
-	LOGICAL_EXPR,
-	CALL_EXPR,
-	PARENTHESIZED_EXPR,
-};
-struct expr {
-	enum expr_type type;
-	enum type result_type;
-	const char *result_type_name;
-	union {
-		struct literal_expr literal;
-		struct unary_expr unary;
-		struct binary_expr binary;
-		struct call_expr call;
-		struct expr *parenthesized;
-	};
-};
 static const char *get_expr_type_str[] = {
 	[TRUE_EXPR] = "TRUE_EXPR",
 	[FALSE_EXPR] = "FALSE_EXPR",
@@ -90,59 +32,6 @@ static const char *get_expr_type_str[] = {
 static struct expr exprs[MAX_EXPRS];
 static size_t exprs_size;
 
-struct variable_statement {
-	const char *name;
-	enum type type;
-	const char *type_name;
-	bool has_type;
-	struct expr *assignment_expr;
-};
-
-struct call_statement {
-	struct expr *expr;
-};
-
-struct if_statement {
-	struct expr condition;
-	struct statement *if_body_statements;
-	size_t if_body_statement_count;
-	struct statement *else_body_statements;
-	size_t else_body_statement_count;
-};
-
-struct return_statement {
-	struct expr *value;
-	bool has_value;
-};
-
-struct while_statement {
-	struct expr condition;
-	struct statement *body_statements;
-	size_t body_statement_count;
-};
-
-enum statement_type {
-	VARIABLE_STATEMENT,
-	CALL_STATEMENT,
-	IF_STATEMENT,
-	RETURN_STATEMENT,
-	WHILE_STATEMENT,
-	BREAK_STATEMENT,
-	CONTINUE_STATEMENT,
-	EMPTY_LINE_STATEMENT,
-	COMMENT_STATEMENT,
-};
-struct statement {
-	enum statement_type type;
-	union {
-		struct variable_statement variable_statement;
-		struct call_statement call_statement;
-		struct if_statement if_statement;
-		struct return_statement return_statement;
-		struct while_statement while_statement;
-		const char *comment;
-	};
-};
 static const char *get_statement_type_str[] = {
 	[VARIABLE_STATEMENT] = "VARIABLE_STATEMENT",
 	[CALL_STATEMENT] = "CALL_STATEMENT",
@@ -186,38 +75,14 @@ static size_t global_statements_size;
 static struct argument arguments[MAX_ARGUMENTS];
 static size_t arguments_size;
 
-struct on_fn {
-	const char *fn_name;
-	struct argument *arguments;
-	size_t argument_count;
-	struct statement *body_statements;
-	size_t body_statement_count;
-	bool calls_helper_fn;
-	bool contains_while_loop;
-};
 static struct on_fn on_fns[MAX_ON_FNS];
 static size_t on_fns_size;
 
-struct helper_fn {
-	const char *fn_name;
-	struct argument *arguments;
-	size_t argument_count;
-	enum type return_type;
-	const char *return_type_name;
-	struct statement *body_statements;
-	size_t body_statement_count;
-};
 static struct helper_fn helper_fns[MAX_HELPER_FNS];
 static size_t helper_fns_size;
 static u32 buckets_helper_fns[MAX_HELPER_FNS];
 static u32 chains_helper_fns[MAX_HELPER_FNS];
 
-struct global_variable_statement {
-	const char *name;
-	enum type type;
-	const char *type_name;
-	struct expr assignment_expr;
-};
 static struct global_variable_statement global_variable_statements[MAX_GLOBAL_VARIABLES];
 static size_t global_variable_statements_size;
 
@@ -244,7 +109,7 @@ static void reset_parsing(void) {
 	parsing_depth = 0;
 }
 
-static struct helper_fn *get_helper_fn(const char *name) {
+USED_BY_PROGRAMS struct helper_fn *get_helper_fn(const char *name) {
 	if (helper_fns_size == 0) {
 		return NULL;
 	}

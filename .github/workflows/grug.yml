@@ -26,6 +26,7 @@ jobs:
           # Concatenate all sources into TMPBODY with an extra newline between each
           for f in src/01_grug_documentation.c \
                    src/02_includes_and_defines.c \
+                   src/grug_backend.h \
                    src/03_utils.c \
                    src/04_runtime_error_handling.c \
                    src/05_json.c \
@@ -36,9 +37,8 @@ jobs:
                    src/10_dumping_ast.c \
                    src/11_applying_ast.c \
                    src/12_type_propagation.c \
-                   src/13_compiling.c \
-                   src/14_linking.c \
-                   src/15_hot_reloading.c \
+                   src/13_grug_backend_linux.c \
+                   src/14_hot_reloading.c \
                    src/LICENSE
           do
             # Strip `#include "2_includes_and_defines.c"` line if present

@@ -4,6 +4,7 @@
 
 #include "grug.h"
 
+// TODO: Remove unused includes
 #include <assert.h>
 #include <ctype.h>
 #include <dirent.h>
@@ -22,31 +23,11 @@
 #include <time.h>
 #include <unistd.h>
 
-// "The problem is that you can't meaningfully define a constant like this
-// in a header file. The maximum path size is actually to be something
-// like a filesystem limitation, or at the very least a kernel parameter.
-// This means that it's a dynamic value, not something preordained."
-// https://eklitzke.org/path-max-is-tricky
-#define STUPID_MAX_PATH 4096
-
-static bool streq(const char *a, const char *b);
-
 #define grug_error(...) {\
 	if (snprintf(grug_error.msg, sizeof(grug_error.msg), __VA_ARGS__) < 0) {\
 		abort();\
 	}\
-	\
-	grug_error.grug_c_line_number = __LINE__;\
-	\
-	grug_error.has_changed =\
-		!streq(grug_error.msg, previous_grug_error.msg)\
-	 || !streq(grug_error.path, previous_grug_error.path)\
-	 || grug_error.grug_c_line_number != previous_grug_error.grug_c_line_number;\
-	\
-	memcpy(previous_grug_error.msg, grug_error.msg, sizeof(grug_error.msg));\
-	memcpy(previous_grug_error.path, grug_error.path, sizeof(grug_error.path));\
-	previous_grug_error.grug_c_line_number = grug_error.grug_c_line_number;\
-	\
+    grug_error_impl(__LINE__);\
 	longjmp(error_jmp_buffer, 1);\
 }
 
@@ -76,8 +57,3 @@ static bool streq(const char *a, const char *b);
 	_Pragma("GCC diagnostic pop")\
 }
 #endif
-
-#define USED_BY_MODS
-#define USED_BY_PROGRAMS
-
-#define BFD_HASH_BUCKET_SIZE 4051 // From https://sourceware.org/git/?p=binutils-gdb.git;a=blob;f=bfd/hash.c#l345
