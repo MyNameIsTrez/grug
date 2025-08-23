@@ -24,6 +24,8 @@ typedef void (*grug_runtime_error_handler_t)(const char *reason, enum grug_runti
 
 typedef void (*grug_init_globals_fn_t)(void *globals, uint64_t id);
 
+struct grug_mod_dir;
+
 //// Functions
 
 // Returns whether an error occurred
@@ -62,6 +64,13 @@ void grug_set_on_fns_to_fast_mode(void);
 bool grug_are_on_fns_in_safe_mode(void) __attribute__((warn_unused_result));
 void grug_toggle_on_fns_mode(void);
 
+// Enable and disable mods
+// changes with these are applied on the next call to grug_regenerate_modified_mods
+// Please note this includes all loading and reloading of mods.
+void grug_set_mod_dir_enabled(struct grug_mod_dir *mod);
+void grug_set_mod_dir_disabled(struct grug_mod_dir *mod);
+bool grug_is_mod_dir_enabled(const struct grug_mod_dir *mod) __attribute__((warn_unused_result));
+
 //// Defines
 
 #define MAX_RELOADS 6969
@@ -98,6 +107,7 @@ struct grug_mod_dir {
 	size_t files_size;
 	size_t _files_capacity;
 
+	bool _disabled;
 	bool _seen;
 };
 
