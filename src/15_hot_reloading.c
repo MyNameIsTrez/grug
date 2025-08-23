@@ -602,7 +602,6 @@ static void reload_modified_mod(const char *mods_dir_path, const char *dll_dir_p
 	for (size_t i = 0; i < dir->files_size; i++) {
 		dir->files[i]._seen = false;
 	}
-			
 
 	errno = 0;
 	struct dirent *dp;
