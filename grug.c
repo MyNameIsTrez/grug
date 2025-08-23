@@ -1,5 +1,5 @@
 // NOTE: DON'T EDIT THIS FILE! IT IS AUTOMATICALLY REGENERATED BASED ON THE FILES IN src/
-// Regenerated on 2025-08-23T21:32:57Z
+// Regenerated on 2025-08-23T22:40:32Z
 
 //// GRUG DOCUMENTATION
 //
@@ -9441,7 +9441,6 @@ static void reload_modified_mod(const char *mods_dir_path, const char *dll_dir_p
 	for (size_t i = 0; i < dir->files_size; i++) {
 		dir->files[i]._seen = false;
 	}
-			
 
 	errno = 0;
 	struct dirent *dp;
