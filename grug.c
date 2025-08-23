@@ -1,5 +1,5 @@
 // NOTE: DON'T EDIT THIS FILE! IT IS AUTOMATICALLY REGENERATED BASED ON THE FILES IN src/
-// Regenerated on 2025-08-18T02:41:27Z
+// Regenerated on 2025-08-23T21:32:57Z
 
 //// GRUG DOCUMENTATION
 //
@@ -9441,11 +9441,13 @@ static void reload_modified_mod(const char *mods_dir_path, const char *dll_dir_p
 	for (size_t i = 0; i < dir->files_size; i++) {
 		dir->files[i]._seen = false;
 	}
+			
 
 	errno = 0;
 	struct dirent *dp;
 	while ((dp = readdir(dirp))) {
-		reload_entry(dp->d_name, mods_dir_path, dll_dir_path, dir);
+		if (!dir->_disabled)
+			reload_entry(dp->d_name, mods_dir_path, dll_dir_path, dir);
 	}
 	grug_assert(errno == 0, "readdir: %s", strerror(errno));
 
@@ -9665,6 +9667,17 @@ void grug_toggle_on_fns_mode(void) {
 	grug_on_fns_in_safe_mode = !grug_on_fns_in_safe_mode;
 }
 
+void grug_set_mod_dir_enabled(struct grug_mod_dir *mod) {
+	mod->_disabled = false;
+}
+
+void grug_set_mod_dir_disabled(struct grug_mod_dir *mod) {
+	mod->_disabled = true;
+}
+
+bool grug_is_mod_dir_enabled(const struct grug_mod_dir *mod) {
+	return !mod->_disabled;	
+}
 // MIT License
 
 // Copyright (c) 2024 MyNameIsTrez
@@ -9686,4 +9699,3 @@ void grug_toggle_on_fns_mode(void) {
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
-
