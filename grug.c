@@ -136,13 +136,6 @@
 #define MAX_GLOBAL_VARIABLES 420420
 #define MAX_ON_FNS 420420
 
-// "The problem is that you can't meaningfully define a constant like this
-// in a header file. The maximum path size is actually to be something
-// like a filesystem limitation, or at the very least a kernel parameter.
-// This means that it's a dynamic value, not something preordained."
-// https://eklitzke.org/path-max-is-tricky
-#define STUPID_MAX_PATH 4096
-
 // These only exist to clarify who will be accessing
 // the handful of globals that grug.c exposes.
 #define USED_BY_MODS

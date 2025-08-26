@@ -4156,17 +4156,131 @@ static void generate_shared_object(const char *dll_path) {
 	backend_assert(fclose(f) == 0, "fclose: %s", strerror(errno));
 }
 
-USED_BY_PROGRAMS bool grug_backend_linux(struct grug_ast *ast_);
-USED_BY_PROGRAMS bool grug_backend_linux(struct grug_ast *ast_) {
+////// BACKEND API
+
+static char dll_root_dir_path[STUPID_MAX_PATH];
+static bool is_grug_backend_initialized = false;
+
+USED_BY_PROGRAMS bool grug_init_backend_linux(const char *dll_dir_path);
+bool grug_init_backend_linux(const char *dll_dir_path) {
 	if (setjmp(backend_error_jmp_buffer)) {
 		return true;
 	}
+
+	assert(!is_grug_backend_initialized && "grug_init_backend_linux() can't be called more than once");
+
+	assert(!strchr(dll_dir_path, '\\') && "grug_init_backend_linux() its dll_dir_path can't contain backslashes, so replace them with '/'");
+	assert(dll_dir_path[strlen(dll_dir_path) - 1] != '/' && "grug_init_backend_linux() its dll_dir_path can't have a trailing '/'");
+
+	assert(strlen(dll_dir_path) + 1 <= STUPID_MAX_PATH && "grug_init_backend_linux() its dll_dir_path exceeds the maximum path length");
+	memcpy(dll_root_dir_path, dll_dir_path, strlen(dll_dir_path) + 1);
+
+	is_grug_backend_initialized = true;
+
+	return false;
+}
+
+static void try_create_parent_dirs(const char *file_path) {
+	char parent_dir_path[STUPID_MAX_PATH];
+	size_t i = 0;
+
+	errno = 0;
+	while (*file_path) {
+		parent_dir_path[i] = *file_path;
+		parent_dir_path[i + 1] = '\0';
+
+		if (*file_path == '/' || *file_path == '\\') {
+			backend_assert(mkdir(parent_dir_path, 0775) != -1 || errno == EEXIST, "mkdir: %s", strerror(errno));
+		}
+
+		file_path++;
+		i++;
+	}
+}
+
+static char *get_dll_path(void) {
+	static char dll_path_[STUPID_MAX_PATH];
+	char *dll_path = dll_path_;
+	size_t len = 0;
+
+	// TODO: Figure out how this string should be unhardcoded. Maybe a #define, or adding a setter fn?
+	// Let's say dlls_root="mod_dlls"
+	const char *dlls_root = "mod_dlls"; // TODO: UNHARDCODE!
+	const size_t dlls_root_len = strlen(dlls_root);
+
+	// dll_path now becomes "mod_dlls/"
+	backend_assert(dlls_root_len + 1 + 1 <= STUPID_MAX_PATH, "There are more than %d characters in dll_path_ due to dlls_root '%s', exceeding STUPID_MAX_PATH", STUPID_MAX_PATH, dlls_root);
+	memcpy(dll_path, dlls_root, dlls_root_len + 1);
+	dll_path += dlls_root_len;
+	len += dlls_root_len;
+	*dll_path++ = '/';
+	len++;
+
+	// Let's say mods_root="mods"
+	const char *mods_root = ast.mods_root_dir_path;
+	const size_t mods_root_len = strlen(mods_root);
+
+	// Let's say grug_path="mods/guns/ak47-Gun.grug"
+	const char *grug_path = ast.grug_file_path;
+
+	// TODO: Is it possible that one of them is an absolute path, while the other isn't?
+	// Assert that grug_path is prefixed by mods_root.
+	backend_assert(memcmp(grug_path, mods_root, mods_root_len) == 0, "The grug_path '%s' is not prefixed by the mods_root '%s'", grug_path, mods_root);
+
+	const char *grug_subpath = grug_path + mods_root_len;
+	const size_t grug_subpath_len = strlen(grug_subpath);
+
+	// TODO: Use chatgpt to help scan for any potential bugs in my implementation.
+	// TODO: Use chatgpt to help refactor this function.
+
+	// dll_path now becomes "mod_dlls/guns/ak47-Gun.grug"
+	backend_assert(len + grug_subpath_len + 1 <= STUPID_MAX_PATH, "There are more than %d characters in dll_path_ due to grug_path '%s', exceeding STUPID_MAX_PATH", STUPID_MAX_PATH, grug_path);
+	memcpy(dll_path, grug_subpath, grug_subpath_len + 1);
+	dll_path += grug_subpath_len;
+	len += grug_subpath_len;
+
+	// The code that called this backend function has already checked
+	// that the file ends with ".grug"
+	char *extension = strrchr(dll_path, '.');
+	assert(extension);
+	assert(extension[0] == '.');
+
+	// This can't write out of bounds, since ".so" is shorter than ".grug"
+	memcpy(extension + 1, "so", sizeof("so"));
+
+	return dll_path_;
+}
+
+static bool load(struct grug_ast *ast_) {
+	if (setjmp(backend_error_jmp_buffer)) {
+		return true;
+	}
+
+	assert(is_grug_backend_initialized && "You forgot to call grug_init_backend_linux() once at program startup");
 
 	ast = *ast_;
 
 	compile(ast.grug_file_path);
 
-	generate_shared_object(ast.dll_path);
+	const char *dll_path = get_dll_path();
+
+	// If the dll doesn't exist, try to create the parent directories
+	struct stat dll_stat;
+	bool dll_exists = stat(dll_path, &dll_stat) == 0;
+	if (!dll_exists) {
+		errno = 0;
+		if (access(dll_path, F_OK) && errno == ENOENT) {
+			try_create_parent_dirs(dll_path);
+			errno = 0;
+		}
+		backend_assert(errno == 0 || errno == ENOENT, "access: %s", strerror(errno));
+	}
+
+	generate_shared_object(dll_path);
 
 	return false;
 }
+
+USED_BY_PROGRAMS struct grug_backend grug_backend_linux = {
+	.load = load,
+};

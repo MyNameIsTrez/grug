@@ -9,8 +9,6 @@ USED_BY_PROGRAMS bool grug_loading_error_in_grug_file;
 static struct grug_error previous_grug_error;
 static jmp_buf error_jmp_buffer;
 
-static char dll_root_dir_path[STUPID_MAX_PATH];
-
 USED_BY_PROGRAMS bool streq(const char *a, const char *b) {
 	return strcmp(a, b) == 0;
 }

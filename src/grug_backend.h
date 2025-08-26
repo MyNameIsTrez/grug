@@ -26,13 +26,6 @@
 #define MAX_GLOBAL_VARIABLES 420420
 #define MAX_ON_FNS 420420
 
-// "The problem is that you can't meaningfully define a constant like this
-// in a header file. The maximum path size is actually to be something
-// like a filesystem limitation, or at the very least a kernel parameter.
-// This means that it's a dynamic value, not something preordained."
-// https://eklitzke.org/path-max-is-tricky
-#define STUPID_MAX_PATH 4096
-
 // These only exist to clarify who will be accessing
 // the handful of globals that grug.c exposes.
 #define USED_BY_MODS
@@ -272,27 +265,33 @@ struct variable {
 };
 
 struct grug_ast {
+	const char *grug_file_path;
+
 	const char *mod;
 	const char *mods_root_dir_path;
 
-	const char *grug_file_path;
+	struct grug_entity *grug_entity;
 
-	const char *dll_path; // TODO: Stop having this in this struct.
+	struct variable *global_variables; // TODO: Move into 13_grug_backend_linux.c?
+	size_t global_variables_size; // TODO: Move into 13_grug_backend_linux.c?
+	size_t globals_bytes; // TODO: Move into 13_grug_backend_linux.c?
+
+	struct global_variable_statement *global_variable_statements;
+	size_t global_variable_statements_size;
 
 	struct on_fn *on_fns;
 	size_t on_fns_size;
 
 	struct helper_fn *helper_fns;
 	size_t helper_fns_size;
+};
 
-	struct grug_entity *grug_entity;
+struct grug_backend {
+	// The backend implementation should let this handler return `true`
+	// when an error occurred.
+	bool (*load)(struct grug_ast *ast);
 
-	struct variable *global_variables;
-	size_t global_variables_size;
-	size_t globals_bytes;
-
-	struct global_variable_statement *global_variable_statements;
-	size_t global_variable_statements_size;
+	void (*unload)(void);
 };
 
 void grug_error_impl(int line);

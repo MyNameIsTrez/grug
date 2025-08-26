@@ -28,7 +28,7 @@ USED_BY_PROGRAMS size_t grug_resource_reloads_size;
 USED_BY_MODS const char *grug_fn_name;
 USED_BY_MODS const char *grug_fn_path;
 
-static grug_backend backend;
+static struct grug_backend backend;
 
 static bool is_grug_initialized = false;
 
@@ -45,74 +45,66 @@ static void reset_regenerate_modified_mods(void) {
 	directory_depth = 0;
 }
 
-static void reload_resources_from_dll(const char *dll_path, i64 *resource_mtimes, size_t dll_resources_size) {
-	void *dll = dlopen(dll_path, RTLD_NOW);
-	if (!dll) {
-		print_dlerror("dlopen");
+// static void reload_resources_from_dll(i64 *resource_mtimes, size_t dll_resources_size) {
+// 	void *dll = dlopen(dll_path, RTLD_NOW);
+// 	if (!dll) {
+// 		print_dlerror("dlopen");
 
-		// Needed for clang's --analyze, since it doesn't recognize
-		// that print_dlerror() its longjmp guarantees that `dll`
-		// will always be non-null when this if-statement has *not* been entered
-		return;
-	}
+// 		// Needed for clang's --analyze, since it doesn't recognize
+// 		// that print_dlerror() its longjmp guarantees that `dll`
+// 		// will always be non-null when this if-statement has *not* been entered
+// 		return;
+// 	}
 
-	const char **dll_resources = get_dll_symbol(dll, "resources");
-	if (!dll_resources) {
-		if (dlclose(dll)) {
-			print_dlerror("dlclose");
-		}
-		grug_error("Retrieving resources with get_dll_symbol() failed for %s", dll_path);
-	}
+// 	const char **dll_resources = get_dll_symbol(dll, "resources");
+// 	if (!dll_resources) {
+// 		if (dlclose(dll)) {
+// 			print_dlerror("dlclose");
+// 		}
+// 		grug_error("Retrieving resources with get_dll_symbol() failed for %s", dll_path);
+// 	}
 
-	for (size_t i = 0; i < dll_resources_size; i++) {
-		const char *resource = dll_resources[i];
+// 	for (size_t i = 0; i < dll_resources_size; i++) {
+// 		const char *resource = dll_resources[i];
 
-		struct stat resource_stat;
-		if (stat(resource, &resource_stat) == -1) {
-			if (dlclose(dll)) {
-				print_dlerror("dlclose");
-			}
-			grug_error("%s: %s", resource, strerror(errno));
-		}
+// 		struct stat resource_stat;
+// 		if (stat(resource, &resource_stat) == -1) {
+// 			if (dlclose(dll)) {
+// 				print_dlerror("dlclose");
+// 			}
+// 			grug_error("%s: %s", resource, strerror(errno));
+// 		}
 
-		if (resource_stat.st_mtime > resource_mtimes[i]) {
-			resource_mtimes[i] = resource_stat.st_mtime;
+// 		if (resource_stat.st_mtime > resource_mtimes[i]) {
+// 			resource_mtimes[i] = resource_stat.st_mtime;
 
-			struct grug_modified_resource modified = {0};
+// 			struct grug_modified_resource modified = {0};
 
-			grug_assert(strlen(resource) + 1 <= sizeof(modified.path), "The resource '%s' exceeds the maximum path length of %zu", resource, sizeof(modified.path));
-			memcpy(modified.path, resource, strlen(resource) + 1);
+// 			grug_assert(strlen(resource) + 1 <= sizeof(modified.path), "The resource '%s' exceeds the maximum path length of %zu", resource, sizeof(modified.path));
+// 			memcpy(modified.path, resource, strlen(resource) + 1);
 
-			if (grug_resource_reloads_size >= MAX_RESOURCE_RELOADS) {
-				if (dlclose(dll)) {
-					print_dlerror("dlclose");
-				}
-				grug_error("There are more than %d modified resources, exceeding MAX_RESOURCE_RELOADS", MAX_RESOURCE_RELOADS);
-			}
+// 			if (grug_resource_reloads_size >= MAX_RESOURCE_RELOADS) {
+// 				if (dlclose(dll)) {
+// 					print_dlerror("dlclose");
+// 				}
+// 				grug_error("There are more than %d modified resources, exceeding MAX_RESOURCE_RELOADS", MAX_RESOURCE_RELOADS);
+// 			}
 
-			grug_resource_reloads[grug_resource_reloads_size++] = modified;
-		}
-	}
+// 			grug_resource_reloads[grug_resource_reloads_size++] = modified;
+// 		}
+// 	}
 
-	if (dlclose(dll)) {
-		print_dlerror("dlclose");
-	}
-}
+// 	if (dlclose(dll)) {
+// 		print_dlerror("dlclose");
+// 	}
+// }
 
-static struct grug_ast get_ast(const char *grug_path, const char *dll_path) {
+static struct grug_ast get_ast(const char *grug_path) {
 	return (struct grug_ast){
-		.mod = mod,
-		.mods_root_dir_path = mods_root_dir_path,
-
 		.grug_file_path = grug_path,
 
-		.dll_path = dll_path,
-
-		.on_fns = on_fns,
-		.on_fns_size = on_fns_size,
-
-		.helper_fns = helper_fns,
-		.helper_fns_size = helper_fns_size,
+		.mod = mod,
+		.mods_root_dir_path = mods_root_dir_path,
 
 		.grug_entity = grug_entity,
 
@@ -122,11 +114,17 @@ static struct grug_ast get_ast(const char *grug_path, const char *dll_path) {
 
 		.global_variable_statements = global_variable_statements,
 		.global_variable_statements_size = global_variable_statements_size,
+
+		.on_fns = on_fns,
+		.on_fns_size = on_fns_size,
+
+		.helper_fns = helper_fns,
+		.helper_fns_size = helper_fns_size,
 	};
 }
 
-static void regenerate_dll(const char *grug_path, const char *dll_path) {
-	grug_log("# Regenerating %s\n", dll_path);
+static void regenerate(const char *grug_path) {
+	grug_log("# Regenerating %s\n", grug_path);
 
 	grug_loading_error_in_grug_file = true;
 
@@ -142,11 +140,16 @@ static void regenerate_dll(const char *grug_path, const char *dll_path) {
 #endif
 
 	parse();
+
 	fill_result_types();
 
-	struct grug_ast data = get_ast(grug_path, dll_path);
-	if (backend(&data)) {
-		longjmp(error_jmp_buffer, 1);\
+	struct grug_ast data = get_ast(grug_path);
+
+	// If the backend had an error, it will return `true`.
+	if (backend.load(&data)) {
+		// It is the backend's responsibility to have set grug_error.msg,
+		// and to have called grug_error_impl().
+		longjmp(error_jmp_buffer, 1);
 	}
 
 	grug_loading_error_in_grug_file = false;
@@ -191,13 +194,13 @@ static void set_grug_error_path(const char *grug_path) {
 
 // This function just exists for the grug-tests repository
 // It returns whether an error occurred
-USED_BY_PROGRAMS bool grug_test_regenerate_dll(const char *grug_path, const char *dll_path, const char *mod_name);
-bool grug_test_regenerate_dll(const char *grug_path, const char *dll_path, const char *mod_name) {
-	assert(is_grug_initialized && "You forgot to call grug_init() once at program startup!");
-
+USED_BY_PROGRAMS bool grug_test_regenerate(const char *grug_path, const char *mod_name);
+bool grug_test_regenerate(const char *grug_path, const char *mod_name) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
+
+	assert(is_grug_initialized && "You forgot to call grug_init() once at program startup");
 
 	mod = mod_name;
 
@@ -209,29 +212,11 @@ bool grug_test_regenerate_dll(const char *grug_path, const char *dll_path, const
 	grug_assert(grug_filename, "The grug file path '%s' does not contain a '/' character", grug_path);
 	initialize_file_entity_type(grug_filename + 1);
 
-	regenerate_dll(grug_path, dll_path);
+	regenerate(grug_path);
 
 	reset_previous_grug_error();
 
 	return false;
-}
-
-static void try_create_parent_dirs(const char *file_path) {
-	char parent_dir_path[STUPID_MAX_PATH];
-	size_t i = 0;
-
-	errno = 0;
-	while (*file_path) {
-		parent_dir_path[i] = *file_path;
-		parent_dir_path[i + 1] = '\0';
-
-		if (*file_path == '/' || *file_path == '\\') {
-			grug_assert(mkdir(parent_dir_path, 0775) != -1 || errno == EEXIST, "mkdir: %s", strerror(errno));
-		}
-
-		file_path++;
-		i++;
-	}
 }
 
 static void free_file(struct grug_file file) {
@@ -239,9 +224,10 @@ static void free_file(struct grug_file file) {
 	free((void *)file.entity);
 	free((void *)file.entity_type);
 
-	if (file.dll && dlclose(file.dll)) {
-		print_dlerror("dlclose");
-	}
+	// TODO: Call backend.unload()?
+	// if (file.dll && dlclose(file.dll)) {
+	// 	print_dlerror("dlclose");
+	// }
 
 	free(file._resource_mtimes);
 }
@@ -290,40 +276,40 @@ struct grug_file *grug_get_entity_file(const char *entity) {
 	return &entity_files[index];
 }
 
-static void check_that_every_entity_exists(struct grug_mod_dir dir) {
-	for (size_t i = 0; i < dir.files_size; i++) {
-		struct grug_file file = dir.files[i];
+// static void check_that_every_entity_exists(struct grug_mod_dir dir) {
+// 	for (size_t i = 0; i < dir.files_size; i++) {
+// 		struct grug_file file = dir.files[i];
 
-		size_t *entities_size_ptr = get_dll_symbol(file.dll, "entities_size");
-		grug_assert(entities_size_ptr, "Retrieving the entities_size variable with get_dll_symbol() failed for '%s'", file.name);
+// 		size_t *entities_size_ptr = get_dll_symbol(file.dll, "entities_size");
+// 		grug_assert(entities_size_ptr, "Retrieving the entities_size variable with get_dll_symbol() failed for '%s'", file.name);
 
-		if (*entities_size_ptr > 0) {
-			const char **dll_entities = get_dll_symbol(file.dll, "entities");
-			grug_assert(entities_size_ptr, "Retrieving the dll_entities variable with get_dll_symbol() failed for '%s'", file.name);
+// 		if (*entities_size_ptr > 0) {
+// 			const char **dll_entities = get_dll_symbol(file.dll, "entities");
+// 			grug_assert(entities_size_ptr, "Retrieving the dll_entities variable with get_dll_symbol() failed for '%s'", file.name);
 
-			const char **dll_entity_types = get_dll_symbol(file.dll, "entity_types");
-			grug_assert(entities_size_ptr, "Retrieving the dll_entity_types variable with get_dll_symbol() failed for '%s'", file.name);
+// 			const char **dll_entity_types = get_dll_symbol(file.dll, "entity_types");
+// 			grug_assert(entities_size_ptr, "Retrieving the dll_entity_types variable with get_dll_symbol() failed for '%s'", file.name);
 
-			for (size_t dll_entity_index = 0; dll_entity_index < *entities_size_ptr; dll_entity_index++) {
-				const char *entity = dll_entities[dll_entity_index];
+// 			for (size_t dll_entity_index = 0; dll_entity_index < *entities_size_ptr; dll_entity_index++) {
+// 				const char *entity = dll_entities[dll_entity_index];
 
-				u32 entity_index = get_entity_index(entity);
+// 				u32 entity_index = get_entity_index(entity);
 
-				grug_assert(entity_index != UINT32_MAX, "The entity '%s' does not exist", entity);
+// 				grug_assert(entity_index != UINT32_MAX, "The entity '%s' does not exist", entity);
 
-				const char *json_entity_type = dll_entity_types[dll_entity_index];
+// 				const char *json_entity_type = dll_entity_types[dll_entity_index];
 
-				struct grug_file other_file = entity_files[entity_index];
+// 				struct grug_file other_file = entity_files[entity_index];
 
-				grug_assert(*json_entity_type == '\0' || streq(other_file.entity_type, json_entity_type), "The entity '%s' has the type '%s', whereas the expected type from mod_api.json is '%s'", entity, other_file.entity_type, json_entity_type);
-			}
-		}
-	}
+// 				grug_assert(*json_entity_type == '\0' || streq(other_file.entity_type, json_entity_type), "The entity '%s' has the type '%s', whereas the expected type from mod_api.json is '%s'", entity, other_file.entity_type, json_entity_type);
+// 			}
+// 		}
+// 	}
 
-	for (size_t i = 0; i < dir.dirs_size; i++) {
-		check_that_every_entity_exists(dir.dirs[i]);
-	}
-}
+// 	for (size_t i = 0; i < dir.dirs_size; i++) {
+// 		check_that_every_entity_exists(dir.dirs[i]);
+// 	}
+// }
 
 static void push_reload(struct grug_modified modified) {
 	grug_assert(grug_reloads_size < MAX_RELOADS, "There are more than %d modified grug files, exceeding MAX_RELOADS", MAX_RELOADS);
@@ -362,6 +348,7 @@ static const char *form_entity(const char *grug_filename) {
 	return entity_str;
 }
 
+// Needed for grug_get_entitity_file() and check_that_every_entity_exists()
 static void add_entity(const char *grug_filename, struct grug_file *file) {
 	grug_assert(entities_size < MAX_ENTITIES, "There are more than %d entities, exceeding MAX_ENTITIES", MAX_ENTITIES);
 
@@ -422,182 +409,154 @@ static struct grug_mod_dir *get_subdir(struct grug_mod_dir *dir, const char *nam
 	return NULL;
 }
 
-static struct grug_file *regenerate_file(struct grug_file *file, const char *dll_path, const char *grug_filename, struct grug_mod_dir *dir) {
+// TODO: Let the backend.load() call do most of this!
+static struct grug_file *regenerate_file(struct grug_file *file, i64 grug_file_mtime, const char *grug_filename, struct grug_mod_dir *dir) {
 	struct grug_file new_file = {0};
 
-	new_file.dll = dlopen(dll_path, RTLD_NOW);
-	if (!new_file.dll) {
-		print_dlerror("dlopen");
-	}
+	// new_file.dll = dlopen(dll_path, RTLD_NOW);
+	// if (!new_file.dll) {
+	// 	print_dlerror("dlopen");
+	// }
 
-	size_t *globals_size_ptr = get_dll_symbol(new_file.dll, "globals_size");
-	grug_assert(globals_size_ptr, "Retrieving the globals_size variable with get_dll_symbol() failed for %s", dll_path);
-	new_file.globals_size = *globals_size_ptr;
+	// size_t *globals_size_ptr = get_dll_symbol(new_file.dll, "globals_size");
+	// grug_assert(globals_size_ptr, "Retrieving the globals_size variable with get_dll_symbol() failed for %s", dll_path);
+	// new_file.globals_size = *globals_size_ptr;
 
-	#pragma GCC diagnostic push
-	#pragma GCC diagnostic ignored "-Wpedantic"
-	new_file.init_globals_fn = get_dll_symbol(new_file.dll, "init_globals");
-	#pragma GCC diagnostic pop
-	grug_assert(new_file.init_globals_fn, "Retrieving the init_globals() function with get_dll_symbol() failed for %s", dll_path);
+	// #pragma GCC diagnostic push
+	// #pragma GCC diagnostic ignored "-Wpedantic"
+	// new_file.init_globals_fn = get_dll_symbol(new_file.dll, "init_globals");
+	// #pragma GCC diagnostic pop
+	// grug_assert(new_file.init_globals_fn, "Retrieving the init_globals() function with get_dll_symbol() failed for %s", dll_path);
 
-	// on_fns is optional, so don't check for NULL
-	// Note that if an entity in mod_api.json specifies that it has on_fns that the modder can use,
-	// on_fns is guaranteed NOT to be NULL!
-	new_file.on_fns = get_dll_symbol(new_file.dll, "on_fns");
+	// // on_fns is optional, so don't check for NULL
+	// // Note that if an entity in mod_api.json specifies that it has on_fns that the modder can use,
+	// // on_fns is guaranteed NOT to be NULL!
+	// //
+	// // TODO: Should I just remove the field `on_fns` from `struct grug_file`?
+	// new_file.on_fns = get_dll_symbol(new_file.dll, "on_fns");
 
-	size_t *resources_size_ptr = get_dll_symbol(new_file.dll, "resources_size");
-	size_t dll_resources_size = *resources_size_ptr;
+	// size_t *resources_size_ptr = get_dll_symbol(new_file.dll, "resources_size");
+	// size_t dll_resources_size = *resources_size_ptr;
 
-	if (file) {
-		file->dll = new_file.dll;
-		file->globals_size = new_file.globals_size;
-		file->init_globals_fn = new_file.init_globals_fn;
-		file->on_fns = new_file.on_fns;
+	// if (file) {
+	// 	file->dll = new_file.dll;
+	// 	file->globals_size = new_file.globals_size;
+	// 	file->init_globals_fn = new_file.init_globals_fn;
+	// 	file->on_fns = new_file.on_fns;
 
-		if (dll_resources_size > 0) {
-			file->_resource_mtimes = realloc(file->_resource_mtimes, dll_resources_size * sizeof(i64));
-			grug_assert(file->_resource_mtimes, "realloc: %s", strerror(errno));
-		} else {
-			// We can't use realloc() to do this
-			// See https://stackoverflow.com/a/16760080/13279557
-			free(file->_resource_mtimes);
-			file->_resource_mtimes = NULL;
-		}
-	} else {
-		new_file.name = strdup(grug_filename);
-		grug_assert(new_file.name, "strdup: %s", strerror(errno));
+	// 	if (dll_resources_size > 0) {
+	// 		file->_resource_mtimes = realloc(file->_resource_mtimes, dll_resources_size * sizeof(i64));
+	// 		grug_assert(file->_resource_mtimes, "realloc: %s", strerror(errno));
+	// 	} else {
+	// 		// We can't use realloc() to do this
+	// 		// See https://stackoverflow.com/a/16760080/13279557
+	// 		free(file->_resource_mtimes);
+	// 		file->_resource_mtimes = NULL;
+	// 	}
+	// } else {
+	// 	new_file.name = strdup(grug_filename);
+	// 	grug_assert(new_file.name, "strdup: %s", strerror(errno));
 
-		new_file.entity = strdup(form_entity(grug_filename));
-		grug_assert(new_file.entity, "strdup: %s", strerror(errno));
+	// 	new_file.entity = strdup(form_entity(grug_filename));
+	// 	grug_assert(new_file.entity, "strdup: %s", strerror(errno));
 
-		new_file.entity_type = strdup(file_entity_type);
-		grug_assert(new_file.entity_type, "strdup: %s", strerror(errno));
+	// 	new_file.entity_type = strdup(file_entity_type);
+	// 	grug_assert(new_file.entity_type, "strdup: %s", strerror(errno));
 
-		// We check dll_resources_size > 0, since whether malloc(0) returns NULL is implementation defined
-		// See https://stackoverflow.com/a/1073175/13279557
-		if (dll_resources_size > 0) {
-			new_file._resource_mtimes = malloc(dll_resources_size * sizeof(i64));
-			grug_assert(new_file._resource_mtimes, "malloc: %s", strerror(errno));
-		}
+	// 	// We check dll_resources_size > 0, since whether malloc(0) returns NULL is implementation defined
+	// 	// See https://stackoverflow.com/a/1073175/13279557
+	// 	if (dll_resources_size > 0) {
+	// 		new_file._resource_mtimes = malloc(dll_resources_size * sizeof(i64));
+	// 		grug_assert(new_file._resource_mtimes, "malloc: %s", strerror(errno));
+	// 	}
 
-		file = push_file(dir, new_file);
-	}
+	// 	file = push_file(dir, new_file);
+	// }
 
-	if (dll_resources_size > 0) {
-		const char **dll_resources = get_dll_symbol(file->dll, "resources");
+	file->_mtime = grug_file_mtime;
 
-		// Initialize file->_resource_mtimes
-		for (size_t i = 0; i < dll_resources_size; i++) {
-			struct stat resource_stat;
-			grug_assert(stat(dll_resources[i], &resource_stat) == 0, "%s: %s", dll_resources[i], strerror(errno));
+	// TODO: Update this by letting struct grug_file contain the field `const char **resources;`! Should the backend own these strings?
+	// if (dll_resources_size > 0) {
+	// 	const char **dll_resources = get_dll_symbol(file->dll, "resources");
 
-			file->_resource_mtimes[i] = resource_stat.st_mtime;
-		}
-	}
+	// 	// Initialize file->_resource_mtimes
+	// 	for (size_t i = 0; i < dll_resources_size; i++) {
+	// 		struct stat resource_stat;
+	// 		grug_assert(stat(dll_resources[i], &resource_stat) == 0, "%s: %s", dll_resources[i], strerror(errno));
+
+	// 		file->_resource_mtimes[i] = resource_stat.st_mtime;
+	// 	}
+	// }
 
 	return file;
 }
 
-static void reload_grug_file(const char *dll_entry_path, i64 grug_file_mtime, const char *grug_filename, struct grug_mod_dir *dir, const char *grug_path) {
+static void reload_grug_file(i64 grug_file_mtime, const char *grug_filename, struct grug_mod_dir *dir, const char *grug_path) {
 	initialize_file_entity_type(grug_filename);
-
-	// Fill dll_path
-	char dll_path[STUPID_MAX_PATH];
-	grug_assert(strlen(dll_entry_path) + 1 <= STUPID_MAX_PATH, "There are more than %d characters in the dll_entry_path '%s', exceeding STUPID_MAX_PATH", STUPID_MAX_PATH, dll_entry_path);
-	memcpy(dll_path, dll_entry_path, strlen(dll_entry_path) + 1);
-
-	// Cast is safe because it indexes into stack-allocated memory
-	char *extension = (char *)get_file_extension(dll_path);
-
-	// The code that called this reload_grug_file() function has already checked
-	// that the file ends with ".grug", so '.' will always be found here
-	assert(extension[0] == '.');
-
-	// We know that there's enough space, since ".so" is shorter than ".grug"
-	memcpy(extension + 1, "so", sizeof("so"));
-
-	struct stat dll_stat;
-	bool dll_exists = stat(dll_path, &dll_stat) == 0;
-
-	if (!dll_exists) {
-		// If the dll doesn't exist, try to create the parent directories
-		errno = 0;
-		if (access(dll_path, F_OK) && errno == ENOENT) {
-			try_create_parent_dirs(dll_path);
-			errno = 0;
-		}
-		grug_assert(errno == 0 || errno == ENOENT, "access: %s", strerror(errno));
-	}
-
-	// If the dll doesn't exist or is outdated
-	bool needs_regeneration = !dll_exists || grug_file_mtime > dll_stat.st_mtime;
 
 	struct grug_file *file = get_file(dir, grug_filename);
 
-	if (needs_regeneration || !file) {
-		struct grug_modified modified = {0};
-
-		set_grug_error_path(grug_path);
-
-		if (needs_regeneration) {
-			regenerate_dll(grug_path, dll_path);
-		}
-
-		if (file && file->dll) {
-			modified.old_dll = file->dll;
-
-			// This dlclose() needs to happen after the regenerate_dll() call,
-			// since even if regenerate_dll() throws when a typo is introduced to a mod,
-			// we want to keep the pre-typo DLL version open so the game doesn't crash
-			//
-			// This dlclose() needs to happen before the upcoming dlopen() call,
-			// since the DLL won't be reloaded otherwise
-			if (dlclose(file->dll)) {
-				print_dlerror("dlclose");
-			}
-
-			// Not necessary, but makes debugging less confusing
-			file->dll = NULL;
-		}
-
-		file = regenerate_file(file, dll_path, grug_filename, dir);
-
-		// Let the game developer know that a grug file was recompiled
-		if (needs_regeneration) {
-			// Since modified.path is the maximum path length of operating systems,
-			// it shouldn't be possible for grug_path to exceed it
-			assert(strlen(grug_path) + 1 <= sizeof(modified.path));
-
-			memcpy(modified.path, grug_path, strlen(grug_path) + 1);
-
-			modified.file = *file;
-			push_reload(modified);
-		}
+	// Check the cached mtime.
+	if (file && file->_mtime >= grug_file_mtime) {
+		file->_seen = true;
+		add_entity(grug_filename, file);
+		return; // The grug file was not modified.
 	}
+
+	struct grug_modified modified = {0};
+
+	set_grug_error_path(grug_path);
+
+	regenerate(grug_path);
+
+	// TODO: PUT BACK!
+	// if (file && file->dll) {
+	// 	modified.old_dll = file->dll;
+
+	// 	// This dlclose() needs to happen after the regenerate() call,
+	// 	// since even if regenerate() throws when a typo is introduced to a mod,
+	// 	// we want to keep the pre-typo DLL version open so the game doesn't crash
+	// 	//
+	// 	// This dlclose() needs to happen before the upcoming dlopen() call,
+	// 	// since the DLL won't be reloaded otherwise
+	// 	if (dlclose(file->dll)) {
+	// 		print_dlerror("dlclose");
+	// 	}
+
+	// 	// Not necessary, but makes debugging less confusing
+	// 	file->dll = NULL;
+	// }
+
+	// file = regenerate_file(file, grug_file_mtime, grug_filename, dir);
+
+	// Let the game developer know that a grug file was recompiled
+	// Since modified.path is the maximum path length of operating systems,
+	// it shouldn't be possible for grug_path to exceed it
+	assert(strlen(grug_path) + 1 <= sizeof(modified.path));
+	memcpy(modified.path, grug_path, strlen(grug_path) + 1);
+	modified.file = *file;
+	push_reload(modified);
 
 	file->_seen = true;
 
-	// Needed for grug_get_entitity_file() and check_that_every_entity_exists()
 	add_entity(grug_filename, file);
 
+	// TODO: PUT BACK!
 	// Let the game developer know when they need to reload a resource
-	if (file->_resources_size > 0) {
-		reload_resources_from_dll(dll_path, file->_resource_mtimes, file->_resources_size);
-	}
+	// if (file->_resources_size > 0) {
+	// 	reload_resources_from_dll(file->_resource_mtimes, file->_resources_size);
+	// }
 }
 
-static void reload_modified_mod(const char *mods_dir_path, const char *dll_dir_path, struct grug_mod_dir *dir);
+static void reload_modified_mod(const char *mods_dir_path, struct grug_mod_dir *dir);
 
-static void reload_entry(const char *name, const char *mods_dir_path, const char *dll_dir_path, struct grug_mod_dir *dir) {
+static void reload_entry(const char *name, const char *mods_dir_path, struct grug_mod_dir *dir) {
 	if (streq(name, ".") || streq(name, "..")) {
 		return;
 	}
 
 	char entry_path[STUPID_MAX_PATH];
 	snprintf(entry_path, sizeof(entry_path), "%s/%s", mods_dir_path, name);
-
-	char dll_entry_path[STUPID_MAX_PATH];
-	snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_dir_path, name);
 
 	struct stat entry_stat;
 	grug_assert(stat(entry_path, &entry_stat) == 0, "stat: %s: %s", entry_path, strerror(errno));
@@ -613,13 +572,13 @@ static void reload_entry(const char *name, const char *mods_dir_path, const char
 
 		subdir->_seen = true;
 
-		reload_modified_mod(entry_path, dll_entry_path, subdir);
+		reload_modified_mod(entry_path, subdir);
 	} else if (S_ISREG(entry_stat.st_mode) && streq(get_file_extension(name), ".grug")) {
-		reload_grug_file(dll_entry_path, entry_stat.st_mtime, name, dir, entry_path);
+		reload_grug_file(entry_stat.st_mtime, name, dir, entry_path);
 	}
 }
 
-static void reload_modified_mod(const char *mods_dir_path, const char *dll_dir_path, struct grug_mod_dir *dir) {
+static void reload_modified_mod(const char *mods_dir_path, struct grug_mod_dir *dir) {
 	directory_depth++;
 	grug_assert(directory_depth < MAX_DIRECTORY_DEPTH, "There is a mod that contains more than %d levels of nested directories", MAX_DIRECTORY_DEPTH);
 
@@ -636,7 +595,7 @@ static void reload_modified_mod(const char *mods_dir_path, const char *dll_dir_p
 	errno = 0;
 	struct dirent *dp;
 	while ((dp = readdir(dirp))) {
-		reload_entry(dp->d_name, mods_dir_path, dll_dir_path, dir);
+		reload_entry(dp->d_name, mods_dir_path, dir);
 	}
 	grug_assert(errno == 0, "readdir: %s", strerror(errno));
 
@@ -746,9 +705,6 @@ static void reload_modified_mods(void) {
 
 			validate_about_file(about_json_path);
 
-			static char dll_entry_path[STUPID_MAX_PATH];
-			grug_assert(snprintf(dll_entry_path, sizeof(dll_entry_path), "%s/%s", dll_root_dir_path, name) >= 0, "Filling the variable 'dll_entry_path' failed");
-
 			// This always returns NULL during the first call of reload_modified_mods()
 			struct grug_mod_dir *subdir = get_subdir(dir, name);
 
@@ -760,7 +716,7 @@ static void reload_modified_mods(void) {
 
 			subdir->_seen = true;
 
-			reload_modified_mod(entry_path, dll_entry_path, subdir);
+			reload_modified_mod(entry_path, subdir);
 			assert(directory_depth == 0);
 		}
 	}
@@ -778,7 +734,7 @@ static void reload_modified_mods(void) {
 	}
 }
 
-bool grug_init(grug_runtime_error_handler_t handler, const char *mod_api_json_path, const char *mods_dir_path, const char *dll_dir_path, uint64_t on_fn_time_limit_ms_, grug_backend backend_) {
+bool grug_init(grug_runtime_error_handler_t handler, const char *mod_api_json_path, const char *mods_dir_path, uint64_t on_fn_time_limit_ms_, struct grug_backend *backend_) {
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
@@ -791,23 +747,18 @@ bool grug_init(grug_runtime_error_handler_t handler, const char *mod_api_json_pa
 	assert(!strchr(mods_dir_path, '\\') && "grug_init() its mods_dir_path can't contain backslashes, so replace them with '/'");
 	assert(mods_dir_path[strlen(mods_dir_path) - 1] != '/' && "grug_init() its mods_dir_path can't have a trailing '/'");
 
-	assert(!strchr(dll_dir_path, '\\') && "grug_init() its dll_dir_path can't contain backslashes, so replace them with '/'");
-	assert(dll_dir_path[strlen(dll_dir_path) - 1] != '/' && "grug_init() its dll_dir_path can't have a trailing '/'");
-
 	parse_mod_api_json(mod_api_json_path);
 
 	assert(strlen(mods_dir_path) + 1 <= STUPID_MAX_PATH && "grug_init() its mods_dir_path exceeds the maximum path length");
 	memcpy(mods_root_dir_path, mods_dir_path, strlen(mods_dir_path) + 1);
 
-	assert(strlen(dll_dir_path) + 1 <= STUPID_MAX_PATH && "grug_init() its dll_dir_path exceeds the maximum path length");
-	memcpy(dll_root_dir_path, dll_dir_path, strlen(dll_dir_path) + 1);
-
 	on_fn_time_limit_ms = on_fn_time_limit_ms_;
 	on_fn_time_limit_sec = on_fn_time_limit_ms / MS_PER_SEC;
 	on_fn_time_limit_ns = (on_fn_time_limit_ms % MS_PER_SEC) * NS_PER_MS;
 
-	bool grug_backend_linux(struct grug_ast *ast);
-	backend = backend_ ? backend_ : grug_backend_linux;
+	// TODO: Replace this with `grug_backend_interpreter`
+	struct grug_backend grug_backend_linux; // Forward declaration.
+	backend = backend_ ? *backend_ : grug_backend_linux;
 
 	is_grug_initialized = true;
 
@@ -815,11 +766,11 @@ bool grug_init(grug_runtime_error_handler_t handler, const char *mod_api_json_pa
 }
 
 bool grug_regenerate_modified_mods(void) {
-	assert(is_grug_initialized && "You forgot to call grug_init() once at program startup!");
-
 	if (setjmp(error_jmp_buffer)) {
 		return true;
 	}
+
+	assert(is_grug_initialized && "You forgot to call grug_init() once at program startup");
 
 	reset_regenerate_modified_mods();
 
@@ -832,7 +783,8 @@ bool grug_regenerate_modified_mods(void) {
 
 	reload_modified_mods();
 
-	check_that_every_entity_exists(grug_mods);
+	// TODO: PUT BACK!
+	// check_that_every_entity_exists(grug_mods);
 
 	reset_previous_grug_error();
 
