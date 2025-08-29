@@ -7,56 +7,6 @@
 #define MAX_GRUG_GAME_FUNCTIONS 420420
 #define MAX_GRUG_ARGUMENTS 420420
 
-enum type {
-	type_void,
-	type_bool,
-	type_i32,
-	type_f32,
-	type_string,
-	type_id,
-	type_resource,
-	type_entity,
-};
-static size_t type_sizes[] = {
-	[type_bool] = sizeof(bool),
-	[type_i32] = sizeof(i32),
-	[type_f32] = sizeof(float),
-	[type_string] = sizeof(const char *),
-	[type_id] = sizeof(u64),
-	[type_resource] = sizeof(const char *),
-	[type_entity] = sizeof(const char *),
-};
-
-struct grug_on_function {
-	const char *name;
-	struct argument *arguments;
-	size_t argument_count;
-};
-
-struct grug_entity {
-	const char *name;
-	struct grug_on_function *on_functions;
-	size_t on_function_count;
-};
-
-struct grug_game_function {
-	const char *name;
-	enum type return_type;
-	const char *return_type_name;
-	struct argument *arguments;
-	size_t argument_count;
-};
-
-struct argument {
-	const char *name;
-	enum type type;
-	const char *type_name;
-	union {
-		const char *resource_extension; // This is optional
-		const char *entity_type; // This is optional
-	};
-};
-
 static struct grug_entity grug_entities[MAX_GRUG_ENTITIES];
 static size_t grug_entities_size;
 
@@ -84,7 +34,7 @@ static void push_grug_on_function(struct grug_on_function fn) {
 	grug_on_functions[grug_on_functions_size++] = fn;
 }
 
-static struct grug_game_function *get_grug_game_fn(const char *name) {
+USED_BY_PROGRAMS struct grug_game_function *get_grug_game_fn(const char *name) {
 	if (grug_game_functions_size == 0) {
 		return NULL;
 	}
