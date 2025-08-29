@@ -292,6 +292,8 @@ struct grug_backend {
 	bool (*load)(struct grug_ast *ast);
 
 	void (*unload)(void);
+
+	void (*run)(struct grug_backend_file backend_file, const char *on_fn_name);
 };
 
 void grug_error_impl(int line);
