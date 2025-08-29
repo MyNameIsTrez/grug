@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 jobs:
   tests:
-    uses: MyNameIsTrez/grug-tests/.github/workflows/build.yml@main
+    uses: MyNameIsTrez/grug-tests/.github/workflows/reusable-build.yml@main
 
   regenerate:
     if: github.event_name == 'push' || (github.event.pull_request.merged == true)
