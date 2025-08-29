@@ -1,5 +1,5 @@
 // NOTE: DON'T EDIT THIS FILE! IT IS AUTOMATICALLY REGENERATED BASED ON THE FILES IN src/
-// Regenerated on 2025-08-29T22:21:30Z
+// Regenerated on 2025-08-29T22:46:24Z
 
 //// GRUG DOCUMENTATION
 //
@@ -8962,9 +8962,9 @@ static void regenerate_dll(const char *grug_path, const char *dll_path) {
 }
 
 // Resetting previous_grug_error is necessary for this edge case:
-// 1. Add a typo to a mod, causing a compilation error.
-// 2. Remove the typo, causing it to compile again.
-// 3. Add the exact same typo to the same line; we want this to show the earlier error again.
+// 1. Add a typo to a mod, causing a compilation error
+// 2. Remove the typo, causing it to compile again
+// 3. Add the exact same typo to the same line; we want this to show the earlier error again
 static void reset_previous_grug_error(void) {
 	previous_grug_error.msg[0] = '\0';
 	previous_grug_error.path[0] = '\0';
