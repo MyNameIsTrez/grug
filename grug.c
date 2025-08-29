@@ -1,5 +1,5 @@
 // NOTE: DON'T EDIT THIS FILE! IT IS AUTOMATICALLY REGENERATED BASED ON THE FILES IN src/
-// Regenerated on 2025-08-26T22:35:40Z
+// Regenerated on 2025-08-29T20:42:21Z
 
 //// GRUG DOCUMENTATION
 //
@@ -402,6 +402,8 @@ struct grug_backend {
 	bool (*load)(struct grug_ast *ast);
 
 	void (*unload)(void);
+
+	void (*run)(struct grug_backend_file backend_file, const char *on_fn_name);
 };
 
 void grug_error_impl(int line);
