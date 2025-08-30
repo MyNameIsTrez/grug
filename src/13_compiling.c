@@ -1154,9 +1154,11 @@ static void compile_call_expr(struct call_expr call_expr) {
 	bool calls_game_fn = game_fn != NULL;
 	assert(calls_helper_fn || calls_game_fn);
 
+
 	bool returns_float = false;
 	if (calls_game_fn) {
 		push_game_fn_call(fn_name, codes_size);
+
 		returns_float = game_fn->return_type == type_f32;
 	} else {
 		struct helper_fn *helper_fn = get_helper_fn(fn_name);
@@ -2033,8 +2035,9 @@ static void compile_helper_fn(struct helper_fn fn) {
 
 static void compile_init_globals_fn(const char *grug_path) {
 	// The "me" global variable is always present
-	// If there are no other global variables, take a shortcut
-	if (global_variables_size == 1) {
+	// If there are no other global variables or global config calls,
+	// take a shortcut
+	if (global_variables_size == 1 && global_config_calls_size == 0) {
 		// The entity ID passed in the rsi register is always the first global
 		compile_unpadded(MOV_RSI_TO_DEREF_RDI);
 
@@ -2061,6 +2064,13 @@ static void compile_init_globals_fn(const char *grug_path) {
 
 	current_grug_path = grug_path;
 	current_fn_name = "init_globals";
+	
+	for (size_t i = 0; i < global_config_calls_size; i++) {
+		struct expr global = global_config_calls[i];
+
+		compile_expr(global);
+	}
+	assert(pushed == 0);
 
 	for (size_t i = 0; i < global_variable_statements_size; i++) {
 		struct global_variable_statement global = global_variable_statements[i];
@@ -2076,6 +2086,12 @@ static void compile_init_globals_fn(const char *grug_path) {
 	overwrite_jmp_address_32(skip_safe_code_offset, codes_size);
 
 	compiling_fast_mode = true;
+	for (size_t i = 0; i < global_config_calls_size; i++) {
+		struct expr global = global_config_calls[i];
+
+		compile_expr(global);
+	}
+
 	for (size_t i = 0; i < global_variable_statements_size; i++) {
 		struct global_variable_statement global = global_variable_statements[i];
 

@@ -194,6 +194,14 @@ static void dump_global_statement(struct global_statement global) {
 	dump("\"type\":\"%s\"", get_global_statement_type_str[global.type]);
 
 	switch (global.type) {
+		case GLOBAL_CONFIG_CALL: {
+			struct expr config_call = *global.global_config_call;
+
+			dump(",\"call\": {");
+			dump_expr(config_call);
+			dump("}")
+			break;
+		}
 		case GLOBAL_VARIABLE: {
 			struct global_variable_statement global_variable = *global.global_variable;
 
