@@ -1,5 +1,5 @@
 // NOTE: DON'T EDIT THIS FILE! IT IS AUTOMATICALLY REGENERATED BASED ON THE FILES IN src/
-// Regenerated on 2025-08-30T00:56:09Z
+// Regenerated on 2025-08-30T17:11:11Z
 
 //// GRUG DOCUMENTATION
 //
@@ -1752,6 +1752,7 @@ static struct statement statements[MAX_STATEMENTS];
 static size_t statements_size;
 
 enum global_statement_type {
+	GLOBAL_CONFIG_CALL,
 	GLOBAL_VARIABLE,
 	GLOBAL_ON_FN,
 	GLOBAL_HELPER_FN,
@@ -1761,6 +1762,7 @@ enum global_statement_type {
 struct global_statement {
 	enum global_statement_type type;
 	union {
+		struct expr *global_config_call;
 		struct global_variable_statement *global_variable;
 		struct on_fn *on_fn;
 		struct helper_fn *helper_fn;
@@ -1773,6 +1775,7 @@ static const char *get_global_statement_type_str[] = {
 	[GLOBAL_HELPER_FN] = "GLOBAL_HELPER_FN",
 	[GLOBAL_EMPTY_LINE] = "GLOBAL_EMPTY_LINE",
 	[GLOBAL_COMMENT] = "GLOBAL_COMMENT",
+	[GLOBAL_CONFIG_CALL] = "GLOBAL_CONFIG_CALL",
 };
 static struct global_statement global_statements[MAX_GLOBAL_STATEMENTS];
 static size_t global_statements_size;
@@ -1815,6 +1818,9 @@ struct global_variable_statement {
 static struct global_variable_statement global_variable_statements[MAX_GLOBAL_VARIABLES];
 static size_t global_variable_statements_size;
 
+static struct expr global_config_calls[MAX_GLOBAL_VARIABLES];
+static size_t global_config_calls_size;
+
 static size_t indentation;
 
 static const char *called_helper_fn_names[MAX_CALLED_HELPER_FN_NAMES];
@@ -1833,6 +1839,7 @@ static void reset_parsing(void) {
 	on_fns_size = 0;
 	helper_fns_size = 0;
 	global_variable_statements_size = 0;
+	global_config_calls_size = 0;
 	called_helper_fn_names_size = 0;
 	memset(buckets_called_helper_fn_names, 0xff, sizeof(buckets_called_helper_fn_names));
 	parsing_depth = 0;
@@ -2389,6 +2396,12 @@ static struct variable_statement parse_local_variable(size_t *i) {
 	return local;
 }
 
+static struct expr *push_global_config_call(struct expr config_call) {
+	grug_assert(global_config_calls_size < MAX_GLOBAL_VARIABLES, "There are more than %d global variables in the grug file, exceeding MAX_GLOBAL_VARIABLES", MAX_GLOBAL_VARIABLES);
+	global_config_calls[global_config_calls_size] = config_call;
+	return global_config_calls + global_config_calls_size++;
+}
+
 static struct global_variable_statement *push_global_variable(struct global_variable_statement global_variable) {
 	grug_assert(global_variable_statements_size < MAX_GLOBAL_VARIABLES, "There are more than %d global variables in the grug file, exceeding MAX_GLOBAL_VARIABLES", MAX_GLOBAL_VARIABLES);
 	global_variable_statements[global_variable_statements_size] = global_variable;
@@ -2698,10 +2711,12 @@ static void parse(void) {
 
 	bool seen_on_fn = false;
 	bool seen_newline = false;
+	bool seen_global = false;
 
 	bool newline_allowed = false;
 	bool newline_required = false;
 
+	bool just_seen_global_config_call = false;
 	bool just_seen_global = false;
 
 	size_t i = 0;
@@ -2721,6 +2736,9 @@ static void parse(void) {
 			newline_required = true;
 
 			just_seen_global = true;
+			seen_global = true;
+
+			just_seen_global_config_call = false;
 
 			struct global_statement global = {
 				.type = GLOBAL_VARIABLE,
@@ -2761,6 +2779,25 @@ static void parse(void) {
 				.type = GLOBAL_HELPER_FN,
 				.helper_fn = push_helper_fn(fn),
 			};
+			push_global_statement(global);
+			consume_token_type(&i, NEWLINE_TOKEN);
+		} else if (type == WORD_TOKEN && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
+			// Note: Keep this after all helper & on function parsing or itll treat those as calls.
+			grug_assert(!seen_global, "Move the global config call '%s' so it is above all global variables", token.str);
+			grug_assert(!seen_on_fn, "Move the global config call '%s' so it is above the on_ functions", token.str);
+			grug_assert(!newline_required || just_seen_global_config_call, "Expected an empty line, on line %zu", get_token_line_number(i));
+
+			just_seen_global_config_call = true;
+			newline_allowed = true;
+			newline_required = true;
+			
+			struct expr call = parse_call(&i);
+			
+			struct global_statement global = {
+				.type = GLOBAL_CONFIG_CALL,
+				.global_config_call = push_global_config_call(call),
+			};
+
 			push_global_statement(global);
 			consume_token_type(&i, NEWLINE_TOKEN);
 		} else if (type == NEWLINE_TOKEN) {
@@ -3002,6 +3039,14 @@ static void dump_global_statement(struct global_statement global) {
 	dump("\"type\":\"%s\"", get_global_statement_type_str[global.type]);
 
 	switch (global.type) {
+		case GLOBAL_CONFIG_CALL: {
+			struct expr config_call = *global.global_config_call;
+
+			dump(",\"call\": {");
+			dump_expr(config_call);
+			dump("}")
+			break;
+		}
 		case GLOBAL_VARIABLE: {
 			struct global_variable_statement global_variable = *global.global_variable;
 
@@ -3890,6 +3935,19 @@ static void apply_on_fn(struct json_field *statement, size_t field_count) {
 	apply("}\n");
 }
 
+static void apply_global_config_call(struct json_field *statement, size_t field_count) {
+	grug_assert(field_count == 2, "input_json_path its GLOBAL_CONFIG_CALLSs are supposed to have exactly 2 fields");
+
+	grug_assert(streq(statement[1].key, "call"), "input_json_path its GLOBAL_CONFIG_CALLs its first field must be \"call\", but got \"%s\"", statement[1].key);
+
+	grug_assert(statement[1].value->type == JSON_NODE_OBJECT, "input_json_path its GLOBAL_CONFIG_CALL its \"name\" must be a string");
+
+	struct json_node assignment = *statement[1].value;
+	apply_expr(assignment);
+
+	apply("\n");
+}
+
 static void apply_global_variable(struct json_field *statement, size_t field_count) {
 	grug_assert(field_count == 4, "input_json_path its GLOBAL_VARIABLEs are supposed to have exactly 4 fields");
 
@@ -3929,6 +3987,8 @@ static enum global_statement_type get_global_statement_type_from_str(const char 
 		return GLOBAL_EMPTY_LINE;
 	} else if (streq(str, "GLOBAL_COMMENT")) {
 		return GLOBAL_COMMENT;
+	} else if (streq(str, "GLOBAL_CONFIG_CALL")) {
+		return GLOBAL_CONFIG_CALL;
 	}
 	grug_error("get_global_statement_type_from_str() was passed the string \"%s\", which isn't a global_statement_type", str);
 }
@@ -3954,6 +4014,9 @@ static void apply_root(struct json_node node) {
 		grug_assert(statement[0].value->type == JSON_NODE_STRING, "input_json_path its array value its \"type\" field must be a string");
 
 		switch (get_global_statement_type_from_str(statement[0].value->string)) {
+			case GLOBAL_CONFIG_CALL:
+				apply_global_config_call(statement, field_count);
+				break;
 			case GLOBAL_VARIABLE:
 				apply_global_variable(statement, field_count);
 				break;
@@ -6046,9 +6109,11 @@ static void compile_call_expr(struct call_expr call_expr) {
 	bool calls_game_fn = game_fn != NULL;
 	assert(calls_helper_fn || calls_game_fn);
 
+
 	bool returns_float = false;
 	if (calls_game_fn) {
 		push_game_fn_call(fn_name, codes_size);
+
 		returns_float = game_fn->return_type == type_f32;
 	} else {
 		struct helper_fn *helper_fn = get_helper_fn(fn_name);
@@ -6925,8 +6990,9 @@ static void compile_helper_fn(struct helper_fn fn) {
 
 static void compile_init_globals_fn(const char *grug_path) {
 	// The "me" global variable is always present
-	// If there are no other global variables, take a shortcut
-	if (global_variables_size == 1) {
+	// If there are no other global variables or global config calls,
+	// take a shortcut
+	if (global_variables_size == 1 && global_config_calls_size == 0) {
 		// The entity ID passed in the rsi register is always the first global
 		compile_unpadded(MOV_RSI_TO_DEREF_RDI);
 
@@ -6953,6 +7019,13 @@ static void compile_init_globals_fn(const char *grug_path) {
 
 	current_grug_path = grug_path;
 	current_fn_name = "init_globals";
+	
+	for (size_t i = 0; i < global_config_calls_size; i++) {
+		struct expr global = global_config_calls[i];
+
+		compile_expr(global);
+	}
+	assert(pushed == 0);
 
 	for (size_t i = 0; i < global_variable_statements_size; i++) {
 		struct global_variable_statement global = global_variable_statements[i];
@@ -6968,6 +7041,12 @@ static void compile_init_globals_fn(const char *grug_path) {
 	overwrite_jmp_address_32(skip_safe_code_offset, codes_size);
 
 	compiling_fast_mode = true;
+	for (size_t i = 0; i < global_config_calls_size; i++) {
+		struct expr global = global_config_calls[i];
+
+		compile_expr(global);
+	}
+
 	for (size_t i = 0; i < global_variable_statements_size; i++) {
 		struct global_variable_statement global = global_variable_statements[i];
 
@@ -7483,7 +7562,7 @@ static void push_game_fn_offset(const char *fn_name, size_t offset) {
 }
 
 static bool has_got(void) {
-	return global_variables_size > 1 || on_fns_size > 0;
+	return global_variables_size > 1 || global_config_calls_size > 0 || on_fns_size > 0;
 }
 
 // Used for both .plt and .rela.plt
@@ -7492,7 +7571,7 @@ static bool has_plt(void) {
 }
 
 static bool has_rela_dyn(void) {
-	return global_variables_size > 1 || on_fns_size > 0 || resources_size > 0 || entity_dependencies_size > 0;
+	return global_variables_size > 1 || global_config_calls_size > 0 || on_fns_size > 0 || resources_size > 0 || entity_dependencies_size > 0;
 }
 
 static void patch_dynamic(void) {

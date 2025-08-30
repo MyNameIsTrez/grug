@@ -455,7 +455,7 @@ static void push_game_fn_offset(const char *fn_name, size_t offset) {
 }
 
 static bool has_got(void) {
-	return global_variables_size > 1 || on_fns_size > 0;
+	return global_variables_size > 1 || global_config_calls_size > 0 || on_fns_size > 0;
 }
 
 // Used for both .plt and .rela.plt
@@ -464,7 +464,7 @@ static bool has_plt(void) {
 }
 
 static bool has_rela_dyn(void) {
-	return global_variables_size > 1 || on_fns_size > 0 || resources_size > 0 || entity_dependencies_size > 0;
+	return global_variables_size > 1 || global_config_calls_size > 0 || on_fns_size > 0 || resources_size > 0 || entity_dependencies_size > 0;
 }
 
 static void patch_dynamic(void) {

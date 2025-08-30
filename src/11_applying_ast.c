@@ -699,6 +699,19 @@ static void apply_on_fn(struct json_field *statement, size_t field_count) {
 	apply("}\n");
 }
 
+static void apply_global_config_call(struct json_field *statement, size_t field_count) {
+	grug_assert(field_count == 2, "input_json_path its GLOBAL_CONFIG_CALLSs are supposed to have exactly 2 fields");
+
+	grug_assert(streq(statement[1].key, "call"), "input_json_path its GLOBAL_CONFIG_CALLs its first field must be \"call\", but got \"%s\"", statement[1].key);
+
+	grug_assert(statement[1].value->type == JSON_NODE_OBJECT, "input_json_path its GLOBAL_CONFIG_CALL its \"name\" must be a string");
+
+	struct json_node assignment = *statement[1].value;
+	apply_expr(assignment);
+
+	apply("\n");
+}
+
 static void apply_global_variable(struct json_field *statement, size_t field_count) {
 	grug_assert(field_count == 4, "input_json_path its GLOBAL_VARIABLEs are supposed to have exactly 4 fields");
 
@@ -738,6 +751,8 @@ static enum global_statement_type get_global_statement_type_from_str(const char 
 		return GLOBAL_EMPTY_LINE;
 	} else if (streq(str, "GLOBAL_COMMENT")) {
 		return GLOBAL_COMMENT;
+	} else if (streq(str, "GLOBAL_CONFIG_CALL")) {
+		return GLOBAL_CONFIG_CALL;
 	}
 	grug_error("get_global_statement_type_from_str() was passed the string \"%s\", which isn't a global_statement_type", str);
 }
@@ -763,6 +778,9 @@ static void apply_root(struct json_node node) {
 		grug_assert(statement[0].value->type == JSON_NODE_STRING, "input_json_path its array value its \"type\" field must be a string");
 
 		switch (get_global_statement_type_from_str(statement[0].value->string)) {
+			case GLOBAL_CONFIG_CALL:
+				apply_global_config_call(statement, field_count);
+				break;
 			case GLOBAL_VARIABLE:
 				apply_global_variable(statement, field_count);
 				break;

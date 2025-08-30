@@ -158,6 +158,7 @@ static struct statement statements[MAX_STATEMENTS];
 static size_t statements_size;
 
 enum global_statement_type {
+	GLOBAL_CONFIG_CALL,
 	GLOBAL_VARIABLE,
 	GLOBAL_ON_FN,
 	GLOBAL_HELPER_FN,
@@ -167,6 +168,7 @@ enum global_statement_type {
 struct global_statement {
 	enum global_statement_type type;
 	union {
+		struct expr *global_config_call;
 		struct global_variable_statement *global_variable;
 		struct on_fn *on_fn;
 		struct helper_fn *helper_fn;
@@ -179,6 +181,7 @@ static const char *get_global_statement_type_str[] = {
 	[GLOBAL_HELPER_FN] = "GLOBAL_HELPER_FN",
 	[GLOBAL_EMPTY_LINE] = "GLOBAL_EMPTY_LINE",
 	[GLOBAL_COMMENT] = "GLOBAL_COMMENT",
+	[GLOBAL_CONFIG_CALL] = "GLOBAL_CONFIG_CALL",
 };
 static struct global_statement global_statements[MAX_GLOBAL_STATEMENTS];
 static size_t global_statements_size;
@@ -221,6 +224,9 @@ struct global_variable_statement {
 static struct global_variable_statement global_variable_statements[MAX_GLOBAL_VARIABLES];
 static size_t global_variable_statements_size;
 
+static struct expr global_config_calls[MAX_GLOBAL_VARIABLES];
+static size_t global_config_calls_size;
+
 static size_t indentation;
 
 static const char *called_helper_fn_names[MAX_CALLED_HELPER_FN_NAMES];
@@ -239,6 +245,7 @@ static void reset_parsing(void) {
 	on_fns_size = 0;
 	helper_fns_size = 0;
 	global_variable_statements_size = 0;
+	global_config_calls_size = 0;
 	called_helper_fn_names_size = 0;
 	memset(buckets_called_helper_fn_names, 0xff, sizeof(buckets_called_helper_fn_names));
 	parsing_depth = 0;
@@ -795,6 +802,12 @@ static struct variable_statement parse_local_variable(size_t *i) {
 	return local;
 }
 
+static struct expr *push_global_config_call(struct expr config_call) {
+	grug_assert(global_config_calls_size < MAX_GLOBAL_VARIABLES, "There are more than %d global variables in the grug file, exceeding MAX_GLOBAL_VARIABLES", MAX_GLOBAL_VARIABLES);
+	global_config_calls[global_config_calls_size] = config_call;
+	return global_config_calls + global_config_calls_size++;
+}
+
 static struct global_variable_statement *push_global_variable(struct global_variable_statement global_variable) {
 	grug_assert(global_variable_statements_size < MAX_GLOBAL_VARIABLES, "There are more than %d global variables in the grug file, exceeding MAX_GLOBAL_VARIABLES", MAX_GLOBAL_VARIABLES);
 	global_variable_statements[global_variable_statements_size] = global_variable;
@@ -1104,10 +1117,12 @@ static void parse(void) {
 
 	bool seen_on_fn = false;
 	bool seen_newline = false;
+	bool seen_global = false;
 
 	bool newline_allowed = false;
 	bool newline_required = false;
 
+	bool just_seen_global_config_call = false;
 	bool just_seen_global = false;
 
 	size_t i = 0;
@@ -1127,6 +1142,9 @@ static void parse(void) {
 			newline_required = true;
 
 			just_seen_global = true;
+			seen_global = true;
+
+			just_seen_global_config_call = false;
 
 			struct global_statement global = {
 				.type = GLOBAL_VARIABLE,
@@ -1167,6 +1185,25 @@ static void parse(void) {
 				.type = GLOBAL_HELPER_FN,
 				.helper_fn = push_helper_fn(fn),
 			};
+			push_global_statement(global);
+			consume_token_type(&i, NEWLINE_TOKEN);
+		} else if (type == WORD_TOKEN && i + 1 < tokens_size && peek_token(i + 1).type == OPEN_PARENTHESIS_TOKEN) {
+			// Note: Keep this after all helper & on function parsing or itll treat those as calls.
+			grug_assert(!seen_global, "Move the global config call '%s' so it is above all global variables", token.str);
+			grug_assert(!seen_on_fn, "Move the global config call '%s' so it is above the on_ functions", token.str);
+			grug_assert(!newline_required || just_seen_global_config_call, "Expected an empty line, on line %zu", get_token_line_number(i));
+
+			just_seen_global_config_call = true;
+			newline_allowed = true;
+			newline_required = true;
+			
+			struct expr call = parse_call(&i);
+			
+			struct global_statement global = {
+				.type = GLOBAL_CONFIG_CALL,
+				.global_config_call = push_global_config_call(call),
+			};
+
 			push_global_statement(global);
 			consume_token_type(&i, NEWLINE_TOKEN);
 		} else if (type == NEWLINE_TOKEN) {
